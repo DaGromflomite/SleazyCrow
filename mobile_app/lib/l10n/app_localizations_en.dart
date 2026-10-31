@@ -1717,7 +1717,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get about => 'About';
 
   @override
-  String get appName => 'EvilCrow RF V2';
+  String get appName => 'Sleazy Crow';
 
   @override
   String get appTagline => 'Sub-GHz RF Security Tool';

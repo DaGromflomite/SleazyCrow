@@ -7,7 +7,7 @@
 
 // Maximum length for BLE device name (NimBLE limit is ~29, keep it safe)
 static constexpr size_t MAX_DEVICE_NAME_LEN = 20;
-static constexpr const char* DEFAULT_DEVICE_NAME = "EvilCrow_RF2";
+static constexpr const char* DEFAULT_DEVICE_NAME = "SleazyCrow";
 static constexpr size_t MAX_BUTTON_SIGNAL_PATH_LEN = 127;
 
 // Persistent device settings stored in /config.txt on LittleFS.
@@ -64,7 +64,7 @@ class ConfigManager
         76,         // nrfChannel
         5,          // nrfAutoRetransmit
         -360,       // cpuTempOffsetDeciC
-        "EvilCrow_RF2"  // deviceName
+        "SleazyCrow"  // deviceName (keep in sync with DEFAULT_DEVICE_NAME)
     };
 
     /// Load settings from /config.txt into the in-memory struct.
@@ -261,7 +261,7 @@ class ConfigManager
             "", "",
             3, 0, 76, 5,
             -200,
-            "EvilCrow_RF2"
+            "SleazyCrow"
         };
         settings = defaults;
         saveSettings();

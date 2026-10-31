@@ -1,4 +1,4 @@
-package com.evilcrowrf.controller
+package com.sleazycrow.app
 
 import io.flutter.embedding.android.FlutterActivity
 

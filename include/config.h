@@ -7,9 +7,15 @@
 // - PATCH: Bug fixes, optimizations
 // The app will compare these values for FW update matching.
 #define FIRMWARE_VERSION_MAJOR 1
-#define FIRMWARE_VERSION_MINOR 1
-#define FIRMWARE_VERSION_PATCH 3
-#define FIRMWARE_VERSION_STRING "1.1.3"
+#define FIRMWARE_VERSION_MINOR 2
+#define FIRMWARE_VERSION_PATCH 0
+#define FIRMWARE_VERSION_STRING "1.2.0-beta"
+
+// Sleazy Crow: community fork of Senape3000's EvilCrowRF-V2 firmware (MIT).
+// Beta builds bump PATCH (1.2.0-beta, 1.2.1-beta, ...) because the app compares the
+// numeric MAJOR.MINOR.PATCH only; the "-beta" label lives in the string/file names.
+#define FIRMWARE_NAME "Sleazy Crow"
+#define FIRMWARE_UPSTREAM "Senape3000/EvilCrowRF-V2"
 
 #define CC1101_NUM_MODULES 2
 

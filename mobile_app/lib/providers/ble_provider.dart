@@ -83,6 +83,7 @@ class BleProvider extends ChangeNotifier {
   // List of supported device names (fallback)
   static const List<String> supportedDeviceNames = [
     'ESP32_CC1101',
+    'SleazyCrow',
     'EvilCrow_RF2',
     'ESP32_Binary',
     'ESP32',
@@ -1212,7 +1213,7 @@ class BleProvider extends ChangeNotifier {
   
   // Getter for saved device
   String? get savedDeviceId => _knownDeviceId;
-  String get savedDeviceName => _knownDeviceId != null ? 'EvilCrow_RF2' : '';
+  String get savedDeviceName => _knownDeviceId != null ? 'SleazyCrow' : '';
 
   // Methods for working with files
   
@@ -3302,7 +3303,7 @@ class BleProvider extends ChangeNotifier {
   bool get hasBatteryInfo => _batteryPercent >= 0;
 
   // --- Device name (received via 0xC7 on connect) ---
-  String _deviceName = 'EvilCrow_RF2';
+  String _deviceName = 'SleazyCrow';
   String get deviceName => _deviceName;
 
   /// Set BLE device name on the device. Takes effect after reboot.
