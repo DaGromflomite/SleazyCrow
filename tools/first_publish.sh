@@ -7,7 +7,7 @@ OWNER=DaGromflomite
 REPO=SleazyCrow
 FULL="$OWNER/$REPO"
 UPSTREAM=Senape3000/EvilCrowRF-V2
-SIGNING_DIR="/c/Users/Timot/SleazyCrow-signing"
+SIGNING_DIR="${SLEAZY_SIGNING_DIR:-$HOME/SleazyCrow-signing}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
