@@ -46,10 +46,12 @@ FW_PREFIX, APK_PREFIX = "sleazycrow-fw-v", "SleazyCrow-v"
 PARTS = [("bootloader.bin", 0x1000), ("partitions.bin", 0x8000),
          ("boot_app0.bin", 0xE000), ("firmware.bin", 0x10000)]
 
-# Branding files the release needs (see branding/README.md)
-BRAND_FILES = {"app-icon-1024.png": (1024, 1024), "app-logo-512.png": (512, 512),
-               "banner-1700x600.png": (1700, 600)}
+# Branding: artwork sources (any size) in branding/source/; `icons` generates the rest.
+EMBLEM_SRC = BRANDING / "source" / "emblem.png"   # square logo on a solid background
+BANNER_SRC = BRANDING / "source" / "banner.png"   # wide banner (about 2.4:1)
 ANDROID_ICON_SIZES = {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}
+# Adaptive icon layers are 108dp; only the centre 66dp is guaranteed visible.
+ADAPTIVE_SIZES = {"mdpi": 108, "hdpi": 162, "xhdpi": 216, "xxhdpi": 324, "xxxhdpi": 432}
 
 VER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)(-beta)?$")
 
@@ -152,15 +154,19 @@ def cmd_check(args) -> list[str]:
             problems.append(f"app update pattern would not find '{sample}'")
 
     if args.release:
-        for name, size in BRAND_FILES.items():
-            path = BRANDING / name
+        from PIL import Image
+        for path, rule in ((EMBLEM_SRC, "square, at least 512px"), (BANNER_SRC, "wide, at least 1200px")):
             if not path.exists():
-                problems.append(f"branding/{name} missing (logo not delivered yet)")
+                problems.append(f"{path.relative_to(ROOT)} missing (artwork not delivered yet)")
                 continue
-            from PIL import Image
             with Image.open(path) as im:
-                if im.size != size:
-                    problems.append(f"branding/{name} is {im.size}, expected {size}")
+                w, h = im.size
+            ok = (w == h and w >= 512) if path == EMBLEM_SRC else (w >= 1200 and 2.0 <= w / h <= 3.5)
+            if not ok:
+                problems.append(f"{path.relative_to(ROOT)} is {w}x{h}; needs to be {rule}")
+        launcher = ROOT / "mobile_app/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml"
+        if not launcher.exists():
+            problems.append("app icons not generated (run: python tools/sleazy.py icons)")
         if (BRANDING / "PLACEHOLDER").exists():
             problems.append("branding/PLACEHOLDER still present: real logos not installed")
 
@@ -174,22 +180,80 @@ def cmd_check(args) -> list[str]:
 
 # ── icons ─────────────────────────────────────────────────────────────────────
 
+def _emblem_layers():
+    """Return (transparent emblem cropped to its content, background RGB)."""
+    from PIL import Image, ImageChops, ImageDraw
+    with Image.open(EMBLEM_SRC) as src:
+        im = src.convert("RGB")
+    bg = im.getpixel((2, 2))
+    # Knock out the solid background by flood-filling from the edges only, so dark
+    # areas inside the artwork (the crow's body) stay opaque.
+    marker = (255, 0, 255)
+    work = im.copy()
+    w, h = work.size
+    for x, y in [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1), (w // 2, 0), (w // 2, h - 1),
+                 (0, h // 2), (w - 1, h // 2)]:
+        if work.getpixel((x, y)) != marker:
+            ImageDraw.floodfill(work, (x, y), marker, thresh=40)
+    mask = ImageChops.difference(work, Image.new("RGB", work.size, marker)).convert("L")
+    alpha = mask.point(lambda v: 255 if v > 0 else 0)
+    rgba = im.convert("RGBA")
+    rgba.putalpha(alpha)
+    return rgba.crop(alpha.getbbox()), bg
+
+
+def _fit(img, canvas_px, fraction, fill):
+    """Centre img scaled to `fraction` of a square canvas filled with `fill`."""
+    from PIL import Image
+    scale = canvas_px * fraction / max(img.size)
+    sized = img.resize((max(1, round(img.width * scale)), max(1, round(img.height * scale))), Image.LANCZOS)
+    canvas = Image.new("RGBA", (canvas_px, canvas_px), fill)
+    canvas.alpha_composite(sized, ((canvas_px - sized.width) // 2, (canvas_px - sized.height) // 2))
+    return canvas
+
+
 def cmd_icons(_args) -> None:
     from PIL import Image
-    src = BRANDING / "app-icon-1024.png"
-    if not src.exists():
-        die("branding/app-icon-1024.png not found")
+    for path in (EMBLEM_SRC, BANNER_SRC):
+        if not path.exists():
+            die(f"{path.relative_to(ROOT)} not found")
+    emblem, bg = _emblem_layers()
     res = ROOT / "mobile_app" / "android" / "app" / "src" / "main" / "res"
-    with Image.open(src) as im:
-        im = im.convert("RGBA")
-        for density, px in ANDROID_ICON_SIZES.items():
-            out = res / f"mipmap-{density}" / "ic_launcher.png"
-            im.resize((px, px), Image.LANCZOS).save(out)
-            print(f"  {out.relative_to(ROOT)} ({px}px)")
-        im.resize((32, 32), Image.LANCZOS).save(FLASHER_SRC / "favicon.png")
-    shutil.copyfile(BRANDING / "banner-1700x600.png", FLASHER_SRC / "banner.png") \
-        if (BRANDING / "banner-1700x600.png").exists() else None
-    print("icons updated")
+    bg_hex = "#{:02X}{:02X}{:02X}".format(*bg)
+
+    # Transparent logo: in-app asset + branding preview
+    logo = _fit(emblem, 512, 0.96, (0, 0, 0, 0))
+    logo.save(BRANDING / "app-logo-512.png")
+    logo.save(ROOT / "mobile_app" / "assets" / "images" / "sleazycrow_logo.png")
+
+    # Legacy launcher icon (older Android): emblem on the art's background colour
+    legacy = _fit(emblem, 1024, 0.84, bg + (255,))
+    legacy.convert("RGB").save(BRANDING / "app-icon-1024.png")
+    for density, px in ANDROID_ICON_SIZES.items():
+        legacy.resize((px, px), Image.LANCZOS).convert("RGB").save(res / f"mipmap-{density}" / "ic_launcher.png")
+
+    # Adaptive icon (Android 8+): background colour + emblem inside the 66dp safe zone
+    for density, px in ADAPTIVE_SIZES.items():
+        _fit(emblem, px, 0.60, (0, 0, 0, 0)).save(res / f"mipmap-{density}" / "ic_launcher_foreground.png")
+    (res / "mipmap-anydpi-v26").mkdir(exist_ok=True)
+    (res / "mipmap-anydpi-v26" / "ic_launcher.xml").write_text(
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
+        '    <background android:drawable="@color/ic_launcher_background"/>\n'
+        '    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>\n'
+        '</adaptive-icon>\n', encoding="utf-8")
+    (res / "values" / "ic_launcher_background.xml").write_text(
+        '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n'
+        f'    <color name="ic_launcher_background">{bg_hex}</color>\n</resources>\n', encoding="utf-8")
+
+    # Web flasher: favicon + banner (banner capped at 1536px wide to keep the page light)
+    _fit(emblem, 64, 0.96, (0, 0, 0, 0)).save(FLASHER_SRC / "favicon.png")
+    with Image.open(BANNER_SRC) as b:
+        b = b.convert("RGB")
+        if b.width > 1536:
+            b = b.resize((1536, round(b.height * 1536 / b.width)), Image.LANCZOS)
+        b.save(FLASHER_SRC / "banner.png", optimize=True)
+    print(f"icons, logo, favicon and banner generated (icon background {bg_hex})")
 
 
 # ── packaging ─────────────────────────────────────────────────────────────────

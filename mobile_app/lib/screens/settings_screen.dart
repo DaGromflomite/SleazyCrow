@@ -2795,6 +2795,7 @@ class _AboutPopupState extends State<_AboutPopup>
       name: 'DaGromflomite',
       role: 'Sleazy Crow fork maintainer',
       githubUrl: 'https://github.com/DaGromflomite/SleazyCrow',
+      avatarAsset: 'assets/images/sleazycrow_logo.png',
       fallbackIcon: Icons.build,
     ),
   ];

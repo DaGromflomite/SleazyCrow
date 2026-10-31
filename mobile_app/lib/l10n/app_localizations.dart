@@ -3017,7 +3017,7 @@ abstract class AppLocalizations {
   /// No description provided for @appName.
   ///
   /// In en, this message translates to:
-  /// **'EvilCrow RF V2'**
+  /// **'Sleazy Crow'**
   String get appName;
 
   /// No description provided for @appTagline.

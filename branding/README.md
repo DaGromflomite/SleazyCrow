@@ -1,15 +1,21 @@
 # Sleazy Crow branding
 
-Drop the finished logos here with **exactly** these names and sizes, then run
-`python tools/sleazy.py icons` and delete `PLACEHOLDER`.
+Artwork sources live in `branding/source/` (any size; generated with ComfyUI):
 
-| File | Size | Notes |
-|---|---|---|
-| `app-icon-1024.png` | 1024×1024 | Phone launcher icon. Square, solid background, keep the design inside the centre ~66% (Android crops to circles / rounded squares). Also used for the web flasher favicon. |
-| `app-logo-512.png` | 512×512 | Transparent background. Logo shown inside the app. |
-| `banner-1700x600.png` | 1700×600 | Top of the README and the web flasher page. |
+| Source | What it should be |
+|---|---|
+| `source/emblem.png` | Square logo on a solid background colour (at least 512px). |
+| `source/banner.png` | Wide banner, about 2.4:1 (at least 1200px wide). |
 
-`python tools/sleazy.py check --release` refuses to build a release while
-`PLACEHOLDER` exists or any file is missing / the wrong size.
+Run `python tools/sleazy.py icons` after changing either one. It generates:
 
+- `app-logo-512.png`: emblem with the background removed (also `mobile_app/assets/images/sleazycrow_logo.png`)
+- `app-icon-1024.png`: launcher icon preview
+- Android launcher icons, legacy and adaptive (`mobile_app/android/app/src/main/res/mipmap-*`), with the icon background taken from the artwork
+- `web-flasher/favicon.png` and `web-flasher/banner.png`
+
+`python tools/sleazy.py check --release` refuses to build a release while `PLACEHOLDER`
+exists, the sources are missing or the wrong shape, or the icons haven't been generated.
+
+The app colour scheme (`mobile_app/lib/theme/app_colors.dart`) is sampled from this artwork.
 Do not use Senape3000's or Joel Serna's logos or artwork for Sleazy Crow branding.
