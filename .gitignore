@@ -17,3 +17,9 @@ SDR/upx
 SDR/sdr_launcher.spec
 # Sleazy Crow release output (tools/sleazy.py package)
 /dist/
+
+# Flutter machine-generated files (contain local paths)
+mobile_app/ios/Flutter/Generated.xcconfig
+mobile_app/ios/Flutter/flutter_export_environment.sh
+mobile_app/ios/Flutter/ephemeral/
+mobile_app/windows/flutter/ephemeral/

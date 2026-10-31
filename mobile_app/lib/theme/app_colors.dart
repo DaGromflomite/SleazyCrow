@@ -1,50 +1,55 @@
 import 'package:flutter/material.dart';
 
-/// Centralized color system — Matrix green dark theme
-/// Palette derived from Logo_App.png (89% pure green, hue 120°)
+/// Centralized color system — Sleazy Crow synthwave dark theme
+/// Palette sampled from the Sleazy Crow artwork (branding/): neon pink, cyan and gold
+/// on a deep purple-black.
 class AppColors {
   // Private constructor to prevent instantiation
   AppColors._();
 
-  // ========== Background (dark with subtle green tint) ==========
-  static const Color primaryBackground = Color(0xFF040804); // Deep black, green tint
-  static const Color secondaryBackground = Color(0xFF081008); // Panels, cards (darker)
-  static const Color surfaceElevated = Color(0xFF0E1A0E); // Elements above cards (darker)
+  // ========== Background (purple-black, from the artwork) ==========
+  static const Color primaryBackground = Color(0xFF07060F); // Deep purple-black
+  static const Color secondaryBackground = Color(0xFF100C1C); // Panels, cards
+  static const Color surfaceElevated = Color(0xFF1A1430); // Elements above cards
 
   // ========== Text ==========
-  static const Color primaryText = Color(0xFFD4EED4); // Soft green-white
-  static const Color secondaryText = Color(0xFF7A9E7A); // Muted green
-  static const Color disabledText = Color(0xFF3E5E3E); // Disabled elements
+  static const Color primaryText = Color(0xFFF3EAF7); // Warm lilac-white
+  static const Color secondaryText = Color(0xFFA897BE); // Muted lavender
+  static const Color disabledText = Color(0xFF5B4D70); // Disabled elements
 
-  // ========== Accent (Matrix green) ==========
-  static const Color primaryAccent = Color(0xFF00E676); // Bright Matrix green
-  static const Color accentHover = Color(0xFF69F0AE); // On hover — lighter
-  static const Color accentPressed = Color(0xFF00C853); // On press — deeper
+  // ========== Accent (neon pink) ==========
+  static const Color primaryAccent = Color(0xFFFF4FA3); // Neon pink
+  static const Color accentHover = Color(0xFFFF80BF); // On hover — lighter
+  static const Color accentPressed = Color(0xFFD0259E); // On press — deeper magenta
+
+  // ========== Secondary accents ==========
+  static const Color cyanAccent = Color(0xFF2EE6D6); // Neon cyan
+  static const Color goldAccent = Color(0xFFFCBC4B); // Gold
 
   // ========== Statuses ==========
-  static const Color success = Color(0xFF00E676); // Ready, success
-  static const Color warning = Color(0xFFFFD600); // Warning, in progress
-  static const Color error = Color(0xFFFF1744); // Error, critical
-  static const Color info = Color(0xFF00E676); // Info (green)
+  static const Color success = Color(0xFF2EE6A8); // Ready, success (teal-green)
+  static const Color warning = Color(0xFFFCBC4B); // Warning, in progress (gold)
+  static const Color error = Color(0xFFFF453A); // Error, critical (red, distinct from pink)
+  static const Color info = Color(0xFF2EE6D6); // Info (cyan)
 
   // ========== RF module specific ==========
-  static const Color recording = Color(0xFFFF1744); // Signal recording (red)
-  static const Color transmitting = Color(0xFF00E676); // Transmitting (green)
-  static const Color jamming = Color(0xFFFFD600); // Jamming (yellow)
-  static const Color idle = Color(0xFF69F0AE); // Ready (light green)
-  static const Color searching = Color(0xFF39FF14); // Frequency scanning (neon green)
+  static const Color recording = Color(0xFFFF453A); // Signal recording (red)
+  static const Color transmitting = Color(0xFFFF4FA3); // Transmitting (neon pink)
+  static const Color jamming = Color(0xFFFCBC4B); // Jamming (gold)
+  static const Color idle = Color(0xFF2EE6D6); // Ready (cyan)
+  static const Color searching = Color(0xFF00F0FF); // Frequency scanning (electric cyan)
 
   // ========== Borders ==========
-  static const Color borderDefault = Color(0xFF1B3A1B);
-  static const Color borderFocus = Color(0xFF00E676);
-  static const Color divider = Color(0xFF1A2A1A);
+  static const Color borderDefault = Color(0xFF2C2244);
+  static const Color borderFocus = Color(0xFFFF4FA3);
+  static const Color divider = Color(0xFF1F1833);
 
   // ========== Logs / Console ==========
-  static const Color logBackground = Color(0xFF020A02);
-  static const Color logText = Color(0xFF00FF41); // Classic Matrix green
-  static const Color logError = Color(0xFFFF1744);
-  static const Color logSystem = Color(0xFF00E676);
-  static const Color logUserInput = Color(0xFFD4EED4);
+  static const Color logBackground = Color(0xFF05040C);
+  static const Color logText = Color(0xFF3DF5E8); // Neon cyan console
+  static const Color logError = Color(0xFFFF453A);
+  static const Color logSystem = Color(0xFFFF4FA3);
+  static const Color logUserInput = Color(0xFFF3EAF7);
 
   // ========== Colors for Material ColorScheme ==========
   

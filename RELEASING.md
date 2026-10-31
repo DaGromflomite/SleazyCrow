@@ -15,7 +15,7 @@ builds, verifies and publishes from a version tag. Nothing is published by build
 ## A. First publish (one time)
 
 Prerequisites:
-- [ ] Logos in `branding/` and `PLACEHOLDER` deleted (see `branding/README.md`), then `python tools/sleazy.py icons`
+- [ ] Artwork in `branding/source/`, `python tools/sleazy.py icons` run, `branding/PLACEHOLDER` deleted (see `branding/README.md`)
 - [ ] App colour scheme updated from the logo (`mobile_app/lib/theme/app_colors.dart`)
 - [ ] APK built locally and tested on a phone (connect, upload, transmit, update check)
 - [ ] `python tools/sleazy.py check --release` passes

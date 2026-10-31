@@ -1,6 +1,6 @@
 # Sleazy Crow
 
-![Sleazy Crow](branding/banner-1700x600.png)
+![Sleazy Crow](branding/source/banner.png)
 
 **Sleazy Crow** is a community fork of [Senape3000's EvilCrowRF-V2](https://github.com/Senape3000/EvilCrowRF-V2)
 firmware and Android app for the [Evil Crow RF V2](https://github.com/joelsernamoreno/EvilCrowRF-V2) hardware.
