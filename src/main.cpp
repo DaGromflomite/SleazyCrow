@@ -764,8 +764,9 @@ void setup()
     ESP_LOGD(TAG, "SerialCmd task created.");
     
     // Initialize BLE adapter instead of WiFi
-    bleAdapter.begin();
+    // Handler must be set before begin() starts advertising, or an early write has no handler
     bleAdapter.setCommandHandler(&commandHandler);  // Set CommandHandler
+    bleAdapter.begin();
     clients.addAdapter(&bleAdapter);
     bleAdapterStarted = true;
     ESP_LOGD(TAG, "BLE adapter initialized and added to clients.");
