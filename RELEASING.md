@@ -19,7 +19,7 @@ Prerequisites:
 - [ ] App colour scheme updated from the logo (`mobile_app/lib/theme/app_colors.dart`)
 - [ ] APK built locally and tested on a phone (connect, upload, transmit, update check)
 - [ ] `python tools/sleazy.py check --release` passes
-- [ ] Signing key folder `C:\Users\Timot\SleazyCrow-signing\` backed up somewhere safe
+- [ ] Signing key folder (`~/SleazyCrow-signing`, outside the repo) backed up somewhere safe
 
 Then run `bash tools/first_publish.sh`. It does the steps below in order and stops on any error:
 1. Forks `Senape3000/EvilCrowRF-V2` as **DaGromflomite/SleazyCrow** (proper GitHub fork, shows "forked from").
