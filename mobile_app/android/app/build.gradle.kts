@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -6,7 +8,7 @@ plugins {
 }
 
 android {
-    namespace = "com.evilcrowrf.controller"
+    namespace = "com.sleazycrow.app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -20,8 +22,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.evilcrowrf.controller"
+        applicationId = "com.sleazycrow.app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -30,11 +31,33 @@ android {
         versionName = flutter.versionName
     }
 
+    // Release signing: one permanent key, so every Sleazy Crow APK can update the last.
+    // Read from android/key.properties (local, never committed) or SLEAZY_* env vars (CI).
+    // Without either, falls back to the debug key (fine for local testing only).
+    val keyProps = Properties().apply {
+        val f = rootProject.file("key.properties")
+        if (f.exists()) f.inputStream().use { load(it) }
+    }
+    fun signingValue(prop: String, env: String): String? =
+        keyProps.getProperty(prop) ?: System.getenv(env)
+    val releaseStoreFile = signingValue("storeFile", "SLEAZY_KEYSTORE_PATH")
+
+    signingConfigs {
+        if (releaseStoreFile != null) {
+            create("release") {
+                storeFile = file(releaseStoreFile)
+                storeType = "pkcs12"
+                storePassword = signingValue("storePassword", "SLEAZY_KEYSTORE_PASSWORD")
+                keyAlias = signingValue("keyAlias", "SLEAZY_KEY_ALIAS")
+                keyPassword = signingValue("keyPassword", "SLEAZY_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (releaseStoreFile != null) signingConfigs.getByName("release")
+                            else signingConfigs.getByName("debug")
         }
     }
 }

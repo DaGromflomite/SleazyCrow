@@ -42,9 +42,9 @@ class AppUpdate {
 /// Service for checking and downloading updates from GitHub Releases.
 ///
 /// **Version detection strategy:**
-/// - Firmware: Looks for assets named `evilcrow-v2-fw-vX.Y.Z-OTA.bin`
+/// - Firmware: Looks for assets named `sleazycrow-fw-vX.Y.Z[-beta]-OTA.bin`
 ///   (ignores `-full.bin` and `-TEST` builds).
-/// - App: Looks for assets named `EvilCrowRF-vX.Y.Z.apk`
+/// - App: Looks for assets named `SleazyCrow-vX.Y.Z[-beta].apk`
 ///   (ignores `-TEST` builds).
 /// - Version is extracted from the **filename**, not the release tag.
 /// - Release tags follow the maintainer's own numbering scheme.
@@ -54,8 +54,8 @@ class UpdateService {
   // ─────────────────────────────────────────────────────────────
   // CONFIGURATION — Set these to your GitHub repository
   // ─────────────────────────────────────────────────────────────
-  static const String githubOwner = 'Senape3000';
-  static const String githubRepo = 'EvilCrowRF-V2';
+  static const String githubOwner = 'DaGromflomite';
+  static const String githubRepo = 'SleazyCrow';
   // ─────────────────────────────────────────────────────────────
 
   static const String _apiBase =
@@ -65,17 +65,17 @@ class UpdateService {
 
   // ── Filename patterns ──────────────────────────────────────
 
-  /// Matches: evilcrow-v2-fw-v1.4.1-OTA.bin (capture version group)
+  /// Matches: sleazycrow-fw-v1.2.0-OTA.bin / sleazycrow-fw-v1.2.0-beta-OTA.bin (capture X.Y.Z)
   /// Ignores: *-TEST-OTA.bin, *-full.bin
   static final RegExp _fwOtaPattern = RegExp(
-    r'evilcrow-v2-fw-v(\d+\.\d+\.\d+)-OTA\.bin$',
+    r'sleazycrow-fw-v(\d+\.\d+\.\d+)(?:-beta)?-OTA\.bin$',
     caseSensitive: false,
   );
 
-  /// Matches: EvilCrowRF-v1.0.0.apk (capture version group)
+  /// Matches: SleazyCrow-v1.2.0.apk / SleazyCrow-v1.2.0-beta.apk (capture X.Y.Z)
   /// Ignores: *-TEST.apk
   static final RegExp _apkPattern = RegExp(
-    r'EvilCrowRF-v(\d+\.\d+\.\d+)\.apk$',
+    r'SleazyCrow-v(\d+\.\d+\.\d+)(?:-beta)?\.apk$',
     caseSensitive: false,
   );
 
@@ -293,7 +293,7 @@ class UpdateService {
       final totalBytes = streamedResponse.contentLength ?? 0;
       // Save APK to public Downloads directory (user-accessible)
       final downloadsDir = await _getDownloadsDirectory();
-      final file = File('${downloadsDir.path}/EvilCrowRF_update.apk');
+      final file = File('${downloadsDir.path}/SleazyCrow_update.apk');
       final sink = file.openWrite();
       int received = 0;
 
@@ -486,7 +486,7 @@ class UpdateService {
   }
 
   /// Find the corresponding .md5 asset for a given binary asset name.
-  /// E.g., for "evilcrow-v2-fw-v1.4.1-OTA.bin" → "...OTA.bin.md5"
+  /// E.g., for "sleazycrow-fw-v1.2.0-beta-OTA.bin" → "...OTA.bin.md5"
   static Map<String, dynamic>? _findMd5Asset(
       List<dynamic> assets, String binName) {
     final md5Name = '$binName.md5';
@@ -501,8 +501,11 @@ class UpdateService {
   /// Compare two semantic version strings (e.g., "1.2.3" vs "1.1.0").
   /// Returns true if [newVersion] is strictly newer than [currentVersion].
   static bool _isNewer(String newVersion, String currentVersion) {
-    final newParts = newVersion.split('.').map(int.tryParse).toList();
-    final curParts = currentVersion.split('.').map(int.tryParse).toList();
+    // Ignore pre-release labels ("1.2.0-beta" -> "1.2.0"); betas bump PATCH instead.
+    List<int?> parts(String v) =>
+        v.split(RegExp(r'[-+]')).first.split('.').map(int.tryParse).toList();
+    final newParts = parts(newVersion);
+    final curParts = parts(currentVersion);
 
     for (int i = 0; i < 3; i++) {
       final n = i < newParts.length ? (newParts[i] ?? 0) : 0;

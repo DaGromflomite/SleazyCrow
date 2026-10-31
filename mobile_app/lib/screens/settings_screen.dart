@@ -2006,7 +2006,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               maxLength: 20,
               style: const TextStyle(color: AppColors.primaryText),
               decoration: InputDecoration(
-                hintText: 'EvilCrow_RF2',
+                hintText: 'SleazyCrow',
                 hintStyle: const TextStyle(color: AppColors.disabledText),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                 enabledBorder: OutlineInputBorder(
@@ -2785,11 +2785,17 @@ class _AboutPopupState extends State<_AboutPopup>
   static const List<DevProfile> _devProfiles = [
     DevProfile(
       name: 'Senape3000',
-      role: 'Creator & Developer',
+      role: 'Original author of the EvilCrowRF-V2 firmware & app (Sleazy Crow is based on it)',
       githubUrl: 'https://github.com/Senape3000',
       donateUrl: 'https://ko-fi.com/senape3000',
       avatarAsset: 'assets/images/Senape3000_LOGO_resize.png',
       fallbackIcon: Icons.code,
+    ),
+    DevProfile(
+      name: 'DaGromflomite',
+      role: 'Sleazy Crow fork maintainer',
+      githubUrl: 'https://github.com/DaGromflomite/SleazyCrow',
+      fallbackIcon: Icons.build,
     ),
   ];
 
@@ -2909,7 +2915,7 @@ class _AboutPopupState extends State<_AboutPopup>
                             ).createShader(bounds);
                           },
                           child: const Text(
-                            'EvilCrow RF V2',
+                            'Sleazy Crow',
                             style: TextStyle(
                               fontSize: 24,
                               fontWeight: FontWeight.bold,

@@ -31,7 +31,7 @@ class MyApp extends StatelessWidget {
       child: Consumer<LocaleProvider>(
         builder: (context, localeProvider, child) {
           return MaterialApp(
-            title: 'EvilCrow RF',
+            title: 'Sleazy Crow',
             theme: _buildDarkTheme(),
             darkTheme: _buildDarkTheme(),
             themeMode: ThemeMode.dark,

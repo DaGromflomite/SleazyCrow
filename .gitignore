@@ -15,3 +15,5 @@ SDR/build
 SDR/dist
 SDR/upx
 SDR/sdr_launcher.spec
+# Sleazy Crow release output (tools/sleazy.py package)
+/dist/

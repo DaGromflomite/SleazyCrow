@@ -1,0 +1,36 @@
+{
+  "firmware": [
+    {
+      "version": "1.2.0",
+      "date": "2026-10-31",
+      "tag": "v1.2.0-beta",
+      "changes": [
+        { "type": "feature", "text": "Sleazy Crow: community fork of Senape3000's EvilCrowRF-V2 firmware (based on v1.1.3). Bluetooth name is now SleazyCrow." },
+        { "type": "fix", "text": "Bluetooth no longer drops ~12 s after connecting on Android: incoming commands run on their own task and stable connection parameters are requested." },
+        { "type": "fix", "text": "No boot crash when built with Arduino core 3.3.x (BLE controller memory was freed before NimBLE started)." },
+        { "type": "fix", "text": "Toolchain and NimBLE pinned so every build is identical (fixes the 'adc_oneshot.h' compile error)." },
+        { "type": "fix", "text": "File uploads: a full queue no longer drops chunks, and missing/out-of-order chunks fail with an error instead of saving a corrupted file." },
+        { "type": "fix", "text": "ProtoPirate decode results show the protocol type name instead of a number." },
+        { "type": "improvement", "text": "Boot log prints the firmware name, version and upstream project." }
+      ]
+    }
+  ],
+  "app": [
+    {
+      "version": "1.2.0",
+      "date": "2026-10-31",
+      "tag": "v1.2.0-beta",
+      "changes": [
+        { "type": "feature", "text": "Sleazy Crow app: installs alongside the official EvilCrow RF app; updates come from the Sleazy Crow releases." },
+        { "type": "feature", "text": "Flipper Sub-GHz DB: pick which sections to copy to the SD card instead of the whole database; brute-force folders are opt-in." },
+        { "type": "feature", "text": "Optional 'format SD card first' and an explainer before the download." },
+        { "type": "fix", "text": "Large RAW .sub files are split into smaller pieces so they upload reliably (playback is identical)." },
+        { "type": "fix", "text": "Uploads no longer report false failures ('Null check operator' race)." },
+        { "type": "improvement", "text": "Uploads about 40x faster; live time-remaining estimate." },
+        { "type": "feature", "text": "Transmit button toggles continuous transmission on/off." },
+        { "type": "feature", "text": "Brute force: US/EU frequency choice and timing (te) override." },
+        { "type": "improvement", "text": "File preview loads only when requested, so opening files is instant." }
+      ]
+    }
+  ]
+}

@@ -1124,7 +1124,7 @@
   "@apkSavedPleaseInstall": { "placeholders": { "path": { "type": "String" } } },
   "checkAppUpdate": "Проверить обновление",
   "about": "О программе",
-  "appName": "EvilCrow RF V2",
+  "appName": "Sleazy Crow",
   "appTagline": "Инструмент RF-безопасности Sub-GHz",
 
   "connectionStatus": "Состояние подключения",

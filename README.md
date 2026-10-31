@@ -1,214 +1,51 @@
-# EvilCrow RF V2
+# Sleazy Crow
 
-  
+![Sleazy Crow](branding/banner-1700x600.png)
 
-![Banner](docs/media/img/Banner_V2.png)
+**Sleazy Crow** is a community fork of [Senape3000's EvilCrowRF-V2](https://github.com/Senape3000/EvilCrowRF-V2)
+firmware and Android app for the [Evil Crow RF V2](https://github.com/joelsernamoreno/EvilCrowRF-V2) hardware.
+It keeps everything the original does and focuses on stability and reliability fixes.
 
-EvilCrow RF V2 is an open-source project providing firmware, tools and a mobile app for sub-GHz radio research, testing and experimentation. The project centers on an ESP32-based controller using CC1101 transceivers and a companion Flutter mobile app for BLE control, plus Python SDR tools and a web-based firmware flasher.
+> ⚠ **Beta, meant for testing.** If it doesn't work on your Evil Crow, go back to
+> [Senape3000's official firmware](https://senape3000.github.io/EvilCrowRF-V2/web-flasher/) and please
+> [report what happened](https://github.com/DaGromflomite/SleazyCrow/issues/new).
 
-  
+## Install
 
-## Quick Links
+- **Firmware:** the web flasher at **https://dagromflomite.github.io/SleazyCrow/** (desktop Chrome, Edge or Opera), or esptool with the files from [Releases](https://github.com/DaGromflomite/SleazyCrow/releases).
+- **App:** `SleazyCrow-vX.Y.Z.apk` from [Releases](https://github.com/DaGromflomite/SleazyCrow/releases). It installs as its own app next to the official EvilCrow RF app. The official app also works with Sleazy Crow firmware (same Bluetooth protocol).
+- **Updates:** the Sleazy Crow app checks this repo's releases for new firmware (OTA over Bluetooth) and app versions.
 
+## What's different from the original
 
-- [⚡WEB FIRMWARE FLASHER](https://senape3000.github.io/EvilCrowRF-V2/web-flasher/)
+See [`changelog.json`](changelog.json) for the full list. Highlights:
 
-- [🖥️APP & FW Release](https://github.com/Senape3000/EvilCrowRF-V2/releases) 
+- Bluetooth no longer drops ~12 s after connecting on Android.
+- No boot crash on newer Arduino cores; toolchain pinned so every build is identical.
+- File uploads can no longer silently save a corrupted file.
+- App: pick which Flipper Sub-GHz DB sections to copy, much faster and more reliable uploads, transmit toggle, brute-force frequency/timing options.
 
-- [❤️DONATE](https://ko-fi.com/senape3000)
+Feature documentation for the device itself is in Senape3000's original README: [`docs/UPSTREAM_README.md`](docs/UPSTREAM_README.md).
 
-  
-
-## Supported Hardware
-
-  
-
-- EvilCrowRF-V2 [[link]](https://it.aliexpress.com/item/1005007868951389.html?gatewayAdapt=glo2ita4itemAdapt)- [[link]](https://labs.ksec.co.uk/product/evil-crow-rf-v2/)
-- Storage: LittleFS (internal) and SD card support (max 32GB) (FAT32 FS)
-
-  
-
-## Key Features
-
-  
-
-- CC1101 driver and dual-module support for sub-GHz operations
-
-- 33+ protocol brute-force engine and De Bruijn attack modes
-
-- Universal Sweep mode (automated multi-frequency scanning)
-
-- Pause / Resume bruter state persisted via LittleFS
-
-- BLE-based binary protocol with chunked transfers and notifications
-
-- OTA over BLE with MD5 verification (app ↔ device workflow)
-
-- Web flasher UI (ESP Web Tools manifest + GitHub releases integration)
-
-- Flutter mobile app: BLE controller, quick actions, OTA checks
-
-- [SDR-like tools and Python utilities (spectrum scan, raw RX, URH bridge)](https://github.com/Senape3000/EvilCrowRF-V2/tree/main/SDR)
-
-- Battery monitoring and status notifications via BLE
-
-  
-
-See `docs/` for detailed guides, attack-method documentation, and developer notes.
-
-  
-
-## Quick Start
-
-  
-
-Requirements: PlatformIO / PIOArduino (for firmware), Flutter (for mobile app), Python 3.8+ (for SDR tools).
-
-  
-
-Build firmware (PlatformIO):
-
-  
-
-```bash
-
-# Clone the repository
-git clone [repository-url]
-cd [repository-name]
-
-# Open the project folder in VSCode with PlatformIO extension installed
-# Wait for PlatformIO to complete the initial setup (dependencies, libraries, etc.)
-
-# Build the firmware
-pio run
-
-# Upload to device
-pio run --target upload
-
-#Or use the PlatformIO GUI in VSCode: click the "Build" button in the upper toolbar, then "Upload" once the build completes successfully.
+## Build
 
 ```
-
-  
-
-Build mobile app (Android):
-
-  
-
-```bash
-
-todo
-
+pio run                                   # firmware -> .pio/build/esp32dev/
+cd mobile_app && flutter build apk --release
+python tools/sleazy.py package --apk mobile_app/build/app/outputs/flutter-apk/app-release.apk
 ```
 
-  
+Releases are built by GitHub Actions from a version tag; see [`RELEASING.md`](RELEASING.md).
 
-Run SDR tools (example):
+## Credits
 
-  
+- **Senape3000**: author of the [EvilCrowRF-V2](https://github.com/Senape3000/EvilCrowRF-V2) firmware and app this fork is based on.
+- **Joel Serna (joelsernamoreno)**: Evil Crow RF V2 hardware design and original firmware.
+- **tutejshy-bit**, **realdaveblanch**, **ProtoPirate**: see the credits in the original project.
+- **DaGromflomite**: Sleazy Crow fork maintainer. The problems were diagnosed and the fixes directed by DaGromflomite; the code was written with AI assistance (Claude).
 
-```bash
+Not affiliated with or endorsed by Senape3000 or Joel Serna.
 
-todo
+## License
 
-```
-
-  
-
-***Web flasher***: open the hosted flasher URL above. The web flasher fetches releases and drives ESP Web Tools for in-browser flashing.
-
-  
-
-## OTA & Releases
-
-  
-
-- Releases follow semantic versioning. Firmware and app releases are published to GitHub releases and referenced by the web flasher.
-
-- Typical assets: `evilcrow-v2-fw-vX.Y.Z.bin`, `evilcrow-v2-fw-vX.Y.Z.bin.md5`, `EvilCrowRF-vX.Y.Z.apk`.
-
-- OTA high-level protocol: device commands include OTA begin, chunked data transfer, end and reboot. The app verifies MD5 before the transfer.
-
- 
-
-## Project Structure
-
-  
-
--  `src/` — firmware C/C++ sources
-
--  `include/` — shared headers and message definitions
-
--  `lib/` — external libraries and drivers (e.g., CC1101 driver)
-
--  `mobile_app/` — Flutter mobile controller (UI + BLE code)
-
--  `web-flasher/` — static web flasher site (index.html, app.js)
-
--  `SDR/` — Python SDR utilities
-
--  `docs/` — documentation, guides, schematics and plans
-
-  
-
-## Development & Contributing
-
-  
-
-- Follow existing coding style and keep changes focused.
-
-- Use PlatformIO for building and flashing firmware; Windows helper scripts are provided (`build_firmware.bat`, `flash_firmware.bat`).
-
-- Mobile contributions: work inside `mobile_app/` (Flutter); see `mobile_app/README.md` for setup.
-
-- Tests & tools: there are Python helpers and test harnesses for the bruter module under `tools/` and `SDR/`.
-  
-
-## Future Work
-
-- Add dictionary attack mode (wordlist-based brute-force)
-
-- Explore rolling-code analysis tooling
-
-- Add multi-frequency protocol variants (Chamberlain/Liftmaster/etc.)
-
-- Enhance DuckyScript parser (REPEAT, DELAY, multi-key combos)
-
-- Complete app localization
-
-- Add De Bruijn support for larger n (14/16) after verifying heap budget
-
-  
-
-## Security & Legal Notice
-
-  
-
-This project is intended for research and authorized testing only. Do not use these tools on systems for which you do not have explicit permission. The maintainers disclaim liability for misuse.
-**By using or downloading this code, you agree to these terms and acknowledge that the authors will not be held liable for any misuse.**
-
-
-  
-
-## Acknowledgements & Contributors
-
-  
-
-Thanks to the many contributors and collaborators — notable maintainers and authors:
-
-- tutejshy-bit — https://github.com/tutejshy-bit
-
-- realdaveblanch — https://github.com/realdaveblanch
-
-- joelsernamoreno — https://github.com/joelsernamoreno/EvilCrowRF-V2
-
-
-
-
-## Contact & Issues
-
-Open an issue on GitHub for bugs, feature requests or support.
-
-  
-
-![Logo](docs/media/img/Senape3000_LOGO.png)
+MIT, see [LICENSE](LICENSE). Original work © 2025–2026 Senape3000; Sleazy Crow modifications © 2026 DaGromflomite.
