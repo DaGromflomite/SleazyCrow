@@ -228,6 +228,8 @@ class BleProvider extends ChangeNotifier {
   // Quick connect to known device
   Future<void> quickConnect() async {
     if (isConnected || isScanning) return;
+    if (!await _ensureBluetoothReady()) return;
+    if (isConnected || isScanning) return; // state may have changed while we waited
     
     try {
       // First try: Connect to known device if we have one
@@ -277,7 +279,7 @@ class BleProvider extends ChangeNotifier {
       }
       
     } catch (e) {
-      statusMessage = 'Connection error: $e';
+      statusMessage = 'Connection error: ${_friendlyBleError(e)}';
       notifyListeners();
     }
   }
@@ -288,9 +290,18 @@ class BleProvider extends ChangeNotifier {
     _loadTempOffsetPref();
   }
 
+  // Completes once the startup permission requests have finished (granted or not).
+  // Scan/connect wait for it, so nothing touches Bluetooth while the permission
+  // dialogs are still on screen (that raced and surfaced FlutterBluePlusException).
+  final Completer<void> _permissionsSettled = Completer<void>();
+
   Future<void> _initializeBle() async {
     // Request permissions
-    await requestPermissions();
+    try {
+      await requestPermissions();
+    } finally {
+      if (!_permissionsSettled.isCompleted) _permissionsSettled.complete();
+    }
     
     // Listen to Bluetooth state changes
     _adapterStateSubscription?.cancel();
@@ -298,6 +309,10 @@ class BleProvider extends ChangeNotifier {
       if (state == BluetoothAdapterState.on) {
         // Don't show "Bluetooth enabled" message
         statusMessage = '';
+      } else if (state == BluetoothAdapterState.unknown ||
+                 state == BluetoothAdapterState.turningOn) {
+        // Transient at startup — not an error, don't flash "Bluetooth disabled"
+        return;
       } else {
         statusMessage = 'Bluetooth disabled';
         isConnected = false;
@@ -305,6 +320,41 @@ class BleProvider extends ChangeNotifier {
       }
       notifyListeners();
     });
+  }
+
+  /// Wait until startup permissions are settled and the Bluetooth adapter is on.
+  /// Returns false (with a readable status message) if Bluetooth can't be used yet.
+  Future<bool> _ensureBluetoothReady() async {
+    await _permissionsSettled.future;
+    if (!await _checkScanPermissions()) {
+      statusMessage = 'Bluetooth scan permissions not granted';
+      notifyListeners();
+      return false;
+    }
+    if (FlutterBluePlus.adapterStateNow != BluetoothAdapterState.on) {
+      try {
+        await FlutterBluePlus.adapterState
+            .where((s) => s == BluetoothAdapterState.on)
+            .first
+            .timeout(const Duration(seconds: 5));
+      } on TimeoutException {
+        statusMessage = 'Bluetooth disabled';
+        notifyListeners();
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /// Human-readable text for Bluetooth plugin errors instead of the raw
+  /// "FlutterBluePlusException | function | code | ..." string.
+  String _friendlyBleError(Object e) {
+    if (e is FlutterBluePlusException) {
+      final what = e.description?.trim();
+      return 'Bluetooth not ready (${e.function}${what != null && what.isNotEmpty ? ': $what' : ''}). '
+          'Wait a moment and try again.';
+    }
+    return e.toString();
   }
   
   Future<void> _loadKnownDevice() async {
@@ -398,12 +448,9 @@ class BleProvider extends ChangeNotifier {
   Future<void> startScan() async {
     if (isScanning) return;
     
-    // Check permissions before scanning
-    if (!await _checkScanPermissions()) {
-      statusMessage = 'Bluetooth scan permissions not granted';
-      notifyListeners();
-      return;
-    }
+    // Wait for startup permissions + adapter ON before scanning
+    if (!await _ensureBluetoothReady()) return;
+    if (isScanning) return; // another tap started a scan while we waited
     
     try {
       isScanning = true;
@@ -446,7 +493,7 @@ class BleProvider extends ChangeNotifier {
       }
       notifyListeners();
     } catch (e) {
-      statusMessage = 'Scan error: $e';
+      statusMessage = 'Scan error: ${_friendlyBleError(e)}';
       notifyListeners();
     }
   }
@@ -501,7 +548,7 @@ class BleProvider extends ChangeNotifier {
       statusMessage = 'Scan stopped';
       notifyListeners();
     } catch (e) {
-      statusMessage = 'Stop scan error: $e';
+      statusMessage = 'Stop scan error: ${_friendlyBleError(e)}';
       notifyListeners();
     }
   }
@@ -643,7 +690,7 @@ class BleProvider extends ChangeNotifier {
       
       notifyListeners();
     } catch (e) {
-      statusMessage = 'Connection error: $e';
+      statusMessage = 'Connection error: ${_friendlyBleError(e)}';
       notifyListeners();
     }
   }
