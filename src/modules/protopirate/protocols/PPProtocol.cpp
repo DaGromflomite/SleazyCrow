@@ -57,6 +57,6 @@ void PPDecodeResult::formatString(char* buf, size_t bufLen) const {
     if (type != 0 && written > 0 && (size_t)written < bufLen) {
         size_t len = strlen(buf);
         snprintf(buf + len, bufLen - len,
-            "\nType:%u KeyIdx:%u", type, keyIndex);
+            "\nType:%s KeyIdx:%u", type, keyIndex);
     }
 }

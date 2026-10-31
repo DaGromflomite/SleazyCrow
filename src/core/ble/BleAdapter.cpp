@@ -17,6 +17,13 @@ const char* BleAdapter::SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const char* BleAdapter::CHARACTERISTIC_UUID_TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 const char* BleAdapter::CHARACTERISTIC_UUID_RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 
+// Tell the Arduino core that BLE is in use. Arduino core 3.3.x releases the BLE controller
+// memory at boot unless its *own* BLE library is linked; NimBLE-Arduino 1.x doesn't
+// register itself, so NimBLEDevice::init() then aborts with
+// esp_bt_controller_init -> ESP_ERR_INVALID_STATE. bleInUse() is a weak hook in 3.3.x
+// (Classic BT memory is still freed); core 3.2.x never releases it and has no such hook.
+extern "C" bool bleInUse(void) { return true; }
+
 BleAdapter* BleAdapter::instance = nullptr;
 SemaphoreHandle_t BleAdapter::sendChunkMutex = nullptr;
 QueueHandle_t BleAdapter::inboundQueue = nullptr;
@@ -716,7 +723,19 @@ bool BleAdapter::handleUploadChunk(uint8_t chunkId, uint8_t chunkNum, uint8_t to
             ESP_LOGE(TAG, "Upload state invalid for chunkId: %d", chunkId);
             return false;
         }
-        
+
+        // Chunks must arrive in order with no gaps; a missing chunk would leave a corrupt
+        // file that still reports success. Abort the upload loudly instead.
+        if (chunkNum != uploadState.receivedChunks + 1) {
+            ESP_LOGE(TAG, "Upload chunk out of sequence for %s: got %d, expected %d",
+                     uploadState.filePath, chunkNum, uploadState.receivedChunks + 1);
+            uploadState.file.close();
+            uploadState.isActive = false;
+            fileUploads.erase(it);
+            notifyError("Upload chunk missing or out of order");
+            return true;  // consumed: don't fall through to the generic command path
+        }
+
         // Write chunk data directly to file (NO memory buffering!)
         size_t bytesWritten = uploadState.file.write(payload, payloadLength);
         if (bytesWritten != payloadLength) {
@@ -827,10 +846,13 @@ void BleAdapter::CharacteristicCallbacks::onWrite(NimBLECharacteristic* pCharact
             if (buf != nullptr) {
                 memcpy(buf, val.data(), len);
                 BleAdapter::InboundMsg msg{ buf, (uint16_t)len };
-                if (xQueueSend(BleAdapter::inboundQueue, &msg, 0) != pdTRUE) {
-                    // Queue full: drop rather than block the host task (keeps the link alive)
+                // Queue full = the worker is behind (e.g. slow SD write). Wait briefly instead of
+                // dropping: this delays the write response, so the phone backs off (flow control).
+                // A silently dropped upload chunk would otherwise corrupt the file on the SD card.
+                if (xQueueSend(BleAdapter::inboundQueue, &msg, pdMS_TO_TICKS(2000)) != pdTRUE) {
                     free(buf);
-                    ESP_LOGW(TAG, "Inbound queue full, dropping %u bytes", static_cast<unsigned>(len));
+                    ESP_LOGE(TAG, "Inbound queue full, dropping %u bytes", static_cast<unsigned>(len));
+                    adapter->notifyError("Inbound queue full, packet dropped");
                 }
             } else {
                 ESP_LOGE(TAG, "malloc failed for inbound %u bytes", static_cast<unsigned>(len));
