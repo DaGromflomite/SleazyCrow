@@ -14,7 +14,6 @@ It keeps everything the original does and focuses on stability and reliability f
 
 - **Firmware:** the web flasher at **https://dagromflomite.github.io/SleazyCrow/** (desktop Chrome, Edge or Opera), or esptool with the files from [Releases](https://github.com/DaGromflomite/SleazyCrow/releases).
 - **App:** `SleazyCrow-vX.Y.Z.apk` from [Releases](https://github.com/DaGromflomite/SleazyCrow/releases). It installs as its own app next to the official EvilCrow RF app. The official app also works with Sleazy Crow firmware (same Bluetooth protocol).
-  - **Known issue:** the app occasionally shows a Flutter error when it's opened. Close the app fully and open it again; it then works normally.
 - **Updates:** the Sleazy Crow app checks this repo's releases for new firmware (OTA over Bluetooth) and app versions.
 
 ## What's different from the original

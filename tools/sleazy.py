@@ -369,7 +369,6 @@ Sleazy Crow is a community fork of [Senape3000's EvilCrowRF-V2](https://github.c
 ## Install
 - **Web flasher (easiest):** https://{REPO_OWNER.lower()}.github.io/{REPO_NAME}/ — desktop Chrome/Edge/Opera.
 - **App:** install `{APK_PREFIX}{fw_str}.apk` on Android. It installs as a separate app ("Sleazy Crow") next to the official one.
-  **Known issue:** the app occasionally shows a Flutter error when it's opened. Close the app fully and open it again; it then works normally.
 - **esptool:** `esptool --chip esp32 erase-flash` then `esptool --chip esp32 --baud 921600 write-flash 0x0 {FW_PREFIX}{fw_str}-full.bin`
 - **OTA from the app:** the app finds `{FW_PREFIX}{fw_str}-OTA.bin` automatically.
 
