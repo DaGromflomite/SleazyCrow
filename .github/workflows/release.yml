@@ -1,0 +1,111 @@
+# Sleazy Crow release pipeline.
+# Push a tag like v1.2.0-beta  ->  firmware + signed APK built, checked, published as a
+# GitHub Release, and the web flasher deployed to GitHub Pages. See RELEASING.md.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write   # create the release
+  pages: write      # deploy the web flasher
+  id-token: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.ref_name }}
+      # Public fingerprint of the Sleazy Crow signing certificate (not a secret).
+      SIGNING_CERT_SHA256: 9ff56c56a8deccadbebd9ce919e49892ad793f5d696955c43df32c5aa15207af
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PlatformIO and Pillow
+        run: pip install platformio==6.2.0 pillow
+
+      - name: Pre-flight checks (versions, changelog, update source, branding)
+        run: python tools/sleazy.py check --tag "$TAG" --release
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ hashFiles('platformio.ini') }}
+
+      - name: Build firmware
+        run: pio run -e esp32dev
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.7
+          cache: true
+
+      - name: Restore signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.SLEAZY_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::SLEAZY_KEYSTORE_B64 secret missing; refusing to publish a debug-signed APK"; exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/sleazycrow-release.p12"
+          echo "SLEAZY_KEYSTORE_PATH=$RUNNER_TEMP/sleazycrow-release.p12" >> "$GITHUB_ENV"
+
+      - name: Build APK
+        working-directory: mobile_app
+        env:
+          SLEAZY_KEYSTORE_PASSWORD: ${{ secrets.SLEAZY_KEYSTORE_PASSWORD }}
+          SLEAZY_KEY_PASSWORD: ${{ secrets.SLEAZY_KEYSTORE_PASSWORD }}
+          SLEAZY_KEY_ALIAS: sleazycrow
+        run: |
+          flutter pub get
+          flutter build apk --release
+
+      - name: Verify APK is signed with the Sleazy Crow key
+        run: |
+          APK=mobile_app/build/app/outputs/flutter-apk/app-release.apk
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$APKSIGNER" verify --print-certs "$APK" | tee certs.txt
+          grep -qi "SHA-256 digest: $SIGNING_CERT_SHA256" certs.txt \
+            || { echo "::error::APK not signed with the Sleazy Crow key"; exit 1; }
+
+      - name: Package release + web flasher
+        run: |
+          python tools/sleazy.py package --apk mobile_app/build/app/outputs/flutter-apk/app-release.apk
+          python tools/sleazy.py notes
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PRE=""; case "$TAG" in *-beta*) PRE="--prerelease";; esac
+          gh release create "$TAG" dist/release/* $PRE \
+            --title "Sleazy Crow $TAG" --notes-file dist/release-notes.md
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/site
+
+  deploy-flasher:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
