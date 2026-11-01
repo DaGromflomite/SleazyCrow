@@ -102,6 +102,31 @@ class DetectionProvider extends ChangeNotifier {
     await prefs.setBool(_prefsConfigured, true);
   }
 
+  /// Strongest detection for a classic-Bluetooth device, which only exposes a
+  /// name (no advert fields). Matches name rules — this is how the card-skimmer
+  /// modules (HC-05/06 etc.) get flagged.
+  Detection? evaluateClassic(String? name) {
+    final db = _db;
+    if (db == null || name == null || name.isEmpty) return null;
+    final lower = name.toLowerCase();
+    Detection? best;
+    for (final c in db.categories) {
+      if (_disabled.contains(c.id)) continue;
+      Grade? g;
+      for (final rule in c.rules) {
+        final t = rule.text;
+        if (t == null) continue;
+        final hit = (rule.type == 'nameContains' && lower.contains(t)) ||
+            (rule.type == 'namePrefix' && lower.startsWith(t));
+        if (hit && (g == null || rule.grade.index < g.index)) g = rule.grade;
+      }
+      if (g != null && (best == null || g.index < best.grade.index)) {
+        best = Detection(c, g);
+      }
+    }
+    return best;
+  }
+
   /// Strongest detection for a BLE device among enabled categories, or null.
   Detection? evaluate(ScanResult r) {
     final db = _db;
