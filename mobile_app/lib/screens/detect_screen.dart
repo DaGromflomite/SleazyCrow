@@ -5,9 +5,21 @@ import 'package:provider/provider.dart';
 import '../providers/ble_provider.dart';
 import '../providers/detection_provider.dart';
 import '../detection/detection_models.dart';
+import '../services/classic_bt.dart';
 import '../theme/app_colors.dart';
 import '../widgets/gradient_widgets.dart';
 import 'hunt_screen.dart';
+
+/// A row in the Detect list — either a BLE advert or a classic-BT device.
+class _Row {
+  final ScanResult? ble;
+  final ClassicBtDevice? classic;
+  final Detection? detection;
+  _Row.ble(this.ble, this.detection) : classic = null;
+  _Row.classic(this.classic, this.detection) : ble = null;
+  bool get isClassic => classic != null;
+  int get rssi => ble?.rssi ?? classic!.rssi;
+}
 
 /// Phase 1 — BLE Scanner (the backbone of the phone-radio detection suite).
 ///
@@ -32,6 +44,11 @@ class _DetectScreenState extends State<DetectScreen> {
   StreamSubscription<bool>? _scanStateSub;
   bool _scanning = false;
   String? _error;
+
+  /// Classic Bluetooth (BR/EDR) devices from native inquiry, keyed by address.
+  final Map<String, ClassicBtDevice> _classic = {};
+  StreamSubscription<ClassicBtDevice?>? _classicSub;
+  bool _classicSupported = false;
 
   @override
   void initState() {
@@ -82,15 +99,36 @@ class _DetectScreenState extends State<DetectScreen> {
         continuousUpdates: true,
         androidScanMode: AndroidScanMode.lowLatency,
       );
+      // Classic Bluetooth inquiry runs alongside BLE (catches skimmer modules
+      // and other BR/EDR gear BLE can't see).
+      _startClassic();
     } catch (e) {
       if (mounted) setState(() => _error = 'Scan error: $e');
     }
+  }
+
+  /// Start classic-BT inquiry and keep it cycling while we're scanning.
+  Future<void> _startClassic() async {
+    _classicSupported = await ClassicBt.isSupported();
+    if (!_classicSupported) return;
+    _classicSub ??= ClassicBt.events().listen((d) {
+      if (!mounted) return;
+      if (d == null) {
+        // one inquiry cycle finished — re-arm while still scanning
+        if (_scanning) ClassicBt.startDiscovery();
+        return;
+      }
+      _classic[d.address] = d;
+      setState(() {});
+    });
+    await ClassicBt.startDiscovery();
   }
 
   Future<void> _stop() async {
     try {
       await FlutterBluePlus.stopScan();
     } catch (_) {/* ignore */}
+    await ClassicBt.stopDiscovery();
   }
 
   Future<void> _toggle() async {
@@ -105,9 +143,11 @@ class _DetectScreenState extends State<DetectScreen> {
   void dispose() {
     _resultsSub?.cancel();
     _scanStateSub?.cancel();
+    _classicSub?.cancel();
     // Stop scanning when leaving the tab so we don't drain the battery or
     // block the Connect tab's Crow scan.
     FlutterBluePlus.stopScan();
+    ClassicBt.stopDiscovery();
     super.dispose();
   }
 
@@ -115,28 +155,27 @@ class _DetectScreenState extends State<DetectScreen> {
   Widget build(BuildContext context) {
     final detector = context.watch<DetectionProvider>();
 
-    // Evaluate each device against the enabled signatures.
-    final list = _devices.values.toList();
-    final detections = <DeviceIdentifier, Detection>{};
-    for (final r in list) {
-      final d = detector.evaluate(r);
-      if (d != null) detections[r.device.remoteId] = d;
-    }
+    // Merge BLE adverts + classic-BT devices, each evaluated against signatures.
+    final rows = <_Row>[
+      for (final r in _devices.values) _Row.ble(r, detector.evaluate(r)),
+      for (final c in _classic.values)
+        _Row.classic(c, detector.evaluateClassic(c.name)),
+    ];
+    final flagged = rows.where((e) => e.detection != null).length;
     // Flagged devices float to the top; then by signal strength.
-    list.sort((a, b) {
-      final da = detections.containsKey(a.device.remoteId);
-      final db = detections.containsKey(b.device.remoteId);
-      if (da != db) return da ? -1 : 1;
+    rows.sort((a, b) {
+      final fa = a.detection != null, fb = b.detection != null;
+      if (fa != fb) return fa ? -1 : 1;
       return b.rssi.compareTo(a.rssi);
     });
 
     return GradientBackground(
       child: Column(
         children: [
-          _buildHeader(list.length, detections.length),
+          _buildHeader(rows.length, flagged),
           if (_error != null) _buildError(_error!),
           Expanded(
-            child: list.isEmpty ? _buildEmpty() : _buildList(list, detections),
+            child: rows.isEmpty ? _buildEmpty() : _buildList(rows),
           ),
         ],
       ),
@@ -322,15 +361,58 @@ class _DetectScreenState extends State<DetectScreen> {
     );
   }
 
-  Widget _buildList(
-      List<ScanResult> results, Map<DeviceIdentifier, Detection> detections) {
+  Widget _buildList(List<_Row> rows) {
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
-      itemCount: results.length,
+      itemCount: rows.length,
       separatorBuilder: (_, __) =>
           const Divider(height: 1, color: AppColors.divider),
-      itemBuilder: (_, i) =>
-          _buildTile(results[i], detections[results[i].device.remoteId]),
+      itemBuilder: (_, i) => rows[i].isClassic
+          ? _buildClassicTile(rows[i].classic!, rows[i].detection)
+          : _buildTile(rows[i].ble!, rows[i].detection),
+    );
+  }
+
+  Widget _buildClassicTile(ClassicBtDevice d, Detection? detection) {
+    final name = (d.name != null && d.name!.isNotEmpty) ? d.name! : '(unknown)';
+    final hasRssi = d.rssi > -127;
+    return ListTile(
+      dense: true,
+      leading: hasRssi
+          ? _signalIcon(d.rssi)
+          : const Icon(Icons.bluetooth,
+              color: AppColors.secondaryText, size: 22),
+      title: Text(
+        name,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+            color: AppColors.primaryText, fontWeight: FontWeight.w500),
+      ),
+      isThreeLine: detection != null,
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${d.address}  ·  Classic BT',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: AppColors.secondaryText, fontSize: 12),
+          ),
+          if (detection != null) ...[
+            const SizedBox(height: 4),
+            _detectionBadge(detection),
+          ],
+        ],
+      ),
+      trailing: Text(
+        hasRssi ? '${d.rssi} dBm' : '—',
+        style: TextStyle(
+          color: hasRssi ? _rssiColor(d.rssi) : AppColors.secondaryText,
+          fontWeight: FontWeight.w600,
+          fontSize: 13,
+        ),
+      ),
     );
   }
 
