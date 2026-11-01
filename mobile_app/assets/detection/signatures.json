@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "updated": "2026-11-01",
   "note": "Sleazy Crow BLE/WiFi detection signatures. Reimplemented from public sources (IEEE OUI registry, Bluetooth SIG assigned numbers, colonelpanichacks/flock-you + axeoff MIT, DeFlock, Apple Find My / iBeacon specs, OpenDroneID/ASTM F3411) — NOT copied from any GPL project. Grades: high = strong match, med = likely, low = weak/ambiguous. Rule types: manufacturer/service/nameContains/namePrefix match BLE now; wifiOui/wifiSsid are stored and match once the WiFi scanner (P4) is live (their prefix goes in 'text', lowercase). The app auto-fetches the latest of this file from the repo and falls back to this bundled copy offline.",
   "categories": [
@@ -112,6 +112,18 @@
       "defaultOn": true,
       "rules": [
         { "type": "nameContains", "text": "flipper", "grade": "high" }
+      ]
+    },
+    {
+      "id": "hacker",
+      "label": "Hacker gear (WiFi Pineapple / Pwnagotchi)",
+      "severity": "tool",
+      "defaultOn": true,
+      "rules": [
+        { "type": "wifiOui", "text": "00:13:37", "grade": "high" },
+        { "type": "wifiSsid", "text": "pineapple", "grade": "med" },
+        { "type": "wifiSsid", "text": "pwnagotchi", "grade": "med" },
+        { "type": "wifiSsid", "text": "pwned", "grade": "low" }
       ]
     },
     {
