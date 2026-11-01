@@ -1,8 +1,35 @@
 {
-  "version": 1,
+  "version": 2,
   "updated": "2026-11-01",
-  "note": "Sleazy Crow BLE detection signatures. Reimplemented from public sources (Apple Find My / iBeacon specs, Bluetooth SIG assigned numbers, published tracker service UUIDs) — not copied from any GPL project. Grades: high = strong match, med = likely, low = weak/ambiguous. The app fetches the latest of this file from the repo and falls back to this bundled copy when offline.",
+  "note": "Sleazy Crow BLE/WiFi detection signatures. Reimplemented from public sources (IEEE OUI registry, Bluetooth SIG assigned numbers, colonelpanichacks/flock-you + axeoff MIT, DeFlock, Apple Find My / iBeacon specs, OpenDroneID/ASTM F3411) — NOT copied from any GPL project. Grades: high = strong match, med = likely, low = weak/ambiguous. Rule types: manufacturer/service/nameContains/namePrefix match BLE now; wifiOui/wifiSsid are stored and match once the WiFi scanner (P4) is live (their prefix goes in 'text', lowercase). The app auto-fetches the latest of this file from the repo and falls back to this bundled copy offline.",
   "categories": [
+    {
+      "id": "flock",
+      "label": "Flock Safety (ALPR camera)",
+      "severity": "surveillance",
+      "defaultOn": true,
+      "rules": [
+        { "type": "wifiOui", "text": "b4:1e:52", "grade": "high" }
+      ]
+    },
+    {
+      "id": "axon",
+      "label": "Axon / Taser body camera",
+      "severity": "surveillance",
+      "defaultOn": true,
+      "rules": [
+        { "type": "manufacturer", "company": 845, "grade": "high" },
+        { "type": "service", "uuid": "fc81", "grade": "high" },
+        { "type": "service", "uuid": "fe6b", "grade": "high" },
+        { "type": "service", "uuid": "fe6c", "grade": "high" },
+        { "type": "nameContains", "text": "bodyworn", "grade": "med" },
+        { "type": "wifiSsid", "text": "ab2-", "grade": "high" },
+        { "type": "wifiSsid", "text": "ab3-", "grade": "high" },
+        { "type": "wifiSsid", "text": "ab4-", "grade": "high" },
+        { "type": "wifiSsid", "text": "axon-", "grade": "high" },
+        { "type": "wifiOui", "text": "00:25:df", "grade": "med" }
+      ]
+    },
     {
       "id": "airtag",
       "label": "Apple Find My (AirTag)",
