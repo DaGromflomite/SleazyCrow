@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "updated": "2026-11-01",
+  "note": "Sleazy Crow BLE detection signatures. Reimplemented from public sources (Apple Find My / iBeacon specs, Bluetooth SIG assigned numbers, published tracker service UUIDs) — not copied from any GPL project. Grades: high = strong match, med = likely, low = weak/ambiguous. The app fetches the latest of this file from the repo and falls back to this bundled copy when offline.",
+  "categories": [
+    {
+      "id": "airtag",
+      "label": "Apple Find My (AirTag)",
+      "severity": "tracker",
+      "defaultOn": true,
+      "rules": [
+        { "type": "manufacturer", "company": 76, "dataPrefix": "12", "grade": "high" }
+      ]
+    },
+    {
+      "id": "tile",
+      "label": "Tile tracker",
+      "severity": "tracker",
+      "defaultOn": true,
+      "rules": [
+        { "type": "service", "uuid": "feed", "grade": "high" },
+        { "type": "service", "uuid": "feec", "grade": "high" },
+        { "type": "service", "uuid": "fd84", "grade": "high" }
+      ]
+    },
+    {
+      "id": "samsung_tag",
+      "label": "Samsung SmartTag",
+      "severity": "tracker",
+      "defaultOn": true,
+      "rules": [
+        { "type": "service", "uuid": "fd5a", "grade": "high" }
+      ]
+    },
+    {
+      "id": "google_tag",
+      "label": "Google Find My Device",
+      "severity": "tracker",
+      "defaultOn": true,
+      "rules": [
+        { "type": "service", "uuid": "feaa", "grade": "med" }
+      ]
+    },
+    {
+      "id": "drone",
+      "label": "Drone (OpenDroneID / Remote ID)",
+      "severity": "drone",
+      "defaultOn": true,
+      "rules": [
+        { "type": "service", "uuid": "fffa", "grade": "high" }
+      ]
+    },
+    {
+      "id": "flipper",
+      "label": "Flipper Zero",
+      "severity": "tool",
+      "defaultOn": true,
+      "rules": [
+        { "type": "nameContains", "text": "flipper", "grade": "high" }
+      ]
+    },
+    {
+      "id": "ibeacon",
+      "label": "iBeacon",
+      "severity": "info",
+      "defaultOn": false,
+      "rules": [
+        { "type": "manufacturer", "company": 76, "dataPrefix": "0215", "grade": "low" }
+      ]
+    }
+  ]
+}
