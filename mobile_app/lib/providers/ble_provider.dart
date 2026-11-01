@@ -322,6 +322,11 @@ class BleProvider extends ChangeNotifier {
     });
   }
 
+  /// Public wrapper so phone-radio detection features (BLE scanner, fox hunt,
+  /// passive alerts) can reuse the exact same proven startup-readiness logic —
+  /// permissions settled + adapter on — without a Crow connected.
+  Future<bool> ensureBluetoothReady() => _ensureBluetoothReady();
+
   /// Wait until startup permissions are settled and the Bluetooth adapter is on.
   /// Returns false (with a readable status message) if Bluetooth can't be used yet.
   Future<bool> _ensureBluetoothReady() async {

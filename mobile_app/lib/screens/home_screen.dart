@@ -15,6 +15,7 @@ import 'files_screen.dart';
 import 'settings_screen.dart';
 import 'record_screen.dart';
 import 'signal_scanner_screen.dart';
+import 'detect_screen.dart';
 import 'subghz_screen.dart';
 import 'nrf_screen.dart';
 
@@ -270,6 +271,43 @@ class _HomeScreenState extends State<HomeScreen> {
 
 class HomeTab extends StatelessWidget {
   const HomeTab({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    // Home is a hub with sub-tabs, filled in as phases land. Connect + Detect
+    // now; Hunt / WiFi / Alerts get added later. The Detect tab uses the phone's
+    // own radios and needs no Crow connected.
+    return DefaultTabController(
+      length: 2,
+      child: Column(
+        children: [
+          const TabBar(
+            labelColor: AppColors.primaryAccent,
+            unselectedLabelColor: AppColors.secondaryText,
+            indicatorColor: AppColors.primaryAccent,
+            tabs: [
+              Tab(icon: Icon(Icons.bluetooth_searching, size: 20), text: 'Connect'),
+              Tab(icon: Icon(Icons.radar, size: 20), text: 'Detect'),
+            ],
+          ),
+          const Expanded(
+            child: TabBarView(
+              children: [
+                _ConnectTab(),
+                DetectScreen(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The Connect sub-tab: Crow connection, and (when connected) the Crow's RF
+/// signal scanner. This is the original Home content, behavior unchanged.
+class _ConnectTab extends StatelessWidget {
+  const _ConnectTab();
 
   @override
   Widget build(BuildContext context) {
