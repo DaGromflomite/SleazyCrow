@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sleazy Crow Flasher</title>
+<meta name="description" content="Web flasher for Sleazy Crow, a community fork of Senape3000's EvilCrowRF-V2 firmware for the Evil Crow RF V2.">
+<link rel="icon" href="favicon.png">
+<meta name="theme-color" content="#07060F">
+<style>
+  /* Sleazy Crow palette, sampled from the artwork (same values as the app's app_colors.dart).
+     Always dark: the brand is a synthwave night scene. */
+  :root {
+    color-scheme: dark;
+    --bg: #07060F; --panel: #100C1C; --panel-2: #1A1430; --text: #F3EAF7; --muted: #A897BE;
+    --line: #2C2244; --pink: #FF4FA3; --pink-press: #D0259E; --cyan: #2EE6D6; --gold: #FCBC4B;
+    --on-accent: #07060F; --code-bg: #05040C;
+    /* ESP Web Tools install dialog */
+    --mdc-theme-primary: #D0259E; --mdc-theme-on-primary: #FFFFFF;
+    --improv-primary-color: #D0259E; --improv-on-primary-color: #FFFFFF;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; color: var(--text); background: var(--bg);
+         background-image: radial-gradient(1200px 500px at 50% -10%, rgba(208, 37, 158, .18), transparent 70%),
+                           linear-gradient(180deg, #07060F 0%, #0B0817 100%);
+         background-attachment: fixed;
+         font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 20px 16px 64px; }
+  .banner { width: 100%; height: auto; border-radius: 14px; margin: 0 0 18px; display: block;
+            border: 1px solid var(--line); box-shadow: 0 0 40px rgba(255, 79, 163, .18); }
+  h1 { font-size: 1.8rem; margin: 0 0 4px; line-height: 1.25; letter-spacing: .5px;
+       text-shadow: 0 0 18px rgba(255, 79, 163, .45); }
+  h1 code { color: var(--cyan); background: none; font-size: .8em; text-shadow: 0 0 12px rgba(46, 230, 214, .5); }
+  h2 { font-size: 1.15rem; margin: 0 0 10px; color: var(--cyan); letter-spacing: .3px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  section { background: linear-gradient(180deg, var(--panel) 0%, #0D0A18 100%);
+            border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin: 0 0 16px; }
+  .warn { background: linear-gradient(180deg, #2A1C08 0%, #1C1306 100%); border-color: var(--gold); color: #FBE3B0; }
+  .warn strong { display: block; font-size: 1.05rem; margin-bottom: 4px; color: var(--gold); }
+  .warn a { color: var(--gold); }
+  ul, ol { padding-left: 1.3rem; margin: 6px 0; }
+  li { margin: 4px 0; }
+  li::marker { color: var(--pink); }
+  code, pre { font-family: ui-monospace, Consolas, monospace; font-size: .88rem; background: var(--code-bg);
+              border-radius: 5px; color: var(--cyan); }
+  code { padding: 1px 5px; }
+  pre { padding: 10px 12px; overflow-x: auto; margin: 8px 0; border: 1px solid var(--line); }
+  a { color: var(--cyan); }
+  a:hover { color: var(--pink); }
+  .btn { display: inline-block; background: var(--pink); color: var(--on-accent); border: 0; border-radius: 10px;
+         padding: 12px 22px; font-size: 1rem; font-weight: 700; text-decoration: none; cursor: pointer;
+         box-shadow: 0 0 22px rgba(255, 79, 163, .45); transition: box-shadow .15s, background .15s; }
+  .btn:hover { color: var(--on-accent); box-shadow: 0 0 32px rgba(255, 79, 163, .7); }
+  .btn:active { background: var(--pink-press); }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 12px; }
+  .muted { color: var(--muted); font-size: .92rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+  td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--gold); font-weight: 600; }
+  td code { word-break: break-all; }
+  .tablewrap { overflow-x: auto; }
+  footer.muted { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 24px; }
+</style>
+</head>
+<body>
+<main>
+  <img class="banner" src="banner.png" alt="Sleazy Crow" onerror="this.remove()">
+  <h1>Sleazy Crow <code>v1.2.0-beta</code></h1>
+  <p class="sub">Community fork of <a href="https://github.com/Senape3000/EvilCrowRF-V2">Senape3000's EvilCrowRF-V2</a> firmware for the Evil Crow RF V2, with Bluetooth stability and reliability fixes.</p>
+
+  <section class="warn">
+    <strong>⚠ BETA: meant for testing.</strong>
+    Sleazy Crow is new and has been run on very few boards so far. Please install it and
+    <b>report back how it went, good or bad</b>. If it doesn't work on your Evil Crow, go back to
+    <a href="https://senape3000.github.io/EvilCrowRF-V2/web-flasher/">Senape3000's official firmware</a>.
+    Flashing with "erase" wipes the device's internal settings. Files on the SD card are not touched.
+  </section>
+
+  <section>
+    <h2>1 · Install the firmware</h2>
+    <ul>
+      <li>Use <b>Chrome, Edge or Opera on a desktop/laptop</b> (Web Serial). Phones and Firefox/Safari can't flash.</li>
+      <li>Use a USB-C <b>data</b> cable, and close anything else using the Crow's serial port.</li>
+      <li>Choose <b>"Erase device"</b> when asked.</li>
+      <li>If connecting fails with "wrong boot mode": some Crows can't be put into flashing mode automatically on <b>Windows</b> (CH340 USB chip). Please report it, and try macOS, Linux or ChromeOS if you can.</li>
+    </ul>
+    <div class="actions">
+      <esp-web-install-button manifest="firmware/manifest.json">
+        <button slot="activate" class="btn">Install Sleazy Crow</button>
+        <span slot="unsupported">Your browser can't flash devices. Use desktop Chrome, Edge or Opera.</span>
+        <span slot="not-allowed">Flashing needs a secure (https) page.</span>
+      </esp-web-install-button>
+    </div>
+  </section>
+
+  <section>
+    <h2>2 · Install the app (Android)</h2>
+    <p>The app controls the Crow over Bluetooth. It installs as its own app ("Sleazy Crow"),
+    next to the official EvilCrow RF app, so you can keep both. (The official app also works with this firmware.)</p>
+    <div class="actions">
+      <a class="btn" href="https://github.com/DaGromflomite/SleazyCrow/releases/download/v1.2.0-beta/SleazyCrow-v1.2.0-beta.apk">Download SleazyCrow-v1.2.0-beta.apk</a>
+    </div>
+    <ol>
+      <li>On your Android phone, tap the download button above to get <code>SleazyCrow-v1.2.0-beta.apk</code>.</li>
+      <li>Open the downloaded file (from the notification or your Files app).</li>
+      <li>If Android warns about installing from this source, tap <b>Settings</b> and allow
+          "Install unknown apps" for your browser or Files app, then go back and install.</li>
+      <li>Open <b>Sleazy Crow</b> and allow the Bluetooth and location permissions when asked.</li>
+    </ol>
+    <p class="muted">All releases and checksums are on the
+    <a href="https://github.com/DaGromflomite/SleazyCrow/releases">Sleazy Crow releases page</a>.</p>
+  </section>
+
+  <section>
+    <h2>3 · Test and report</h2>
+    <ol>
+      <li>Unplug and replug the Crow after flashing.</li>
+      <li>In the app: scan → connect to <code>SleazyCrow</code>.</li>
+      <li>Stay connected <b>10 minutes or more</b>. Note whether it drops and roughly when.</li>
+      <li>Upload a few files to the SD card, then transmit one.</li>
+      <li>Try the features you normally use.</li>
+    </ol>
+    <div class="actions">
+      <a class="btn" id="report" href="https://github.com/DaGromflomite/SleazyCrow/issues/new" target="_blank" rel="noopener">Report results on GitHub</a>
+    </div>
+    <p class="muted">Please also send us, in your report: the chip line from the flasher or esptool log (e.g. <code>ESP32-D0WD-V3 (revision v3.1)</code>), and, if it crashes, the serial output at 115200 baud (it ends with <code>ELF file SHA256</code>). The report button above includes spaces for these.</p>
+  </section>
+
+  <section>
+    <h2>Go back to the official firmware</h2>
+    <p>Any time, open <a href="https://senape3000.github.io/EvilCrowRF-V2/web-flasher/">Senape3000's official EvilCrow RF V2 web flasher</a>, connect, and choose erase. An ESP32 can always be reflashed over USB.</p>
+  </section>
+
+  <section>
+    <h2>Manual flashing (esptool)</h2>
+    <p>Separate parts at their offsets (recommended):</p>
+    <pre>esptool --chip esp32 erase-flash
+esptool --chip esp32 --baud 921600 write-flash 0x1000 bootloader.bin 0x8000 partitions.bin 0xe000 boot_app0.bin 0x10000 firmware.bin</pre>
+    <p>Or the single merged image:</p>
+    <pre>esptool --chip esp32 --baud 921600 write-flash 0x0 sleazycrow-fw-v1.2.0-beta-full.bin</pre>
+    <div class="tablewrap">
+    <table>
+      <tr><th>File</th><th>Offset</th><th>MD5</th></tr>
+      <tr><td><a href="firmware/bootloader.bin">bootloader.bin</a></td><td>0x1000</td><td><code>b846a71832caddd0dd2cd6981a327c43</code></td></tr>
+      <tr><td><a href="firmware/partitions.bin">partitions.bin</a></td><td>0x8000</td><td><code>cbdc2ee2c371ae973f10c7f473ae8387</code></td></tr>
+      <tr><td><a href="firmware/boot_app0.bin">boot_app0.bin</a></td><td>0xe000</td><td><code>e6327541e2dc394ca2c3b3280ac0f39f</code></td></tr>
+      <tr><td><a href="firmware/firmware.bin">firmware.bin</a></td><td>0x10000</td><td><code>70863b0c08deb7b2e34615fa14579f68</code></td></tr>
+      <tr><td><a href="firmware/sleazycrow-fw-v1.2.0-beta-full.bin">sleazycrow-fw-v1.2.0-beta-full.bin</a></td><td>0x0</td><td><code>21a7ec31b6de103f93fd8e97b73640f2</code></td></tr>
+    </table>
+    </div>
+    <p class="muted">Built from <a href="https://github.com/DaGromflomite/SleazyCrow">DaGromflomite/SleazyCrow</a> commit <code>local</code> with PlatformIO (Arduino core 3.2.1 / ESP-IDF 5.4.2, NimBLE-Arduino 1.4.3). DIO 40 MHz, 4 MB. Accepts all ESP32 chip revisions.</p>
+  </section>
+
+  <footer class="muted">
+    Sleazy Crow is based on <a href="https://github.com/Senape3000/EvilCrowRF-V2">EvilCrowRF-V2</a> by Senape3000 (MIT License), for the
+    <a href="https://github.com/joelsernamoreno/EvilCrowRF-V2">Evil Crow RF V2</a> hardware by Joel Serna. Not affiliated with or endorsed by either.
+    Fork maintained by DaGromflomite; problems diagnosed and fixes directed by DaGromflomite, code written with AI assistance (Claude).
+    Flashing uses <a href="https://github.com/esphome/esp-web-tools">ESP Web Tools</a> (Apache-2.0).
+  </footer>
+</main>
+
+<script>
+  // Pre-fill the GitHub issue so testers report the same fields.
+  (function () {
+    var body = [
+      "**Sleazy Crow version:** 1.2.0-beta",
+      "",
+      "**Chip / board revision** (from the flasher or esptool log, if you saw it):",
+      "**Where you bought your Crow:**",
+      "**Computer OS + browser used to flash:**",
+      "**Phone + Android version, app used (Sleazy Crow / official):**",
+      "",
+      "- [ ] Flashing worked",
+      "- [ ] Device booted (app can see `SleazyCrow`)",
+      "- [ ] App connected",
+      "- [ ] Stayed connected 10+ minutes (if not, roughly when did it drop?)",
+      "- [ ] Uploaded files to SD card OK",
+      "- [ ] Transmitted a file OK",
+      "",
+      "**Anything odd / other features tested:**",
+      "",
+      "**Serial log** (only if something failed; 115200 baud):",
+      "```",
+      "",
+      "```"
+    ].join("\n");
+    document.getElementById("report").href = "https://github.com/DaGromflomite/SleazyCrow/issues/new"
+      + "?title=" + encodeURIComponent("[test 1.2.0-beta] ")
+      + "&body=" + encodeURIComponent(body);
+  })();
+</script>
+<script type="module" src="esp-web-tools/install-button.js"></script>
+</body>
+</html>
