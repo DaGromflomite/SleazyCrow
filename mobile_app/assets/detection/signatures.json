@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "updated": "2026-11-01",
   "note": "Sleazy Crow BLE/WiFi detection signatures. Reimplemented from public sources (IEEE OUI registry, Bluetooth SIG assigned numbers, colonelpanichacks/flock-you + axeoff MIT, DeFlock, Apple Find My / iBeacon specs, OpenDroneID/ASTM F3411) — NOT copied from any GPL project. Grades: high = strong match, med = likely, low = weak/ambiguous. Rule types: manufacturer/service/nameContains/namePrefix match BLE now; wifiOui/wifiSsid are stored and match once the WiFi scanner (P4) is live (their prefix goes in 'text', lowercase). The app auto-fetches the latest of this file from the repo and falls back to this bundled copy offline.",
   "categories": [
@@ -28,6 +28,34 @@
         { "type": "wifiSsid", "text": "ab4-", "grade": "high" },
         { "type": "wifiSsid", "text": "axon-", "grade": "high" },
         { "type": "wifiOui", "text": "00:25:df", "grade": "med" }
+      ]
+    },
+    {
+      "id": "ring",
+      "label": "Ring doorbell / camera",
+      "severity": "surveillance",
+      "defaultOn": true,
+      "rules": [
+        { "type": "wifiOui", "text": "ac:9f:c3", "grade": "high" },
+        { "type": "wifiOui", "text": "18:7f:88", "grade": "high" },
+        { "type": "wifiOui", "text": "cc:3b:fb", "grade": "high" },
+        { "type": "wifiOui", "text": "00:b4:63", "grade": "high" }
+      ]
+    },
+    {
+      "id": "camera",
+      "label": "Security camera (generic)",
+      "severity": "surveillance",
+      "defaultOn": true,
+      "rules": [
+        { "type": "wifiOui", "text": "44:19:b6", "grade": "high" },
+        { "type": "wifiOui", "text": "28:57:be", "grade": "high" },
+        { "type": "wifiOui", "text": "00:40:8c", "grade": "high" },
+        { "type": "wifiOui", "text": "e0:a7:00", "grade": "high" },
+        { "type": "wifiOui", "text": "70:1a:d5", "grade": "high" },
+        { "type": "wifiOui", "text": "00:18:85", "grade": "high" },
+        { "type": "wifiOui", "text": "d4:2d:c5", "grade": "high" },
+        { "type": "wifiOui", "text": "2c:aa:8e", "grade": "med" }
       ]
     },
     {
