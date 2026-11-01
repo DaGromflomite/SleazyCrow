@@ -1,157 +1,56 @@
-# Evil Crow RF v2 Mobile Controller
+# Sleazy Crow — mobile app
 
-Mobile application to control the Evil Crow RF v2 device via Bluetooth Low Energy (BLE).
+The Android companion app for **Sleazy Crow**, a community fork of
+[Senape3000's EvilCrowRF-V2](https://github.com/Senape3000/EvilCrowRF-V2) firmware and app
+for the [Evil Crow RF V2](https://github.com/joelsernamoreno/EvilCrowRF-V2) hardware.
+It controls the device over Bluetooth Low Energy (BLE).
+
+It installs as its own app (`com.sleazycrow.app`, "Sleazy Crow"), alongside the official
+EvilCrow RF app. The official app also works with Sleazy Crow firmware (same BLE protocol).
 
 ## Features
 
-- **Device discovery**: Automatically search for the ESP32 device named "EvilCrow_RF2"
-- **BLE connection**: Connect to the device with automatic service discovery
-- **Send commands**: Text input and quick buttons for common commands
-- **Connection status**: Shows current BLE connection state
-- **Cross-platform**: Works on Android and iOS
+- **Device discovery**: finds the device by its BLE service UUID (shows as `SleazyCrow`, and
+  still recognises the stock `EvilCrow_RF2` name so it works before you reflash).
+- **BLE control**: connect, record, transmit, Sub-GHz, ProtoPirate, nRF, brute force, SDR.
+- **Flipper Sub-GHz DB**: pick which sections to copy to the SD card; faster, reliable uploads.
+- **Firmware/app updates**: checks the [Sleazy Crow releases](https://github.com/DaGromflomite/SleazyCrow/releases).
 
-## Install Flutter
+## Build
 
-### Windows
+Prerequisites: Flutter (see the repo's `RELEASING.md` for the pinned version), Android SDK, JDK 17.
 
-1. **Download Flutter SDK**:
-   - Visit [flutter.dev](https://flutter.dev/docs/get-started/install/windows)
-   - Download the Flutter SDK for Windows
-   - Extract to a folder (e.g., `C:\flutter`)
-
-2. **Add Flutter to PATH**:
-   - Open Environment Variables in Windows
-   - Add `C:\flutter\bin` to the PATH variable
-
-3. **Install Android Studio**:
-   - Download [Android Studio](https://developer.android.com/studio)
-   - Install Android SDK
-   - Configure an emulator or connect a physical device
-
-4. **Verify installation**:
-```
-flutter doctor
-```
-
-## Run the app
-
-1. **Change directory to the app**:
 ```
 cd mobile_app
-```
-
-2. **Install dependencies**:
-```
 flutter pub get
+flutter build apk --release
 ```
 
-3. **Run the app**:
-```
-flutter run
-```
-
-## Usage
-
-### Connect to the device
-
-1. **Enable Bluetooth** on your phone
-2. **Tap "Scan for Devices"** to search for devices
-3. **Find "EvilCrow_RF2"** in the list
-4. **Tap "Connect"** to connect
-
-### Send commands
-
-After connecting you can:
-
-- **Type a command manually** in the input field
-- **Use quick buttons**:
-  - `SCAN` - Start scanning RF signals
-  - `RECORD` - Start recording a signal
-  - `PLAY` - Play a recorded signal
-  - `STOP` - Stop the current operation
-
-### Connection status
-
-The app shows:
-- Current BLE connection status
-- Error messages
-- Connection indicator (green/red)
+Release builds are produced by GitHub Actions from a version tag; see
+[`../RELEASING.md`](../RELEASING.md). Signing is read from `android/key.properties`
+(local, never committed) or CI secrets.
 
 ## Project structure
 
 ```
 mobile_app/
 ├── lib/
-│   ├── main.dart              # Main application file
-│   ├── screens/
-│   │   └── home_screen.dart   # Main screen
-│   └── providers/
-│       └── ble_provider.dart  # BLE logic
-├── pubspec.yaml               # Dependencies
-└── README.md                  # This file
+│   ├── main.dart                 # app entry, theme
+│   ├── screens/                  # UI screens
+│   ├── providers/
+│   │   └── ble_provider.dart     # BLE logic
+│   └── services/
+│       └── update_service.dart   # update checks (DaGromflomite/SleazyCrow)
+├── pubspec.yaml
+└── README.md                     # this file
 ```
 
-## Dependencies
+## Credits
 
-- **flutter_blue_plus**: BLE functionality
-- **permission_handler**: Permissions management
-- **provider**: State management
-
-## Permissions
-
-The app requests:
-- Bluetooth
-- Bluetooth Scan
-- Bluetooth Connect
-- Location (required for BLE on Android)
-
-## Compatibility
-
-- **Android**: 5.0+ (API 21+)
-- **iOS**: 12.0+
-- **Flutter**: 3.0.0+
-
-## Troubleshooting
-
-### Device not found
-
-1. Make sure the ESP32 is powered on and advertising BLE
-2. Check that Bluetooth is enabled on your phone
-3. Try restarting the scan
-
-### Connection error
-
-1. Ensure the device is not connected to another app
-2. Make sure the ESP32 is not in deep sleep
-3. Try restarting the ESP32
-
-### App fails to compile
-
-1. Check Flutter version: `flutter --version`
-2. Update dependencies: `flutter pub upgrade`
-3. Clear cache: `flutter clean && flutter pub get`
-
-## Development
-
-### Adding new commands
-
-1. Open `lib/screens/home_screen.dart`
-2. Add a new button to the "Quick Commands" section
-3. Add handling for the command in the ESP32 code
-
-### Changing the UI
-
-1. Open `lib/screens/home_screen.dart`
-2. Modify widgets and styles
-3. Restart the app
-
-### Debugging BLE
-
-1. Use `print()` in `ble_provider.dart`
-2. Check the Flutter console
-3. Use nRF Connect to verify the BLE connection
+Based on Senape3000's EvilCrowRF-V2 app. Evil Crow RF V2 hardware by Joel Serna. See the
+[root README](../README.md) for full credits. Fork maintained by DaGromflomite.
 
 ## License
 
-This project is provided "as-is" for educational purposes.
-
+MIT (see [../LICENSE](../LICENSE)). Original work © 2025–2026 Senape3000; Sleazy Crow
+modifications © 2026 DaGromflomite.

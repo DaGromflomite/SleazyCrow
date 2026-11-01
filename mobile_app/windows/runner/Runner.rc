@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "EvilCrowRF" "\0"
-            VALUE "FileDescription", "evilcrow_rf2_controller" "\0"
+            VALUE "CompanyName", "DaGromflomite" "\0"
+            VALUE "FileDescription", "Sleazy Crow" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "evilcrow_rf2_controller" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2025 EvilCrowRF. All rights reserved." "\0"
-            VALUE "OriginalFilename", "evilcrow_rf2_controller.exe" "\0"
-            VALUE "ProductName", "evilcrow_rf2_controller" "\0"
+            VALUE "InternalName", "sleazycrow" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 DaGromflomite. Based on EvilCrowRF-V2 by Senape3000 (MIT)." "\0"
+            VALUE "OriginalFilename", "sleazycrow.exe" "\0"
+            VALUE "ProductName", "Sleazy Crow" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

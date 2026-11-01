@@ -1,7 +1,7 @@
-# Evil Crow RF v2 Mobile App - Flutter Dependencies Installer
+# Sleazy Crow Mobile App - Flutter Dependencies Installer
 # PowerShell Script
 
-Write-Host "Installing Flutter dependencies for Evil Crow RF v2 Mobile App..." -ForegroundColor Green
+Write-Host "Installing Flutter dependencies for the Sleazy Crow Mobile App..." -ForegroundColor Green
 Write-Host ""
 
 # Check if Flutter is installed
