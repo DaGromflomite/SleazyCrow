@@ -1,6 +1,6 @@
 @echo off
 echo ========================================
-echo    EvilCrow-RF-V2 Mobile App Tester
+echo    Sleazy Crow Mobile App Tester
 echo ========================================
 echo.
 echo Select preview option:

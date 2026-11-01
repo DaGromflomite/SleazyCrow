@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate test .sub files for EvilCrow-RF-V2 ProtoPirate decoder testing.
+Generate test .sub files for Sleazy Crow (EvilCrowRF-V2) ProtoPirate decoder testing.
 
 Creates Flipper-compatible .sub files with known signal patterns that
 can be used to validate the firmware's StreamingSubFileParser and

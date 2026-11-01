@@ -7,7 +7,7 @@ workflows:
       vars:
         XCODE_PROJECT: "ios/Runner.xcworkspace"
         XCODE_SCHEME: "Runner"
-        PACKAGE_NAME: "com.evilcrow.rf2controller"
+        PACKAGE_NAME: "com.sleazycrow.app"
     scripts:
       - name: Set up code signing settings
         script: |

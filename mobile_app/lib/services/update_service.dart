@@ -363,7 +363,7 @@ class UpdateService {
     
     // Fallback: try legacy URL from main branch (for backward compatibility)
     try {
-      const legacyUrl = 'https://raw.githubusercontent.com/$githubOwner/$githubRepo/main/releases/changelog.json';
+      const legacyUrl = 'https://raw.githubusercontent.com/$githubOwner/$githubRepo/main/changelog.json';
       final response = await http.get(
         Uri.parse(legacyUrl),
       ).timeout(_timeout);

@@ -1,6 +1,7 @@
 # Changelog
 
-All notable changes to the EvilCrow RF mobile app are documented here.
+All notable changes to the Sleazy Crow mobile app are documented here.
+Sleazy Crow is a community fork of Senape3000's EvilCrowRF-V2 app.
 
 ---
 

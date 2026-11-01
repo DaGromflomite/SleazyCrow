@@ -334,7 +334,10 @@ def cmd_package(args) -> None:
         for n, o, h in rows)
     commit = os.environ.get("GITHUB_SHA", "")[:7] or "local"
     page = (site / "index.html").read_text(encoding="utf-8")
+    apk_name = f"{APK_PREFIX}{fw_str}.apk"
+    apk_url = f"https://github.com/{REPO_OWNER}/{REPO_NAME}/releases/download/v{fw_str}/{apk_name}"
     for key, val in {"{{VERSION}}": fw_str, "{{FULL_BIN}}": full.name,
+                     "{{APK}}": apk_name, "{{APK_URL}}": apk_url,
                      "{{MD5_ROWS}}": table, "{{COMMIT}}": commit}.items():
         page = page.replace(key, val)
     if "{{" in page:
