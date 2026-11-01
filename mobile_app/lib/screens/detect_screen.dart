@@ -4,6 +4,8 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:provider/provider.dart';
 import '../providers/ble_provider.dart';
 import '../theme/app_colors.dart';
+import '../widgets/gradient_widgets.dart';
+import 'hunt_screen.dart';
 
 /// Phase 1 — BLE Scanner (the backbone of the phone-radio detection suite).
 ///
@@ -112,15 +114,34 @@ class _DetectScreenState extends State<DetectScreen> {
     final sorted = _devices.values.toList()
       ..sort((a, b) => b.rssi.compareTo(a.rssi)); // strongest (closest) first
 
-    return Column(
-      children: [
-        _buildHeader(sorted.length),
-        if (_error != null) _buildError(_error!),
-        Expanded(
-          child: sorted.isEmpty ? _buildEmpty() : _buildList(sorted),
-        ),
-      ],
+    return GradientBackground(
+      child: Column(
+        children: [
+          _buildHeader(sorted.length),
+          if (_error != null) _buildError(_error!),
+          Expanded(
+            child: sorted.isEmpty ? _buildEmpty() : _buildList(sorted),
+          ),
+        ],
+      ),
     );
+  }
+
+  /// Open the fox hunt for a tapped device, then resume the list scan on return.
+  Future<void> _huntDevice(ScanResult r) async {
+    final name = r.device.platformName.isNotEmpty
+        ? r.device.platformName
+        : (r.advertisementData.advName.isNotEmpty
+            ? r.advertisementData.advName
+            : r.device.remoteId.str);
+    await _stop(); // only one scan at a time; hand the radio to the hunt
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => HuntScreen(targetId: r.device.remoteId, targetName: name),
+      ),
+    );
+    if (mounted) _start(); // back on the list — resume scanning
   }
 
   // ---- UI pieces -----------------------------------------------------------
@@ -143,16 +164,11 @@ class _DetectScreenState extends State<DetectScreen> {
               ),
             ),
           ),
-          FilledButton.icon(
+          GradientButton(
             onPressed: _toggle,
-            icon: Icon(_scanning ? Icons.stop : Icons.play_arrow, size: 18),
-            label: Text(_scanning ? 'Stop' : 'Scan'),
-            style: FilledButton.styleFrom(
-              backgroundColor:
-                  _scanning ? AppColors.accentPressed : AppColors.primaryAccent,
-              foregroundColor: AppColors.primaryBackground,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            ),
+            icon: _scanning ? Icons.stop : Icons.play_arrow,
+            label: _scanning ? 'Stop' : 'Scan',
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
           ),
         ],
       ),
@@ -224,6 +240,7 @@ class _DetectScreenState extends State<DetectScreen> {
 
     return ListTile(
       dense: true,
+      onTap: () => _huntDevice(r),
       leading: _signalIcon(r.rssi),
       title: Text(
         name,
@@ -238,13 +255,21 @@ class _DetectScreenState extends State<DetectScreen> {
         overflow: TextOverflow.ellipsis,
         style: const TextStyle(color: AppColors.secondaryText, fontSize: 12),
       ),
-      trailing: Text(
-        '${r.rssi} dBm',
-        style: TextStyle(
-          color: _rssiColor(r.rssi),
-          fontWeight: FontWeight.w600,
-          fontSize: 13,
-        ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '${r.rssi} dBm',
+            style: TextStyle(
+              color: _rssiColor(r.rssi),
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(width: 6),
+          const Icon(Icons.my_location,
+              size: 16, color: AppColors.cyberPurple),
+        ],
       ),
     );
   }

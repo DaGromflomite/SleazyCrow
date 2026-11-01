@@ -26,6 +26,32 @@ class AppColors {
   static const Color cyanAccent = Color(0xFF2EE6D6); // Neon cyan
   static const Color goldAccent = Color(0xFFFCBC4B); // Gold
 
+  // ========== Cyberpunk gradient (neon pink -> neon purple) ==========
+  static const Color cyberPink = Color(0xFFFF4FA3); // Neon pink (= primaryAccent)
+  static const Color cyberPurple = Color(0xFFB026FF); // Neon purple
+  static const Color cyberPurpleDeep = Color(0xFF6A14B5); // Deep violet
+
+  /// Main pink -> purple accent gradient (buttons, meters, active chrome).
+  static const LinearGradient cyberGradient = LinearGradient(
+    colors: [cyberPink, cyberPurple],
+    begin: Alignment.centerLeft,
+    end: Alignment.centerRight,
+  );
+
+  /// Diagonal variant for larger fills.
+  static const LinearGradient cyberGradientDiagonal = LinearGradient(
+    colors: [cyberPink, cyberPurple],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  /// Subtle page backdrop: deep purple glow fading into the near-black base.
+  static const LinearGradient backgroundGradient = LinearGradient(
+    colors: [Color(0xFF17082B), primaryBackground],
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+  );
+
   // ========== Statuses ==========
   static const Color success = Color(0xFF2EE6A8); // Ready, success (teal-green)
   static const Color warning = Color(0xFFFCBC4B); // Warning, in progress (gold)
