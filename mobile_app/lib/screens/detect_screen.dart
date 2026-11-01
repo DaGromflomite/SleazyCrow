@@ -502,10 +502,15 @@ class _DetectScreenState extends State<DetectScreen> {
         children: [
           Icon(Icons.warning_amber_rounded, size: 13, color: color),
           const SizedBox(width: 4),
-          Text(
-            '${d.category.label} · ${d.grade.label}',
-            style: TextStyle(
-                color: color, fontSize: 11, fontWeight: FontWeight.w700),
+          Flexible(
+            child: Text(
+              '${d.category.label} · ${d.grade.label}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              softWrap: false,
+              style: TextStyle(
+                  color: color, fontSize: 11, fontWeight: FontWeight.w700),
+            ),
           ),
         ],
       ),
