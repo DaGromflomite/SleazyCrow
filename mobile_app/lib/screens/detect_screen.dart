@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:provider/provider.dart';
 import '../providers/ble_provider.dart';
+import '../providers/detection_provider.dart';
+import '../detection/detection_models.dart';
 import '../theme/app_colors.dart';
 import '../widgets/gradient_widgets.dart';
 import 'hunt_screen.dart';
@@ -111,16 +113,30 @@ class _DetectScreenState extends State<DetectScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final sorted = _devices.values.toList()
-      ..sort((a, b) => b.rssi.compareTo(a.rssi)); // strongest (closest) first
+    final detector = context.watch<DetectionProvider>();
+
+    // Evaluate each device against the enabled signatures.
+    final list = _devices.values.toList();
+    final detections = <DeviceIdentifier, Detection>{};
+    for (final r in list) {
+      final d = detector.evaluate(r);
+      if (d != null) detections[r.device.remoteId] = d;
+    }
+    // Flagged devices float to the top; then by signal strength.
+    list.sort((a, b) {
+      final da = detections.containsKey(a.device.remoteId);
+      final db = detections.containsKey(b.device.remoteId);
+      if (da != db) return da ? -1 : 1;
+      return b.rssi.compareTo(a.rssi);
+    });
 
     return GradientBackground(
       child: Column(
         children: [
-          _buildHeader(sorted.length),
+          _buildHeader(list.length, detections.length),
           if (_error != null) _buildError(_error!),
           Expanded(
-            child: sorted.isEmpty ? _buildEmpty() : _buildList(sorted),
+            child: list.isEmpty ? _buildEmpty() : _buildList(list, detections),
           ),
         ],
       ),
@@ -146,9 +162,9 @@ class _DetectScreenState extends State<DetectScreen> {
 
   // ---- UI pieces -----------------------------------------------------------
 
-  Widget _buildHeader(int count) {
+  Widget _buildHeader(int count, int flagged) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+      padding: const EdgeInsets.fromLTRB(12, 10, 4, 6),
       child: Row(
         children: [
           Icon(Icons.radar,
@@ -156,13 +172,33 @@ class _DetectScreenState extends State<DetectScreen> {
               color: _scanning ? AppColors.cyanAccent : AppColors.secondaryText),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              _scanning ? 'Scanning · $count nearby' : '$count found',
-              style: const TextStyle(
-                color: AppColors.primaryText,
-                fontWeight: FontWeight.w600,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _scanning ? 'Scanning · $count nearby' : '$count found',
+                  style: const TextStyle(
+                    color: AppColors.primaryText,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (flagged > 0)
+                  Text(
+                    '$flagged flagged',
+                    style: const TextStyle(
+                      color: AppColors.error,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+              ],
             ),
+          ),
+          IconButton(
+            tooltip: 'Detection filters',
+            onPressed: _openFilters,
+            icon: const Icon(Icons.tune, color: AppColors.secondaryText),
           ),
           GradientButton(
             onPressed: _toggle,
@@ -172,6 +208,72 @@ class _DetectScreenState extends State<DetectScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  /// Bottom sheet of per-category toggles (what to flag). iBeacon starts off.
+  void _openFilters() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.secondaryBackground,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return Consumer<DetectionProvider>(
+          builder: (ctx, detector, _) {
+            final cats = detector.categories;
+            return SafeArea(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(20, 4, 20, 8),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'What to flag',
+                        style: TextStyle(
+                          color: AppColors.primaryText,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (cats.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(20),
+                      child: Text('Loading signatures…',
+                          style: TextStyle(color: AppColors.secondaryText)),
+                    ),
+                  Flexible(
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        for (final c in cats)
+                          SwitchListTile(
+                            dense: true,
+                            activeThumbColor: AppColors.cyberPink,
+                            title: Text(c.label,
+                                style: const TextStyle(
+                                    color: AppColors.primaryText)),
+                            subtitle: Text(c.severity,
+                                style: const TextStyle(
+                                    color: AppColors.secondaryText,
+                                    fontSize: 12)),
+                            value: detector.isEnabled(c.id),
+                            onChanged: (v) => detector.setEnabled(c.id, v),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -220,17 +322,19 @@ class _DetectScreenState extends State<DetectScreen> {
     );
   }
 
-  Widget _buildList(List<ScanResult> results) {
+  Widget _buildList(
+      List<ScanResult> results, Map<DeviceIdentifier, Detection> detections) {
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
       itemCount: results.length,
       separatorBuilder: (_, __) =>
           const Divider(height: 1, color: AppColors.divider),
-      itemBuilder: (_, i) => _buildTile(results[i]),
+      itemBuilder: (_, i) =>
+          _buildTile(results[i], detections[results[i].device.remoteId]),
     );
   }
 
-  Widget _buildTile(ScanResult r) {
+  Widget _buildTile(ScanResult r, Detection? detection) {
     final name = r.device.platformName.isNotEmpty
         ? r.device.platformName
         : (r.advertisementData.advName.isNotEmpty
@@ -249,11 +353,21 @@ class _DetectScreenState extends State<DetectScreen> {
         style: const TextStyle(
             color: AppColors.primaryText, fontWeight: FontWeight.w500),
       ),
-      subtitle: Text(
-        '${r.device.remoteId.str}${mfr != null ? '  ·  $mfr' : ''}',
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(color: AppColors.secondaryText, fontSize: 12),
+      isThreeLine: detection != null,
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${r.device.remoteId.str}${mfr != null ? '  ·  $mfr' : ''}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: AppColors.secondaryText, fontSize: 12),
+          ),
+          if (detection != null) ...[
+            const SizedBox(height: 4),
+            _detectionBadge(detection),
+          ],
+        ],
       ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
@@ -291,6 +405,36 @@ class _DetectScreenState extends State<DetectScreen> {
     final label = known[id];
     return label ?? 'Mfr 0x${id.toRadixString(16).padLeft(4, '0').toUpperCase()}';
   }
+
+  Widget _detectionBadge(Detection d) {
+    final color = _gradeColor(d.grade);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.warning_amber_rounded, size: 13, color: color),
+          const SizedBox(width: 4),
+          Text(
+            '${d.category.label} · ${d.grade.label}',
+            style: TextStyle(
+                color: color, fontSize: 11, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _gradeColor(Grade g) => switch (g) {
+        Grade.high => AppColors.error,
+        Grade.med => AppColors.goldAccent,
+        Grade.low => AppColors.secondaryText,
+      };
 
   Color _rssiColor(int rssi) {
     if (rssi >= -60) return AppColors.success; // very close
