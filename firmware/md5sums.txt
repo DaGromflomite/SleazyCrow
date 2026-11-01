@@ -1,0 +1,5 @@
+b846a71832caddd0dd2cd6981a327c43  bootloader.bin
+cbdc2ee2c371ae973f10c7f473ae8387  partitions.bin
+e6327541e2dc394ca2c3b3280ac0f39f  boot_app0.bin
+70863b0c08deb7b2e34615fa14579f68  firmware.bin
+21a7ec31b6de103f93fd8e97b73640f2  sleazycrow-fw-v1.2.0-beta-full.bin
