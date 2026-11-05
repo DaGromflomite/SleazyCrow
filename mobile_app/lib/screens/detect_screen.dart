@@ -296,7 +296,7 @@ class _DetectScreenState extends State<DetectScreen> {
                             title: Text(c.label,
                                 style: const TextStyle(
                                     color: AppColors.primaryText)),
-                            subtitle: Text(c.severity,
+                            subtitle: Text(_severityLabel(c.severity),
                                 style: const TextStyle(
                                     color: AppColors.secondaryText,
                                     fontSize: 12)),
@@ -521,6 +521,18 @@ class _DetectScreenState extends State<DetectScreen> {
         Grade.high => AppColors.error,
         Grade.med => AppColors.goldAccent,
         Grade.low => AppColors.secondaryText,
+      };
+
+  /// Friendly, human-readable label for a category's severity group, shown as
+  /// the subtitle in the "What to flag" sheet instead of the raw keyword.
+  static String _severityLabel(String severity) => switch (severity) {
+        'surveillance' => 'Surveillance',
+        'tracker' => 'Item tracker',
+        'tool' => 'Hacker tool',
+        'skimmer' => 'Card skimmer',
+        'drone' => 'Drone / Remote ID',
+        'info' => 'Other',
+        _ => severity,
       };
 
   Color _rssiColor(int rssi) {
