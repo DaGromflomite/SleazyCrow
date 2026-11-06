@@ -512,18 +512,28 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
               Expanded(
                 child: pl.items.isEmpty
                     ? _emptyItems()
-                    : ReorderableListView.builder(
-                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                        itemCount: pl.items.length,
-                        onReorder: (oldI, newI) async {
-                          setState(() {
-                            if (newI > oldI) newI -= 1;
-                            final it = pl.items.removeAt(oldI);
-                            pl.items.insert(newI, it);
-                          });
-                          await _save();
-                        },
-                        itemBuilder: (c, i) => _itemTile(ble, i, playing),
+                    : Stack(
+                        children: [
+                          const Positioned.fill(
+                            child: Center(
+                              child:
+                                  LogoWatermark(size: 300, opacity: 0.045),
+                            ),
+                          ),
+                          ReorderableListView.builder(
+                            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                            itemCount: pl.items.length,
+                            onReorder: (oldI, newI) async {
+                              setState(() {
+                                if (newI > oldI) newI -= 1;
+                                final it = pl.items.removeAt(oldI);
+                                pl.items.insert(newI, it);
+                              });
+                              await _save();
+                            },
+                            itemBuilder: (c, i) => _itemTile(ble, i, playing),
+                          ),
+                        ],
                       ),
               ),
               _controls(ble, playing),

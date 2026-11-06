@@ -102,9 +102,10 @@ reachable straight from Sub-GHz without going to the Files tab.
 ## 4. Design / theming
 
 - Cyberpunk **pink→purple** gradient identity on the new Detect/Hunt/Playlist screens.
-- **Logo watermark:** empty areas (empty playlist library, empty playlist editor, etc.) show a very subtle,
-  desaturated Sleazy Crow emblem behind the text instead of a flat black wall.
-  Files: `lib/widgets/logo_watermark.dart`.
+- **Logo watermark:** blank areas show a very subtle, desaturated Sleazy Crow emblem instead of a flat
+  black wall — on the empty playlist library, the empty playlist editor, the Detect "no devices" screen,
+  and faintly behind a short playlist's list. Reusable `LogoWatermark` / `LogoEmptyState` widgets.
+  Files: `lib/widgets/logo_watermark.dart`, `lib/screens/detect_screen.dart`, `lib/screens/playlist_screen.dart`.
 
 ---
 

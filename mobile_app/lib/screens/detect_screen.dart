@@ -8,6 +8,7 @@ import '../detection/detection_models.dart';
 import '../services/classic_bt.dart';
 import '../theme/app_colors.dart';
 import '../widgets/gradient_widgets.dart';
+import '../widgets/logo_watermark.dart';
 import 'hunt_screen.dart';
 
 /// A row in the Detect list — either a BLE advert or a classic-BT device.
@@ -326,20 +327,27 @@ class _DetectScreenState extends State<DetectScreen> {
 
   Widget _buildEmpty() {
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      child: Stack(
+        alignment: Alignment.center,
         children: [
-          Icon(Icons.bluetooth_searching,
-              size: 48, color: AppColors.secondaryText.withValues(alpha: 0.5)),
-          const SizedBox(height: 12),
-          Text(
-            _scanning ? 'Listening for nearby devices…' : 'No devices yet',
-            style: const TextStyle(color: AppColors.secondaryText),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'Works with no Crow attached.',
-            style: TextStyle(color: AppColors.disabledText, fontSize: 12),
+          const LogoWatermark(size: 300, opacity: 0.06),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.bluetooth_searching,
+                  size: 44,
+                  color: AppColors.secondaryText.withValues(alpha: 0.5)),
+              const SizedBox(height: 12),
+              Text(
+                _scanning ? 'Listening for nearby devices…' : 'No devices yet',
+                style: const TextStyle(color: AppColors.secondaryText),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Works with no Crow attached.',
+                style: TextStyle(color: AppColors.disabledText, fontSize: 12),
+              ),
+            ],
           ),
         ],
       ),
