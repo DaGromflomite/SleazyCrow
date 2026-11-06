@@ -3806,6 +3806,9 @@ class BleProvider extends ChangeNotifier {
   /// Whether the file list response has been received (to distinguish loading vs empty)
   bool _ppFileListReceived = false;
   bool get ppFileListReceived => _ppFileListReceived;
+  // Fallback so the ProtoPirate file browser never spins forever if the
+  // firmware doesn't answer the list command (the "menu freeze").
+  Timer? _ppFileListTimeout;
 
   /// Last save result path
   String _ppLastSavePath = '';
@@ -3898,8 +3901,22 @@ class BleProvider extends ChangeNotifier {
     _log('command', 'PP ListSubFiles: $path');
     _ppFileList = [];
     _ppFileListReceived = false;
+    _startPpFileListTimeout();
     final cmd = FirmwareBinaryProtocol.createPPListSubFilesCommand(path);
     await sendBinaryCommand(cmd);
+  }
+
+  /// If no file-list response arrives in time, unblock the UI (shows "no
+  /// files") instead of a spinner that never resolves.
+  void _startPpFileListTimeout() {
+    _ppFileListTimeout?.cancel();
+    _ppFileListTimeout = Timer(const Duration(seconds: 8), () {
+      if (!_ppFileListReceived) {
+        _log('warning', 'PP file list timed out — no response from firmware');
+        _ppFileListReceived = true;
+        notifyListeners();
+      }
+    });
   }
 
   /// List saved ProtoPirate captures (/DATA/PROTOPIRATE/)
@@ -3910,6 +3927,7 @@ class BleProvider extends ChangeNotifier {
     _log('command', 'PP ListSaved');
     _ppFileList = [];
     _ppFileListReceived = false;
+    _startPpFileListTimeout();
     final cmd = FirmwareBinaryProtocol.createPPListSavedCommand();
     await sendBinaryCommand(cmd);
   }
@@ -4005,6 +4023,7 @@ class BleProvider extends ChangeNotifier {
 
   /// Handle file list notification (0xB9) — SD card file browser results
   void _handlePPFileList(Map<String, dynamic> data) {
+    _ppFileListTimeout?.cancel();
     final files = data['files'] as List<dynamic>? ?? [];
     _ppFileList = files.cast<Map<String, dynamic>>();
     _ppFileListReceived = true;
