@@ -158,60 +158,11 @@ class _HomeScreenState extends State<HomeScreen> {
         type: BottomNavigationBarType.fixed,
         currentIndex: _currentIndex,
         onTap: (index) {
-          final bleProvider = Provider.of<BleProvider>(context, listen: false);
-          
-          // Allow Home (index 0) and Settings (index 4) without connection
-          // Block Sub-GHz (1), NRF (2) and Files (3) if not connected
-          if (!bleProvider.isConnected && index != 0 && index != 4) {
-            // Show connection required dialog
-            final l10n = AppLocalizations.of(context)!;
-            showDialog(
-              context: context,
-              builder: (context) => AlertDialog(
-                title: Text(
-                  l10n.connectionRequired,
-                  style: const TextStyle(color: AppColors.primaryText),
-                ),
-                content: Text(
-                  l10n.connectionRequiredMessage,
-                  style: const TextStyle(color: AppColors.primaryText),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: Text(l10n.ok),
-                  ),
-                ],
-              ),
-            );
-            return;
-          }
+          // Every tab is browsable with no Crow attached — you can peruse the
+          // menus and build/edit playlists offline. Individual Crow functions
+          // (transmit, record, SD browse, NRF ops) guard themselves and prompt
+          // to connect when a device is needed, instead of locking the tab.
 
-          // Block NRF tab (index 2) if nRF module is not present
-          if (index == 2 && !bleProvider.nrfPresent) {
-            final l10n = AppLocalizations.of(context)!;
-            showDialog(
-              context: context,
-              builder: (context) => AlertDialog(
-                title: const Text(
-                  'nRF24 Not Detected',
-                  style: TextStyle(color: AppColors.primaryText),
-                ),
-                content: const Text(
-                  'The nRF24L01 module is not connected or not detected on this device.',
-                  style: TextStyle(color: AppColors.primaryText),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: Text(l10n.ok),
-                  ),
-                ],
-              ),
-            );
-            return;
-          }
-          
           // Handle debug mode activation on Settings tap
           if (index == 4) {
             _settingsTapCount++;
