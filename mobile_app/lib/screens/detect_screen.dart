@@ -383,7 +383,7 @@ class _DetectScreenState extends State<DetectScreen> {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          const LogoWatermark(size: 300, opacity: 0.10),
+          const LogoWatermark(size: 300, opacity: 0.26),
           Column(
             mainAxisSize: MainAxisSize.min,
             children: [
