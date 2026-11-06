@@ -137,8 +137,10 @@ From the first on-device test pass:
 - **AirTag** relabel/regrade (see Detection) and **watermark** brightened (now ~0.10 opacity).
 - Playlist **Loop** confirmed OFF by default.
 
-**Still open from round 1:** ProtoPirate has been broken since Senape's upstream (inherited); needs a
-logcat repro + fix. Pinned.
+**Still open from round 1:** ProtoPirate's folder/open-file button appeared dead — but its handler is
+`onPressed: (ble.isConnected && !isDecoding) ? … : null`, so it's **disabled when the Crow is
+disconnected** (it parses files off the device). Likely a connection gate, not a bug — retest with the
+Crow connected before assuming a rebuild. Pinned.
 
 ## Scope decisions (recorded)
 
