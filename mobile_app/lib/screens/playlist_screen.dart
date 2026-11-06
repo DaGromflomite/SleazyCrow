@@ -1,11 +1,19 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/file_item.dart';
 import '../models/sub_playlist.dart';
 import '../providers/ble_provider.dart';
 import '../services/playlist_service.dart';
 import '../theme/app_colors.dart';
+import '../widgets/logo_watermark.dart';
+
+/// Folder on the Crow's SD card (pathType 5 root) where exported playlists go.
+const String kPlaylistSdFolder = 'PLAYLISTS';
 
 /// Sub-GHz transmit playlists: build an ordered list of saved .sub files and
 /// transmit them in sequence (gap, repeat-each, loop). App-side only — playback
@@ -34,6 +42,85 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
       _playlists = p;
       _loading = false;
     });
+    _maybeShowIntro();
+  }
+
+  /// One-time explainer: playlists live on the phone, but can be exported to
+  /// the Crow's SD card. Shown the first time this tab is opened.
+  Future<void> _maybeShowIntro() async {
+    const key = 'playlist_intro_seen_v1';
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(key) == true) return;
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (c) => AlertDialog(
+          backgroundColor: AppColors.secondaryBackground,
+          title: Row(
+            children: const [
+              Icon(Icons.queue_music, color: AppColors.cyberPink),
+              SizedBox(width: 10),
+              Text('About playlists',
+                  style: TextStyle(color: AppColors.primaryText)),
+            ],
+          ),
+          content: const Text(
+            'Playlists are saved on your phone, so you can build and edit them '
+            'with no Crow attached. Each playlist just points at .sub files on '
+            'the Crow\'s SD card.\n\n'
+            'If you want a backup or to move a playlist, use Export to write it '
+            'to a /PLAYLISTS folder on the Crow\'s SD card (Crow must be '
+            'connected).',
+            style: TextStyle(color: AppColors.secondaryText),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c),
+              child: const Text('Got it',
+                  style: TextStyle(color: AppColors.cyberPink)),
+            ),
+          ],
+        ),
+      );
+      await prefs.setBool(key, true);
+    });
+  }
+
+  Future<void> _export(SubPlaylist pl) async {
+    final ble = Provider.of<BleProvider>(context, listen: false);
+    final messenger = ScaffoldMessenger.of(context);
+    if (!ble.isConnected) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('Connect your Crow to export to its SD card.'),
+        backgroundColor: AppColors.surfaceElevated,
+      ));
+      return;
+    }
+    messenger.showSnackBar(SnackBar(
+      content: Text('Exporting "${pl.name}" to SD…'),
+      backgroundColor: AppColors.surfaceElevated,
+    ));
+    try {
+      // Ensure /PLAYLISTS exists (ignore "already exists").
+      await ble.createDirectory(kPlaylistSdFolder, pathType: 5);
+      final safe =
+          pl.name.replaceAll(RegExp(r'[^A-Za-z0-9 _-]'), '_').trim();
+      final target = '/$kPlaylistSdFolder/${safe.isEmpty ? 'playlist' : safe}.json';
+      final bytes = Uint8List.fromList(
+          utf8.encode(const JsonEncoder.withIndent('  ').convert(pl.toJson())));
+      await ble.uploadFileFromBytes(bytes, target, pathType: 5);
+      messenger.showSnackBar(SnackBar(
+        content: Text('Exported to $target'),
+        backgroundColor: AppColors.surfaceElevated,
+      ));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(
+        content: Text('Export failed: $e'),
+        backgroundColor: AppColors.surfaceElevated,
+      ));
+    }
   }
 
   Future<void> _persist() => PlaylistService.saveAll(_playlists);
@@ -121,29 +208,33 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
   }
 
   Widget _empty() => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.queue_music,
-                  size: 54, color: AppColors.disabledText),
-              const SizedBox(height: 12),
-              const Text('No playlists yet',
-                  style: TextStyle(
-                      color: AppColors.primaryText,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600)),
-              const SizedBox(height: 6),
-              const Text(
-                'Build an ordered list of saved .sub files and transmit them in sequence.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.secondaryText, fontSize: 13),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            const LogoWatermark(size: 260, opacity: 0.06),
+            Padding(
+              padding: const EdgeInsets.all(28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('No playlists yet',
+                      style: TextStyle(
+                          color: AppColors.primaryText,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Build an ordered list of saved .sub files and transmit them in sequence.',
+                    textAlign: TextAlign.center,
+                    style:
+                        TextStyle(color: AppColors.secondaryText, fontSize: 13),
+                  ),
+                  const SizedBox(height: 18),
+                  _newButton(),
+                ],
               ),
-              const SizedBox(height: 18),
-              _newButton(),
-            ],
-          ),
+            ),
+          ],
         ),
       );
 
@@ -175,12 +266,17 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
           icon: const Icon(Icons.more_vert, color: AppColors.secondaryText),
           onSelected: (v) {
             if (v == 'rename') _rename(pl);
+            if (v == 'export') _export(pl);
             if (v == 'delete') _delete(pl);
           },
           itemBuilder: (_) => const [
             PopupMenuItem(
                 value: 'rename',
                 child: Text('Rename',
+                    style: TextStyle(color: AppColors.primaryText))),
+            PopupMenuItem(
+                value: 'export',
+                child: Text('Export to SD',
                     style: TextStyle(color: AppColors.primaryText))),
             PopupMenuItem(
                 value: 'delete',
@@ -259,6 +355,25 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
 
   Future<void> _save() async {
     await widget.onChanged();
+  }
+
+  Future<void> _renameHere() async {
+    final name =
+        await _promptName(context, title: 'Rename playlist', initial: pl.name);
+    if (name == null || name.trim().isEmpty) return;
+    setState(() => pl.name = name.trim());
+    await _save();
+  }
+
+  Future<void> _saveAndClose() async {
+    await _save(); // already saved on each edit; this confirms + exits
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Saved "${pl.name}"'),
+      backgroundColor: AppColors.surfaceElevated,
+      duration: const Duration(seconds: 1),
+    ));
+    Navigator.of(context).pop();
   }
 
   Future<void> _addFromSd() async {
@@ -367,7 +482,27 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
       appBar: AppBar(
         backgroundColor: AppColors.secondaryBackground,
         foregroundColor: AppColors.primaryText,
-        title: Text(pl.name),
+        title: GestureDetector(
+          onTap: _renameHere,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                  child: Text(pl.name, overflow: TextOverflow.ellipsis)),
+              const SizedBox(width: 6),
+              const Icon(Icons.edit, size: 16, color: AppColors.secondaryText),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: _saveAndClose,
+            icon: const Icon(Icons.check, color: AppColors.cyberPink),
+            label: const Text('Save',
+                style: TextStyle(
+                    color: AppColors.cyberPink, fontWeight: FontWeight.w600)),
+          ),
+        ],
       ),
       body: Consumer<BleProvider>(
         builder: (context, ble, _) {
@@ -399,25 +534,10 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
     );
   }
 
-  Widget _emptyItems() => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: const [
-              Icon(Icons.playlist_add, size: 48, color: AppColors.disabledText),
-              SizedBox(height: 10),
-              Text('Empty playlist',
-                  style: TextStyle(
-                      color: AppColors.primaryText,
-                      fontWeight: FontWeight.w600)),
-              SizedBox(height: 4),
-              Text('Tap "Add from SD" to pick saved .sub files.',
-                  style:
-                      TextStyle(color: AppColors.secondaryText, fontSize: 13)),
-            ],
-          ),
-        ),
+  Widget _emptyItems() => const LogoEmptyState(
+        title: 'Empty playlist',
+        message:
+            'Tap "Add from SD" to pick saved .sub files, or "Add pause" to space them out.',
       );
 
   Widget _itemTile(BleProvider ble, int i, bool playing) {
