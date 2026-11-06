@@ -4,6 +4,7 @@ import '../theme/app_colors.dart';
 import 'brute_screen.dart';
 import 'protopirate_screen.dart';
 import 'record_screen.dart';
+import 'playlist_screen.dart';
 
 /// Sub-GHz wrapper screen — hosts Record, Brute, and ProtoPirate as internal tabs
 class SubGhzScreen extends StatefulWidget {
@@ -17,17 +18,19 @@ class _SubGhzScreenState extends State<SubGhzScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
-  /// Per-tab accent colors: Record (red), Brute (purple), ProtoPirate (cyan)
+  /// Per-tab accent colors: Record (red), Brute (purple), ProtoPirate (cyan),
+  /// Playlist (pink)
   static const List<Color> _tabColors = [
     Color(0xFFFF1744),
     Color(0xFF9C27B0),
     Color(0xFF00BCD4),
+    Color(0xFFFF4FA3),
   ];
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _tabController.addListener(() {
       if (mounted) setState(() {});
     });
@@ -56,6 +59,8 @@ class _SubGhzScreenState extends State<SubGhzScreen>
           ),
           child: TabBar(
             controller: _tabController,
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
             indicatorColor: activeColor,
             indicatorWeight: 2,
             labelColor: AppColors.primaryText,
@@ -80,6 +85,11 @@ class _SubGhzScreenState extends State<SubGhzScreen>
                 label: l10n.protoPirate,
                 tabIndex: 2,
               ),
+              _buildTab(
+                icon: Icons.queue_music,
+                label: 'Playlist',
+                tabIndex: 3,
+              ),
             ],
           ),
         ),
@@ -94,6 +104,7 @@ class _SubGhzScreenState extends State<SubGhzScreen>
               RecordScreen(),
               BruteScreen(),
               ProtoPirateScreen(),
+              PlaylistScreen(),
             ],
           ),
         ),
