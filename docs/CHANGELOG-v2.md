@@ -122,6 +122,24 @@ First automated tests in the project (`flutter test`), all passing:
 
 ---
 
+## Hardware test round 1 — fixes (2026-11-05)
+
+From the first on-device test pass:
+- **Fox hunt usable** — removed the "calibrating" gate (you can't move closer/farther to a device you
+  can't find); strength + warmer/colder now show immediately (median + EMA + auto-range still apply).
+- **Detect noise control** — a **"Flagged only"** toggle hides unflagged devices (TVs/phones/unknowns),
+  and a **"Surveillance & tools only"** preset in the filter sheet (one tap: keep surveillance/drone/tool/
+  skimmer, drop trackers + iBeacon) for users who only care about surveillance/LE/hacker gear.
+- **Keep screen awake** setting (Settings → Connection, **default ON**) — holds a wakelock so the screen
+  doesn't sleep and drop the BLE link mid-transmit (addresses GATT-timeout / FBP-code-6 disconnects).
+- **Delete captured signals** — the Record list's long-press menu now has **Delete** (was View/Save/
+  Transmit only); the delete path already existed, it just wasn't exposed in local/record mode.
+- **AirTag** relabel/regrade (see Detection) and **watermark** brightened (now ~0.10 opacity).
+- Playlist **Loop** confirmed OFF by default.
+
+**Still open from round 1:** ProtoPirate has been broken since Senape's upstream (inherited); needs a
+logcat repro + fix. Pinned.
+
 ## Scope decisions (recorded)
 
 - **Removed Meshtastic / LoRa detection** — out of scope; drone detection is the only mesh/RF-beacon target kept.

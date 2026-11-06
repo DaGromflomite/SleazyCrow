@@ -154,10 +154,6 @@ class _HuntScreenState extends State<HuntScreen> {
     return ((s - lo) / (hi - lo)).clamp(0.0, 1.0);
   }
 
-  /// True once we've seen enough spread to trust the auto-ranged meter.
-  bool get _calibrated =>
-      _minRssi != null && _maxRssi != null && (_maxRssi! - _minRssi!) >= _minSpan;
-
   @override
   void dispose() {
     _hunting = false;
@@ -253,11 +249,7 @@ class _HuntScreenState extends State<HuntScreen> {
     String text;
     IconData icon;
     Color color;
-    if (!_calibrated) {
-      text = 'Calibrating — move closer, then farther';
-      icon = Icons.open_in_full;
-      color = AppColors.cyanAccent;
-    } else if (delta > 2) {
+    if (delta > 2) {
       text = 'Getting WARMER';
       icon = Icons.arrow_upward;
       color = AppColors.success;

@@ -527,6 +527,16 @@ class _FileListWidgetState extends State<FileListWidget> {
                         widget.onFileAction?.call(file, 'transmit');
                       },
                     ),
+                  _buildCompactActionButton(
+                    context,
+                    icon: Icons.delete,
+                    label: AppLocalizations.of(context)!.delete,
+                    isDestructive: true,
+                    onPressed: () {
+                      Navigator.pop(context);
+                      widget.onFileAction?.call(file, 'delete');
+                    },
+                  ),
                 ],
               ),
             ] else ...[

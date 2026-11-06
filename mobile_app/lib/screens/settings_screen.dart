@@ -658,6 +658,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Icons.search, AppLocalizations.of(context)!.scannerSettings, AppColors.searching),
             _buildScannerSettings(context, bleProvider),
 
+            const SizedBox(height: 8),
+            const Divider(color: AppColors.divider, indent: 16, endIndent: 16),
+
+            // --- Connection ---
+            _buildSubSectionHeader(
+                Icons.stay_current_portrait, 'Connection', AppColors.cyanAccent),
+            Consumer<SettingsProvider>(
+              builder: (context, settings, _) => SwitchListTile(
+                dense: true,
+                activeColor: AppColors.cyberPink,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                title: const Text('Keep screen awake',
+                    style:
+                        TextStyle(color: AppColors.primaryText, fontSize: 14)),
+                subtitle: const Text(
+                    'Stops the screen sleeping, which can drop the Crow\'s BLE '
+                    'link mid-transmit. On by default.',
+                    style: TextStyle(
+                        color: AppColors.secondaryText, fontSize: 11)),
+                value: settings.keepScreenAwake,
+                onChanged: (v) =>
+                    context.read<SettingsProvider>().setKeepScreenAwake(v),
+              ),
+            ),
+
             const SizedBox(height: 16),
           ],
         ),
