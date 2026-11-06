@@ -18,6 +18,61 @@ class GradientBackground extends StatelessWidget {
   }
 }
 
+/// Colored (pink -> purple) header banner for the top of a bottom sheet.
+/// Carries a grab pill + title (+ optional subtitle) so the drag-to-close area
+/// is obvious. Pair with `showDragHandle: false` and a sheet `shape` whose top
+/// radius matches [radius].
+class GradientSheetHeader extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+  final double radius;
+
+  const GradientSheetHeader(
+      {super.key, required this.title, this.subtitle, this.radius = 20});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.only(top: 8, bottom: 12),
+      decoration: BoxDecoration(
+        gradient: AppColors.cyberGradient,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(radius)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 44,
+            height: 5,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.85),
+              borderRadius: BorderRadius.circular(3),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          if (subtitle != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                subtitle!,
+                style: const TextStyle(color: Colors.white70, fontSize: 11),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Pink -> purple gradient pill button with a soft neon glow.
 class GradientButton extends StatelessWidget {
   final VoidCallback? onPressed;

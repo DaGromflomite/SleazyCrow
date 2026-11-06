@@ -1,5 +1,5 @@
 {
-  "version": 7,
+  "version": 8,
   "updated": "2026-11-05",
   "note": "Sleazy Crow BLE/WiFi detection signatures. Reimplemented from PRIMARY public sources (IEEE MA-L OUI registry, Bluetooth SIG assigned numbers / company identifiers, ASTM F3411 / OpenDroneID, Apple Find My & iBeacon specs, Google FMDN, DULT spec) and cross-checked against MIT community references (colonelpanichacks/flock-you + OUI-SPY, DeFlock, seemoo-lab/AirGuard). NOT copied from any GPL project (SquatchWatch-CYD or magikh0e/surveillance-signatures are GPL and were used only as a pointer to WHICH identifiers to verify). Grades: high = vendor-specific / strong match; med = likely; low = weak/ambiguous (shared chip vendor, generic word, or unconfirmed). Chip-vendor OUIs that merely hint at a device (SiLabs/Liteon/Espressif/Realtek/Murata) are deliberately omitted to avoid false positives. Rule types: manufacturer (company id dec + optional dataPrefix hex), service (16- or 128-bit UUID substring), nameContains/namePrefix (lowercase) all match BLE now; wifiOui/wifiSsid are stored and match once the WiFi scanner (P4) is live. The app auto-fetches the latest of this file from the repo and falls back to this bundled copy offline.",
   "categories": [
@@ -152,11 +152,11 @@
     },
     {
       "id": "airtag",
-      "label": "Apple Find My (AirTag)",
+      "label": "Apple Find My (tag or device)",
       "severity": "tracker",
       "defaultOn": true,
       "rules": [
-        { "type": "manufacturer", "company": 76, "dataPrefix": "12", "grade": "high" }
+        { "type": "manufacturer", "company": 76, "dataPrefix": "12", "grade": "med" }
       ]
     },
     {

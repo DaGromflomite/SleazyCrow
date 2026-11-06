@@ -100,10 +100,12 @@ void main() {
       return null;
     }
 
-    // AirTag: Apple (76) manufacturer data starting 0x12.
+    // Apple Find My (76) manufacturer data starting 0x12. Graded med, not high:
+    // the 0x12 Find My advert is shared by AirTags AND findable Apple devices
+    // (iPhones/AirPods/Macs), so a single hit is "likely", not certain.
     expect(
         gradeFor('airtag', (r) => r.type == 'manufacturer' && r.company == 76),
-        Grade.high);
+        Grade.med);
     // Card skimmer: HC-05 name.
     expect(gradeFor('skimmer', (r) => r.text == 'hc-05'), Grade.high);
     // Drone: OpenDroneID service 0xFFFA.

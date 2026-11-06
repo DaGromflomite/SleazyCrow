@@ -256,30 +256,25 @@ class _DetectScreenState extends State<DetectScreen> {
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: AppColors.secondaryBackground,
-      showDragHandle: true,
+      showDragHandle: false,
       isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (ctx) {
         return Consumer<DetectionProvider>(
           builder: (ctx, detector, _) {
             final cats = detector.categories;
             return SafeArea(
+              top: false,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(20, 4, 20, 8),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        'What to flag',
-                        style: TextStyle(
-                          color: AppColors.primaryText,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
+                  const GradientSheetHeader(
+                    title: 'What to flag',
+                    subtitle: 'drag down to close',
                   ),
+                  const SizedBox(height: 4),
                   if (cats.isEmpty)
                     const Padding(
                       padding: EdgeInsets.all(20),
