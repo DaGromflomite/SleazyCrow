@@ -288,22 +288,7 @@ class _DetectScreenState extends State<DetectScreen> {
                   Flexible(
                     child: ListView(
                       shrinkWrap: true,
-                      children: [
-                        for (final c in cats)
-                          SwitchListTile(
-                            dense: true,
-                            activeThumbColor: AppColors.cyberPink,
-                            title: Text(c.label,
-                                style: const TextStyle(
-                                    color: AppColors.primaryText)),
-                            subtitle: Text(_severityLabel(c.severity),
-                                style: const TextStyle(
-                                    color: AppColors.secondaryText,
-                                    fontSize: 12)),
-                            value: detector.isEnabled(c.id),
-                            onChanged: (v) => detector.setEnabled(c.id, v),
-                          ),
-                      ],
+                      children: _filterRows(cats, detector),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -534,6 +519,60 @@ class _DetectScreenState extends State<DetectScreen> {
         'info' => 'Other',
         _ => severity,
       };
+
+  /// Section a severity belongs to in the "What to flag" sheet: (order, title).
+  /// Several severities collapse into one section (skimmer joins Tools).
+  static (int, String) _section(String severity) => switch (severity) {
+        'surveillance' => (0, 'Surveillance'),
+        'tracker' => (1, 'Trackers'),
+        'drone' => (2, 'Drones'),
+        'tool' => (3, 'Tools'),
+        'skimmer' => (3, 'Tools'),
+        _ => (4, 'Other'),
+      };
+
+  /// Build the toggle rows grouped under section headers, preserving the DB
+  /// order within each section.
+  List<Widget> _filterRows(
+      List<DetectionCategory> cats, DetectionProvider detector) {
+    final rows = <Widget>[];
+    final seen = <String>{};
+    // Stable section order by first appearance / defined order.
+    final order = cats.map((c) => _section(c.severity)).toList()
+      ..sort((a, b) => a.$1.compareTo(b.$1));
+    final sections = <String>[];
+    for (final s in order) {
+      if (seen.add(s.$2)) sections.add(s.$2);
+    }
+    for (final title in sections) {
+      rows.add(Padding(
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
+        child: Text(
+          title.toUpperCase(),
+          style: const TextStyle(
+            color: AppColors.cyberPink,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.1,
+          ),
+        ),
+      ));
+      for (final c in cats.where((c) => _section(c.severity).$2 == title)) {
+        rows.add(SwitchListTile(
+          dense: true,
+          activeThumbColor: AppColors.cyberPink,
+          title: Text(c.label,
+              style: const TextStyle(color: AppColors.primaryText)),
+          subtitle: Text(_severityLabel(c.severity),
+              style: const TextStyle(
+                  color: AppColors.secondaryText, fontSize: 12)),
+          value: detector.isEnabled(c.id),
+          onChanged: (v) => detector.setEnabled(c.id, v),
+        ));
+      }
+    }
+    return rows;
+  }
 
   Color _rssiColor(int rssi) {
     if (rssi >= -60) return AppColors.success; // very close
