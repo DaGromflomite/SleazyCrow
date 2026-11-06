@@ -13,9 +13,9 @@ class LogoWatermark extends StatelessWidget {
 
   // Luminance-weighted grayscale matrix (ITU-R BT.709).
   static const List<double> _grayscale = <double>[
-    0.2126, 0.7152, 0.0722, 0, 0, //
-    0.2126, 0.7152, 0.0722, 0, 0, //
-    0.2126, 0.7152, 0.0722, 0, 0, //
+    0.2126, 0.7152, 0.0722, 0, 80, //
+    0.2126, 0.7152, 0.0722, 0, 80, //
+    0.2126, 0.7152, 0.0722, 0, 80, //
     0, 0, 0, 1, 0, //
   ];
 
@@ -51,7 +51,7 @@ class LogoEmptyState extends StatelessWidget {
     this.title,
     this.message,
     this.logoSize = 275,
-    this.logoOpacity = 0.10,
+    this.logoOpacity = 0.26,
   });
 
   @override

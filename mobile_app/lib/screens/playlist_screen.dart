@@ -212,7 +212,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            const LogoWatermark(size: 325, opacity: 0.10),
+            const LogoWatermark(size: 325, opacity: 0.26),
             Padding(
               padding: const EdgeInsets.all(28),
               child: Column(
@@ -524,7 +524,7 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
                           const Positioned.fill(
                             child: Center(
                               child:
-                                  LogoWatermark(size: 300, opacity: 0.072),
+                                  LogoWatermark(size: 300, opacity: 0.188),
                             ),
                           ),
                           ReorderableListView.builder(
