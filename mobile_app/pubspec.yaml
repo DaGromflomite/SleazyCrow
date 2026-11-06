@@ -1,7 +1,7 @@
 name: sleazycrow
 description: Sleazy Crow — companion app for the Sleazy Crow firmware on Evil Crow RF V2 (fork of Senape3000/EvilCrowRF-V2)
 publish_to: 'none'
-version: 1.2.0-beta+32
+version: 2.0.0-dev+33
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
