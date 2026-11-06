@@ -50,7 +50,7 @@ class LogoEmptyState extends StatelessWidget {
     super.key,
     this.title,
     this.message,
-    this.logoSize = 220,
+    this.logoSize = 275,
     this.logoOpacity = 0.06,
   });
 

@@ -211,7 +211,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            const LogoWatermark(size: 260, opacity: 0.06),
+            const LogoWatermark(size: 325, opacity: 0.06),
             Padding(
               padding: const EdgeInsets.all(28),
               child: Column(
