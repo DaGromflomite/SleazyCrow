@@ -30,16 +30,19 @@ class _HuntScreenState extends State<HuntScreen> {
   StreamSubscription<List<ScanResult>>? _resultsSub;
   Timer? _pulseTimer;
 
-  double? _smoothedRssi; // exponential moving average
+  final List<int> _recent = []; // last few raw samples for a median
+  double? _smoothedRssi; // median -> exponential moving average
   int? _rawRssi;
-  double? _baselineRssi; // for the trend arrow
+  double? _minRssi; // auto-ranged window, far end (weakest you've seen)
+  double? _maxRssi; // auto-ranged window, near end (strongest you've seen)
+  double? _trendRef; // slow lagging reference for warmer/colder
   DateTime _lastSeen = DateTime.fromMillisecondsSinceEpoch(0);
   bool _hunting = false;
   String? _error;
 
-  // RSSI window we map to 0..100% (−95 dBm = far, −40 dBm = right on top of it).
-  static const double _rssiFloor = -95;
-  static const double _rssiCeil = -40;
+  // Never map a window narrower than this (dBm) — keeps a near-flat signal from
+  // slamming the meter to 0 or 100 on pure noise.
+  static const double _minSpan = 10;
 
   @override
   void initState() {
@@ -91,9 +94,29 @@ class _HuntScreenState extends State<HuntScreen> {
   void _ingest(int rssi) {
     _rawRssi = rssi;
     _lastSeen = DateTime.now();
-    // Exponential moving average to tame the jitter.
+
+    // 1) Median of the last few raw samples — kills the ±10 dBm spikes that
+    //    make raw RSSI useless for hunting.
+    _recent.add(rssi);
+    if (_recent.length > 5) _recent.removeAt(0);
+    final sorted = [..._recent]..sort();
+    final median = sorted[sorted.length ~/ 2].toDouble();
+
+    // 2) EMA to smooth what's left.
     _smoothedRssi =
-        _smoothedRssi == null ? rssi.toDouble() : _smoothedRssi! * 0.7 + rssi * 0.3;
+        _smoothedRssi == null ? median : _smoothedRssi! * 0.7 + median * 0.3;
+    final s = _smoothedRssi!;
+
+    // 3) Auto-range the meter to the near/far extremes actually seen this hunt,
+    //    relaxing slowly so a stale extreme doesn't pin the scale forever. This
+    //    is what makes walking toward the target visibly fill the ring even when
+    //    the whole room sits in a narrow dBm band.
+    _maxRssi = _maxRssi == null ? s : math.max(s, _maxRssi! - 0.05);
+    _minRssi = _minRssi == null ? s : math.min(s, _minRssi! + 0.05);
+
+    // 4) Slow lagging reference (~ a few seconds) for the warmer/colder read.
+    _trendRef = _trendRef == null ? s : _trendRef! * 0.95 + s * 0.05;
+
     if (mounted) setState(() {});
   }
 
@@ -117,12 +140,23 @@ class _HuntScreenState extends State<HuntScreen> {
   bool _isLive() =>
       DateTime.now().difference(_lastSeen) < const Duration(seconds: 4);
 
-  /// 0..1 normalized signal strength from the smoothed RSSI.
+  /// 0..1 strength, mapped across the auto-ranged window (far..near) so the
+  /// meter reflects how close you are *relative to this hunt*, not a fixed scale.
   double _strength() {
-    if (_smoothedRssi == null) return 0;
-    return ((_smoothedRssi! - _rssiFloor) / (_rssiCeil - _rssiFloor))
-        .clamp(0.0, 1.0);
+    final s = _smoothedRssi;
+    if (s == null || _minRssi == null || _maxRssi == null) return 0;
+    var lo = _minRssi!, hi = _maxRssi!;
+    if (hi - lo < _minSpan) {
+      final mid = (hi + lo) / 2;
+      lo = mid - _minSpan / 2;
+      hi = mid + _minSpan / 2;
+    }
+    return ((s - lo) / (hi - lo)).clamp(0.0, 1.0);
   }
+
+  /// True once we've seen enough spread to trust the auto-ranged meter.
+  bool get _calibrated =>
+      _minRssi != null && _maxRssi != null && (_maxRssi! - _minRssi!) >= _minSpan;
 
   @override
   void dispose() {
@@ -211,20 +245,23 @@ class _HuntScreenState extends State<HuntScreen> {
           textAlign: TextAlign.center,
           style: TextStyle(color: AppColors.secondaryText));
     }
-    // Compare smoothed value against a slow baseline for a closer/farther read.
+    // Compare the smoothed value against the slow lagging reference (updated in
+    // _ingest). ±2 dBm band gives hysteresis so it doesn't flicker on noise.
     final s = _smoothedRssi!;
-    _baselineRssi ??= s;
-    final delta = s - _baselineRssi!;
-    _baselineRssi = _baselineRssi! * 0.9 + s * 0.1; // drift the baseline slowly
+    final delta = s - (_trendRef ?? s);
 
     String text;
     IconData icon;
     Color color;
-    if (delta > 1.5) {
+    if (!_calibrated) {
+      text = 'Calibrating — move closer, then farther';
+      icon = Icons.open_in_full;
+      color = AppColors.cyanAccent;
+    } else if (delta > 2) {
       text = 'Getting WARMER';
       icon = Icons.arrow_upward;
       color = AppColors.success;
-    } else if (delta < -1.5) {
+    } else if (delta < -2) {
       text = 'Getting colder';
       icon = Icons.arrow_downward;
       color = AppColors.secondaryText;

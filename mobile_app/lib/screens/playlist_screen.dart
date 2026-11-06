@@ -10,6 +10,7 @@ import '../models/sub_playlist.dart';
 import '../providers/ble_provider.dart';
 import '../services/playlist_service.dart';
 import '../theme/app_colors.dart';
+import '../widgets/gradient_widgets.dart';
 import '../widgets/logo_watermark.dart';
 
 /// Folder on the Crow's SD card (pathType 5 root) where exported playlists go.
@@ -386,7 +387,10 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
       context: context,
       backgroundColor: AppColors.primaryBackground,
       isScrollControlled: true,
-      showDragHandle: true,
+      showDragHandle: false,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (_) => const _SubFilePicker(),
     );
     if (picked != null && picked.isNotEmpty) {
@@ -399,24 +403,22 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
     final ms = await showModalBottomSheet<int>(
       context: context,
       backgroundColor: AppColors.secondaryBackground,
-      showDragHandle: true,
+      showDragHandle: false,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (c) {
         const presets = <int>[250, 500, 1000, 2000, 3000, 5000, 10000];
         return SafeArea(
+          top: false,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 4, 20, 10),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text('Add a pause',
-                      style: TextStyle(
-                          color: AppColors.primaryText,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold)),
-                ),
+              const GradientSheetHeader(
+                title: 'Add a pause',
+                subtitle: 'drag down to close',
               ),
+              const SizedBox(height: 14),
               Wrap(
                 spacing: 10,
                 runSpacing: 10,
@@ -480,27 +482,32 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
     return Scaffold(
       backgroundColor: AppColors.primaryBackground,
       appBar: AppBar(
-        backgroundColor: AppColors.secondaryBackground,
-        foregroundColor: AppColors.primaryText,
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.white,
+        flexibleSpace: const DecoratedBox(
+          decoration: BoxDecoration(gradient: AppColors.cyberGradient),
+        ),
         title: GestureDetector(
           onTap: _renameHere,
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Flexible(
-                  child: Text(pl.name, overflow: TextOverflow.ellipsis)),
+                  child: Text(pl.name,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white))),
               const SizedBox(width: 6),
-              const Icon(Icons.edit, size: 16, color: AppColors.secondaryText),
+              const Icon(Icons.edit, size: 16, color: Colors.white70),
             ],
           ),
         ),
         actions: [
           TextButton.icon(
             onPressed: _saveAndClose,
-            icon: const Icon(Icons.check, color: AppColors.cyberPink),
+            icon: const Icon(Icons.check, color: Colors.white),
             label: const Text('Save',
                 style: TextStyle(
-                    color: AppColors.cyberPink, fontWeight: FontWeight.w600)),
+                    color: Colors.white, fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -832,8 +839,12 @@ class _SubFilePickerState extends State<_SubFilePicker> {
           height: MediaQuery.of(context).size.height * 0.75,
           child: Column(
             children: [
+              const GradientSheetHeader(
+                title: 'Pick .sub files',
+                subtitle: 'drag down to close',
+              ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
+                padding: const EdgeInsets.fromLTRB(16, 8, 8, 4),
                 child: Row(
                   children: [
                     const Icon(Icons.sd_card, color: AppColors.cyberPink),

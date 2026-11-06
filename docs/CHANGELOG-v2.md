@@ -140,6 +140,9 @@ Firmware-side: BLE + WiFi AP spam · deauth detection · POCSAG/FLEX pager decod
 **nRF24 ESB capture→replay + fuzzing** (own device). *(Reviewed 2026-11-05: promiscuous sniffing,
 2.4 GHz spectrum scanner, and the jammer are already in the firmware — MouseJack/NrfSpectrum/NrfJammer;
 BLE-adv spoofing via nRF24 was ruled out in favour of the ESP32-S3's real BLE radio.)*
-App-side: dedicated drone-monitor view · OTA Update Hub · web-flasher "Request a feature" dialog ·
+App-side: **persistence-over-time tracker detection** (anti-stalking: flag a Find My/Tile/SmartTag
+address that stays with you across time + movement; rides on P5 background scanning + a location log;
+MAC rotation ~15 min caps cross-journey tracking) · dedicated drone-monitor view · OTA Update Hub ·
+web-flasher "Request a feature" dialog ·
 first-responder dispatch feed (experiment) · app-wide theme rollout · CI enablement ·
 publish `signatures.json` live on `main` (optional auto-refresh Action).
