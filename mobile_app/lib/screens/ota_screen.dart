@@ -485,8 +485,11 @@ class _OtaScreenState extends State<OtaScreen> with TickerProviderStateMixin {
           backgroundColor: AppColors.primaryBackground,
           appBar: AppBar(
             title: Text(AppLocalizations.of(context)!.otaUpdate),
-            backgroundColor: AppColors.secondaryBackground,
-            foregroundColor: AppColors.primaryText,
+            backgroundColor: Colors.transparent,
+            foregroundColor: Colors.white,
+            flexibleSpace: const DecoratedBox(
+              decoration: BoxDecoration(gradient: AppColors.cyberGradient),
+            ),
             elevation: 0,
           ),
           body: SingleChildScrollView(

@@ -233,14 +233,19 @@ class HomeTab extends StatelessWidget {
       length: 2,
       child: Column(
         children: [
-          const TabBar(
-            labelColor: AppColors.primaryAccent,
-            unselectedLabelColor: AppColors.secondaryText,
-            indicatorColor: AppColors.primaryAccent,
-            tabs: [
-              Tab(icon: Icon(Icons.bluetooth_searching, size: 20), text: 'Connect'),
-              Tab(icon: Icon(Icons.radar, size: 20), text: 'Detect'),
-            ],
+          Container(
+            decoration: const BoxDecoration(gradient: AppColors.cyberGradient),
+            child: const TabBar(
+              labelColor: Colors.white,
+              unselectedLabelColor: Colors.white70,
+              indicatorColor: Colors.white,
+              tabs: [
+                Tab(
+                    icon: Icon(Icons.bluetooth_searching, size: 20),
+                    text: 'Connect'),
+                Tab(icon: Icon(Icons.radar, size: 20), text: 'Detect'),
+              ],
+            ),
           ),
           const Expanded(
             child: TabBarView(
@@ -302,7 +307,7 @@ class _ConnectTab extends StatelessWidget {
         return Stack(
           children: [
             const Positioned.fill(
-              child: Center(child: LogoWatermark(size: 320, opacity: 0.05)),
+              child: Center(child: LogoWatermark(size: 320, opacity: 0.055)),
             ),
             SingleChildScrollView(
           padding: const EdgeInsets.all(12.0),
