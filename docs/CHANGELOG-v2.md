@@ -152,7 +152,9 @@ logcat repro + fix. Pinned.
 ## Pinned for later (not yet in v2)
 
 Roadmap: **P4** WiFi scanner (lights up the staged ALPR/Ring/camera/body-cam/hacker signatures) ·
-**P5** passive background alerts (opt-in) · **P6** Sub-GHz fox hunt *(firmware)* · **P7** polish + release.
+**P5** passive background alerts (opt-in; includes a **"alert on surveillance-tool detection"** setting —
+notify when Flock/Axon/ALPR/bodycam/ShotSpotter/camera/Ring/fleet/drone is seen; only meaningful once
+background scanning exists) · **P6** Sub-GHz fox hunt *(firmware)* · **P7** polish + release.
 Firmware-side: BLE + WiFi AP spam · deauth detection · POCSAG/FLEX pager decode ·
 **nRF24 raw ESB sniffer/logger** (with legacy-keyboard keystroke decode) ·
 **nRF24 ESB capture→replay + fuzzing** (own device). *(Reviewed 2026-11-05: promiscuous sniffing,
