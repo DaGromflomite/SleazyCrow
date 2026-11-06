@@ -135,7 +135,11 @@ First automated tests in the project (`flutter test`), all passing:
 
 Roadmap: **P4** WiFi scanner (lights up the staged ALPR/Ring/camera/body-cam/hacker signatures) ·
 **P5** passive background alerts (opt-in) · **P6** Sub-GHz fox hunt *(firmware)* · **P7** polish + release.
-Firmware-side: BLE + WiFi AP spam · deauth detection · POCSAG/FLEX pager decode.
+Firmware-side: BLE + WiFi AP spam · deauth detection · POCSAG/FLEX pager decode ·
+**nRF24 raw ESB sniffer/logger** (with legacy-keyboard keystroke decode) ·
+**nRF24 ESB capture→replay + fuzzing** (own device). *(Reviewed 2026-11-05: promiscuous sniffing,
+2.4 GHz spectrum scanner, and the jammer are already in the firmware — MouseJack/NrfSpectrum/NrfJammer;
+BLE-adv spoofing via nRF24 was ruled out in favour of the ESP32-S3's real BLE radio.)*
 App-side: dedicated drone-monitor view · OTA Update Hub · web-flasher "Request a feature" dialog ·
 first-responder dispatch feed (experiment) · app-wide theme rollout · CI enablement ·
 publish `signatures.json` live on `main` (optional auto-refresh Action).
