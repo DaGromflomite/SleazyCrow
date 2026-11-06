@@ -142,7 +142,9 @@ Firmware-side: BLE + WiFi AP spam · deauth detection · POCSAG/FLEX pager decod
 BLE-adv spoofing via nRF24 was ruled out in favour of the ESP32-S3's real BLE radio.)*
 App-side: **persistence-over-time tracker detection** (anti-stalking: flag a Find My/Tile/SmartTag
 address that stays with you across time + movement; rides on P5 background scanning + a location log;
-MAC rotation ~15 min caps cross-journey tracking) · dedicated drone-monitor view · OTA Update Hub ·
+MAC rotation ~15 min caps cross-journey tracking). **Scoped to item-tracker categories ONLY — surveillance /
+LE / drone detection (Flock, Axon/Taser body cams + stun guns, ALPR, ShotSpotter, cameras, Ring, fleet,
+drone) is the priority and keeps its immediate single-hit flagging, never gated behind persistence logic.** · dedicated drone-monitor view · OTA Update Hub ·
 web-flasher "Request a feature" dialog ·
 first-responder dispatch feed (experiment) · app-wide theme rollout · CI enablement ·
 publish `signatures.json` live on `main` (optional auto-refresh Action).
