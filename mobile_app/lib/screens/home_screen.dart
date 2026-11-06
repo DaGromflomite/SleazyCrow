@@ -9,6 +9,7 @@ import '../providers/settings_provider.dart';
 import '../widgets/quick_connect_widget.dart';
 import '../widgets/module_status_widget.dart';
 import '../widgets/status_bar_widget.dart';
+import '../widgets/logo_watermark.dart';
 import '../theme/app_colors.dart';
 import 'brute_screen.dart';
 import 'files_screen.dart';
@@ -296,8 +297,14 @@ class _ConnectTab extends StatelessWidget {
           );
         }
 
-        // When not connected, show quick connect + permission errors
-        return SingleChildScrollView(
+        // When not connected, show quick connect + permission errors over a
+        // subtle logo watermark so the empty space isn't a flat black wall.
+        return Stack(
+          children: [
+            const Positioned.fill(
+              child: Center(child: LogoWatermark(size: 320, opacity: 0.05)),
+            ),
+            SingleChildScrollView(
           padding: const EdgeInsets.all(12.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -346,6 +353,8 @@ class _ConnectTab extends StatelessWidget {
               ],
             ],
           ),
+            ),
+          ],
         );
       },
     );
