@@ -7,6 +7,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/file_item.dart';
+import '../models/sub_playlist.dart';
 import '../models/detected_signal.dart';
 import '../models/directory_tree_node.dart';
 import '../models/protopirate_result.dart';
@@ -3186,6 +3187,101 @@ class BleProvider extends ChangeNotifier {
       sendIdleCommand(0);
     } catch (_) {}
     notifyListeners();
+  }
+
+  // --- Playlist transmission -------------------------------------------------
+  // Transmit a list of saved .sub files in sequence. Same self-pacing idea as
+  // startRepeatTransmit: fire one burst, wait for the firmware's burst-complete
+  // (SignalSent/Error) before the next, then an optional user gap. Supports
+  // repeating each file N times and looping the whole list. No firmware change.
+  bool _playlistRunning = false;
+  int _playlistIndex = -1; // index of the item currently transmitting (-1 = none)
+  int _playlistPass = 0; // how many full loops completed
+
+  bool get isPlaylistPlaying => _playlistRunning;
+  int get playlistIndex => _playlistIndex;
+  int get playlistPass => _playlistPass;
+
+  /// Start transmitting [items] in order. [gapMs] is the pause added between
+  /// files, [repeatEach] fires each file that many times, [loop] repeats the
+  /// whole list until [stopPlaylist] is called. Pins ONE module so bursts never
+  /// contend. Safe to call only while connected; returns immediately if a
+  /// playlist or hold-repeat is already running.
+  Future<void> startPlaylist(
+    List<PlaylistItem> items, {
+    int gapMs = 500,
+    int repeatEach = 1,
+    bool loop = false,
+    int? module,
+  }) async {
+    if (_playlistRunning || _repeatTx) return;
+    if (items.isEmpty) return;
+    _playlistRunning = true;
+    _suppressTxNotify = true; // one flow, don't toast per burst
+    _playlistPass = 0;
+    final useModule = module ?? 0;
+    final gap = Duration(milliseconds: gapMs < 0 ? 0 : gapMs);
+    final reps = repeatEach < 1 ? 1 : repeatEach;
+    notifyListeners();
+
+    try {
+      do {
+        for (var i = 0; i < items.length && _playlistRunning && isConnected; i++) {
+          _playlistIndex = i;
+          notifyListeners();
+          final item = items[i];
+          if (item.isPause) {
+            // An explicit pause entry: wait, interruptibly, no transmit.
+            await _interruptibleDelay(Duration(milliseconds: item.pauseMs));
+            continue;
+          }
+          for (var r = 0; r < reps && _playlistRunning && isConnected; r++) {
+            try {
+              _txBurstCompleter = Completer<void>();
+              await transmitFromFile(item.path,
+                  module: useModule, pathType: item.pathType, force: true);
+              await _txBurstCompleter!.future
+                  .timeout(const Duration(seconds: 6), onTimeout: () {});
+            } catch (_) {
+              // transient failure — brief pause, then continue the list
+              await Future.delayed(const Duration(milliseconds: 150));
+            }
+            if (_playlistRunning) await _interruptibleDelay(gap);
+          }
+        }
+        _playlistPass++;
+      } while (_playlistRunning && loop && isConnected);
+    } finally {
+      _finishPlaylist();
+    }
+  }
+
+  void stopPlaylist() {
+    if (!_playlistRunning) return;
+    _playlistRunning = false;
+    _completeTxBurst(); // unblock the in-flight wait
+  }
+
+  void _finishPlaylist() {
+    _playlistRunning = false;
+    _suppressTxNotify = false;
+    _playlistIndex = -1;
+    try {
+      sendIdleCommand(0);
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  /// A delay that returns early if the playlist is stopped (or the link drops),
+  /// so Stop feels immediate even during a long pause entry.
+  Future<void> _interruptibleDelay(Duration d) async {
+    const step = Duration(milliseconds: 100);
+    var elapsed = Duration.zero;
+    while (elapsed < d && _playlistRunning && isConnected) {
+      final remaining = d - elapsed;
+      await Future.delayed(remaining < step ? remaining : step);
+      elapsed += step;
+    }
   }
 
   Future<void> sendBinaryCommand(Uint8List command, {bool withoutResponse = false}) async {
