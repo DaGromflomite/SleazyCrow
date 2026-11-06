@@ -307,7 +307,7 @@ class _ConnectTab extends StatelessWidget {
         return Stack(
           children: [
             const Positioned.fill(
-              child: Center(child: LogoWatermark(size: 320, opacity: 0.055)),
+              child: Center(child: LogoWatermark(size: 320, opacity: 0.08)),
             ),
             SingleChildScrollView(
           padding: const EdgeInsets.all(12.0),

@@ -152,6 +152,8 @@ class _DetectScreenState extends State<DetectScreen> {
     super.dispose();
   }
 
+  bool _flaggedOnly = false; // hide unflagged devices (TVs, phones, unknowns)
+
   @override
   Widget build(BuildContext context) {
     final detector = context.watch<DetectionProvider>();
@@ -170,13 +172,16 @@ class _DetectScreenState extends State<DetectScreen> {
       return b.rssi.compareTo(a.rssi);
     });
 
+    final shown =
+        _flaggedOnly ? rows.where((e) => e.detection != null).toList() : rows;
+
     return GradientBackground(
       child: Column(
         children: [
           _buildHeader(rows.length, flagged),
           if (_error != null) _buildError(_error!),
           Expanded(
-            child: rows.isEmpty ? _buildEmpty() : _buildList(rows),
+            child: shown.isEmpty ? _buildEmpty() : _buildList(shown),
           ),
         ],
       ),
@@ -236,6 +241,14 @@ class _DetectScreenState extends State<DetectScreen> {
             ),
           ),
           IconButton(
+            tooltip: _flaggedOnly ? 'Showing flagged only' : 'Show flagged only',
+            onPressed: () => setState(() => _flaggedOnly = !_flaggedOnly),
+            icon: Icon(
+              _flaggedOnly ? Icons.filter_alt : Icons.filter_alt_outlined,
+              color: _flaggedOnly ? AppColors.cyberPink : AppColors.secondaryText,
+            ),
+          ),
+          IconButton(
             tooltip: 'Detection filters',
             onPressed: _openFilters,
             icon: const Icon(Icons.tune, color: AppColors.secondaryText),
@@ -275,6 +288,51 @@ class _DetectScreenState extends State<DetectScreen> {
                     subtitle: 'drag down to close',
                   ),
                   const SizedBox(height: 4),
+                  Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.cyberPink,
+                              side: const BorderSide(color: AppColors.cyberPink),
+                            ),
+                            onPressed: () {
+                              for (final c in cats) {
+                                const keep = {
+                                  'surveillance',
+                                  'drone',
+                                  'tool',
+                                  'skimmer'
+                                };
+                                detector.setEnabled(
+                                    c.id, keep.contains(c.severity));
+                              }
+                            },
+                            child: const Text('Surveillance & tools only',
+                                style: TextStyle(fontSize: 12)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.secondaryText,
+                            side: const BorderSide(
+                                color: AppColors.borderDefault),
+                          ),
+                          onPressed: () {
+                            for (final c in cats) {
+                              detector.setEnabled(c.id, c.defaultOn);
+                            }
+                          },
+                          child: const Text('Reset',
+                              style: TextStyle(fontSize: 12)),
+                        ),
+                      ],
+                    ),
+                  ),
                   if (cats.isEmpty)
                     const Padding(
                       padding: EdgeInsets.all(20),
@@ -325,7 +383,7 @@ class _DetectScreenState extends State<DetectScreen> {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          const LogoWatermark(size: 300, opacity: 0.067),
+          const LogoWatermark(size: 300, opacity: 0.10),
           Column(
             mainAxisSize: MainAxisSize.min,
             children: [
