@@ -137,10 +137,62 @@ From the first on-device test pass:
 - **AirTag** relabel/regrade (see Detection) and **watermark** brightened (now ~0.10 opacity).
 - Playlist **Loop** confirmed OFF by default.
 
-**Still open from round 1:** ProtoPirate's folder/open-file button appeared dead — but its handler is
-`onPressed: (ble.isConnected && !isDecoding) ? … : null`, so it's **disabled when the Crow is
-disconnected** (it parses files off the device). Likely a connection gate, not a bug — retest with the
-Crow connected before assuming a rebuild. Pinned.
+**Still open from round 1:** ProtoPirate decode is broken (confirmed). Connected, the file picker opens,
+but it won't read/parse/decode files — a real functional break inherited from upstream. Scope unknown
+(app parse path vs firmware decode module) until a live `adb logcat` repro with the Crow connected.
+May need a firmware fix/rebuild. Deferred per user's time. Pinned.
+
+## Hardware test round 2 — fixes (2026-11-07)
+
+From the second on-device test pass. **Shipped in this build (1–3):**
+- **Filter button is now a clear text toggle** — the Detect header filter was an icon-only button that
+  wasn't readable in the field; replaced with a labelled **"Filter: ON / Filter: OFF"** button (pink-filled
+  when on). File: `lib/screens/detect_screen.dart`.
+- **Audible detection alert** — a short two-tone beep (+ heavy haptic) fires the **first time a device is
+  flagged** in a scan session (once per device, not per RSSI update). Two independent **Settings → Detection**
+  toggles: **"Surveillance alert sound"** (default **ON** — cameras / body cams / ALPR / Flock) and **"Tracker
+  alert sound"** (default **OFF** — AirTag/Tile/SmartTag, which are common and noisy). Other severities
+  (tools/drones/skimmers) don't sound. Files: `assets/sounds/detect_alert.wav`, `lib/services/alert_sound.dart`,
+  `lib/providers/settings_provider.dart`, `lib/screens/settings_screen.dart`, `lib/screens/detect_screen.dart`;
+  dep `audioplayers`.
+- **"Scanning" message moved above the logo** — the empty-state status text ("Scanning for signals… / No
+  signals raised yet") now sits **above** the watermark instead of layered over it. File:
+  `lib/screens/detect_screen.dart`.
+
+- **.sub source → UberGuidoZ (browse-by-folder).** Repointed the downloader off `Zero-Sploit/FlipperZero-
+  Subghz-DB` to **`UberGuidoZ/Flipper`**, scoped to the **`Sub-GHz/` tree only** (the Crow can't use his NFC/
+  IR/BadUSB/etc.). Can't whole-zip his repo (~2 GB monorepo; GitHub only zips whole repos), so the acquisition
+  is now **browse-then-download**: one Git Trees API call lists every `.sub` under `Sub-GHz/` (11,290 files /
+  156 MB, paths+sizes, **no bulk download**), the user picks top-level folders, and only those files are
+  fetched individually from `raw.githubusercontent.com` (per-segment URL-encoded; verified against paths with
+  spaces/commas). His **folder structure is preserved verbatim** under `SUB Files/` on the SD, so path-based
+  playlists stay resolvable. Resume now persists the folder selection (not a cached ZIP). File:
+  `lib/services/flipper_subdb_service.dart` (rewritten), `lib/screens/settings_screen.dart` (clone dialog
+  flow + text). Done.
+
+### P4 — WiFi scanner (Flock / ALPR / camera detection) — DONE
+- **Root cause of the field-test miss:** the app was **BLE-only**, but modern Flock hardware is detected
+  over **WiFi** (OUI `B4:1E:52`, `flock-` / `Flock Camera Net` SSIDs) and Flock has reportedly disabled
+  Bluetooth on newer units — so standing next to one produced nothing.
+- **Added a WiFi access-point scanner** (`wifi_scan` plugin) that runs alongside the BLE + classic-BT
+  scans on the Detect screen. New permissions: `ACCESS_WIFI_STATE`, `CHANGE_WIFI_STATE`,
+  `NEARBY_WIFI_DEVICES` (API 33+; `ACCESS_FINE_LOCATION` already present covers 10–12).
+- **Engine:** `DetectionRule.matchesWifi(ssid,bssid)` + `DetectionCategory.evaluateWifi` +
+  `DetectionProvider.evaluateWifi` light up the already-staged `wifiOui`/`wifiSsid` rules (64 across the
+  DB — Flock, ALPR, Ring, camera, body-cam, etc. now fire). WiFi APs show in the Detect list with their
+  own tile (SSID · BSSID · WiFi) and the same graded badge; surveillance hits trigger the audible alert.
+- Files: `lib/services/wifi_scanner.dart` (new), `lib/detection/detection_models.dart`,
+  `lib/providers/detection_provider.dart`, `lib/screens/detect_screen.dart`,
+  `android/app/src/main/AndroidManifest.xml`, `pubspec.yaml` (dep `wifi_scan`).
+- **Caveats (surfaced, not bugs):** Android throttles WiFi scans to ~4 / 2 min, so WiFi detections refresh
+  slower than BLE (scan loop ~25 s). iOS has no public WiFi-scan API, so the scanner no-ops there (guarded).
+
+**In progress / next (5):**
+- **Crow disconnects during playlist playback** — needs a BLE keep-alive during inter-file gaps and/or
+  mid-playlist auto-reconnect+resume (keep-screen-awake alone isn't enough).
+- **UberGuidoZ playlist compatibility (to verify)** — keep the phone-side playlist feature; separately check
+  whether his repo ships Flipper `.txt` playlists and, if so, translate their `/ext/subghz/...` paths to the
+  Crow's `SUB Files/` layout + confirm the firmware can play that format.
 
 ## Scope decisions (recorded)
 
@@ -162,7 +214,7 @@ Firmware-side: BLE + WiFi AP spam · deauth detection · POCSAG/FLEX pager decod
 **nRF24 ESB capture→replay + fuzzing** (own device). *(Reviewed 2026-11-05: promiscuous sniffing,
 2.4 GHz spectrum scanner, and the jammer are already in the firmware — MouseJack/NrfSpectrum/NrfJammer;
 BLE-adv spoofing via nRF24 was ruled out in favour of the ESP32-S3's real BLE radio.)*
-App-side: **persistence-over-time tracker detection** (anti-stalking: flag a Find My/Tile/SmartTag
+App-side: **Chameleon Ultra control over Bluetooth** (RFID/NFC slots, read/emulate, alongside the Crow; reimplemented from the published protocol docs, not copied code) · **persistence-over-time tracker detection** (anti-stalking: flag a Find My/Tile/SmartTag
 address that stays with you across time + movement; rides on P5 background scanning + a location log;
 MAC rotation ~15 min caps cross-journey tracking). **Scoped to item-tracker categories ONLY — surveillance /
 LE / drone detection (Flock, Axon/Taser body cams + stun guns, ALPR, ShotSpotter, cameras, Ring, fleet,
