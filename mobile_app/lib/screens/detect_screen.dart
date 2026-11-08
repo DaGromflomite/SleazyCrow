@@ -4,22 +4,34 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:provider/provider.dart';
 import '../providers/ble_provider.dart';
 import '../providers/detection_provider.dart';
+import '../providers/settings_provider.dart';
 import '../detection/detection_models.dart';
 import '../services/classic_bt.dart';
+import '../services/alert_sound.dart';
+import '../services/wifi_scanner.dart';
 import '../theme/app_colors.dart';
 import '../widgets/gradient_widgets.dart';
 import '../widgets/logo_watermark.dart';
 import 'hunt_screen.dart';
 
-/// A row in the Detect list — either a BLE advert or a classic-BT device.
+/// A row in the Detect list — a BLE advert, a classic-BT device, or a WiFi AP.
 class _Row {
   final ScanResult? ble;
   final ClassicBtDevice? classic;
+  final WifiAp? wifi;
   final Detection? detection;
-  _Row.ble(this.ble, this.detection) : classic = null;
-  _Row.classic(this.classic, this.detection) : ble = null;
+  _Row.ble(this.ble, this.detection)
+      : classic = null,
+        wifi = null;
+  _Row.classic(this.classic, this.detection)
+      : ble = null,
+        wifi = null;
+  _Row.wifi(this.wifi, this.detection)
+      : ble = null,
+        classic = null;
   bool get isClassic => classic != null;
-  int get rssi => ble?.rssi ?? classic!.rssi;
+  bool get isWifi => wifi != null;
+  int get rssi => ble?.rssi ?? classic?.rssi ?? wifi!.rssi;
 }
 
 /// Phase 1 — BLE Scanner (the backbone of the phone-radio detection suite).
@@ -50,6 +62,17 @@ class _DetectScreenState extends State<DetectScreen> {
   final Map<String, ClassicBtDevice> _classic = {};
   StreamSubscription<ClassicBtDevice?>? _classicSub;
   bool _classicSupported = false;
+
+  /// WiFi access points, keyed by BSSID. This is how WiFi-only surveillance gear
+  /// (Flock cameras, ALPR, Ring, body cams) gets flagged — Bluetooth can't see them.
+  final WifiScanner _wifiScanner = WifiScanner();
+  final Map<String, WifiAp> _wifi = {};
+  StreamSubscription<List<WifiAp>>? _wifiSub;
+  bool _wifiSupported = false;
+
+  /// Device ids that have already fired the audible alert this scan session,
+  /// so the beep sounds once per newly-flagged device (not every RSSI update).
+  final Set<String> _alertedIds = {};
 
   @override
   void initState() {
@@ -83,6 +106,8 @@ class _DetectScreenState extends State<DetectScreen> {
         await FlutterBluePlus.stopScan();
       }
       _devices.clear();
+      _wifi.clear();
+      _alertedIds.clear();
       _resultsSub?.cancel();
       _resultsSub = FlutterBluePlus.scanResults.listen(
         (results) {
@@ -103,9 +128,28 @@ class _DetectScreenState extends State<DetectScreen> {
       // Classic Bluetooth inquiry runs alongside BLE (catches skimmer modules
       // and other BR/EDR gear BLE can't see).
       _startClassic();
+      // WiFi scan runs alongside too — the only way to see Flock/ALPR/camera
+      // gear that broadcasts over WiFi (Bluetooth often disabled on it).
+      _startWifi();
     } catch (e) {
       if (mounted) setState(() => _error = 'Scan error: $e');
     }
+  }
+
+  /// Start the WiFi access-point scan and keep its results flowing while we scan.
+  Future<void> _startWifi() async {
+    _wifiSupported = await _wifiScanner.isSupported();
+    if (!_wifiSupported) return; // e.g. iOS — no public WiFi scan API
+    _wifiSub ??= _wifiScanner.results.listen((aps) {
+      if (!mounted) return;
+      for (final ap in aps) {
+        // Skip hidden/empty SSIDs with no useful BSSID.
+        if (ap.bssid.isEmpty) continue;
+        _wifi[ap.bssid] = ap;
+      }
+      setState(() {});
+    });
+    await _wifiScanner.start();
   }
 
   /// Start classic-BT inquiry and keep it cycling while we're scanning.
@@ -130,6 +174,7 @@ class _DetectScreenState extends State<DetectScreen> {
       await FlutterBluePlus.stopScan();
     } catch (_) {/* ignore */}
     await ClassicBt.stopDiscovery();
+    await _wifiScanner.stop();
   }
 
   Future<void> _toggle() async {
@@ -145,26 +190,62 @@ class _DetectScreenState extends State<DetectScreen> {
     _resultsSub?.cancel();
     _scanStateSub?.cancel();
     _classicSub?.cancel();
+    _wifiSub?.cancel();
     // Stop scanning when leaving the tab so we don't drain the battery or
     // block the Connect tab's Crow scan.
     FlutterBluePlus.stopScan();
     ClassicBt.stopDiscovery();
+    _wifiScanner.dispose();
     super.dispose();
   }
 
   bool _flaggedOnly = false; // hide unflagged devices (TVs, phones, unknowns)
 
+  /// Stable id for a row, used by the once-per-device alert set.
+  String _idOf(_Row e) => e.isClassic
+      ? 'bt:${e.classic!.address}'
+      : e.isWifi
+          ? 'wifi:${e.wifi!.bssid}'
+          : 'ble:${e.ble!.device.remoteId.str}';
+
   @override
   Widget build(BuildContext context) {
     final detector = context.watch<DetectionProvider>();
 
-    // Merge BLE adverts + classic-BT devices, each evaluated against signatures.
+    // Merge BLE adverts + classic-BT devices + WiFi APs, each evaluated against
+    // signatures. WiFi is how Flock/ALPR/camera gear gets flagged.
     final rows = <_Row>[
       for (final r in _devices.values) _Row.ble(r, detector.evaluate(r)),
       for (final c in _classic.values)
         _Row.classic(c, detector.evaluateClassic(c.name)),
+      for (final w in _wifi.values)
+        _Row.wifi(w, detector.evaluateWifi(w.ssid, w.bssid)),
     ];
     final flagged = rows.where((e) => e.detection != null).length;
+
+    // Audible/haptic alert the first time a device of an *alerting* severity
+    // gets flagged this session. Surveillance alerts by default; trackers only
+    // if the user opts in (both are independent toggles in Settings). Other
+    // severities (tools/drones/skimmers) don't sound. Fired after the frame so
+    // it never runs during build.
+    final settings = context.read<SettingsProvider>();
+    final alertSeverities = <String>{
+      if (settings.alertSoundEnabled) 'surveillance',
+      if (settings.trackerAlertSoundEnabled) 'tracker',
+    };
+    final flaggedIds = <String>{
+      for (final e in rows)
+        if (e.detection != null &&
+            alertSeverities.contains(e.detection!.category.severity))
+          _idOf(e),
+    };
+    final fresh = flaggedIds.difference(_alertedIds);
+    if (fresh.isNotEmpty) {
+      _alertedIds.addAll(fresh);
+      WidgetsBinding.instance.addPostFrameCallback(
+          (_) => AlertSound.instance.fire());
+    }
+
     // Flagged devices float to the top; then by signal strength.
     rows.sort((a, b) {
       final fa = a.detection != null, fb = b.detection != null;
@@ -240,17 +321,44 @@ class _DetectScreenState extends State<DetectScreen> {
               ],
             ),
           ),
-          IconButton(
-            tooltip: _flaggedOnly ? 'Showing flagged only' : 'Show flagged only',
-            onPressed: () => setState(() => _flaggedOnly = !_flaggedOnly),
-            icon: Icon(
-              _flaggedOnly ? Icons.filter_alt : Icons.filter_alt_outlined,
-              color: _flaggedOnly ? AppColors.cyberPink : AppColors.secondaryText,
+          // Clear text toggle so it's obvious whether the flagged-only filter
+          // is active (the old icon-only button wasn't readable in the field).
+          Padding(
+            padding: const EdgeInsets.only(right: 2),
+            child: TextButton.icon(
+              onPressed: () => setState(() => _flaggedOnly = !_flaggedOnly),
+              style: TextButton.styleFrom(
+                backgroundColor: _flaggedOnly
+                    ? AppColors.cyberPink.withValues(alpha: 0.18)
+                    : Colors.transparent,
+                foregroundColor: _flaggedOnly
+                    ? AppColors.cyberPink
+                    : AppColors.secondaryText,
+                side: BorderSide(
+                    color: _flaggedOnly
+                        ? AppColors.cyberPink
+                        : AppColors.borderDefault),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+              icon: Icon(
+                  _flaggedOnly ? Icons.filter_alt : Icons.filter_alt_outlined,
+                  size: 15),
+              label: Text(
+                _flaggedOnly ? 'Filter: ON' : 'Filter: OFF',
+                style: const TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w700),
+              ),
             ),
           ),
           IconButton(
             tooltip: 'Detection filters',
             onPressed: _openFilters,
+            visualDensity: VisualDensity.compact,
             icon: const Icon(Icons.tune, color: AppColors.secondaryText),
           ),
           GradientButton(
@@ -379,30 +487,41 @@ class _DetectScreenState extends State<DetectScreen> {
   }
 
   Widget _buildEmpty() {
+    // Status message sits ABOVE the watermark (not layered over it) so the
+    // "scanning / no signals" text reads clearly and the logo fills the space
+    // below it.
     return Center(
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          const LogoWatermark(size: 300, opacity: 0.26),
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.bluetooth_searching,
-                  size: 44,
-                  color: AppColors.secondaryText.withValues(alpha: 0.5)),
-              const SizedBox(height: 12),
-              Text(
-                _scanning ? 'Listening for nearby devices…' : 'No devices yet',
-                style: const TextStyle(color: AppColors.secondaryText),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.bluetooth_searching,
+                size: 44,
+                color: AppColors.secondaryText.withValues(alpha: 0.5)),
+            const SizedBox(height: 12),
+            Text(
+              _scanning ? 'Scanning for signals…' : 'No devices yet',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AppColors.primaryText,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
               ),
-              const SizedBox(height: 4),
-              const Text(
-                'Works with no Crow attached.',
-                style: TextStyle(color: AppColors.disabledText, fontSize: 12),
-              ),
-            ],
-          ),
-        ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _scanning
+                  ? 'No signals raised yet — nearby devices will appear here.'
+                  : 'Press Scan to start. Works with no Crow attached.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                  color: AppColors.secondaryText, fontSize: 12),
+            ),
+            const SizedBox(height: 20),
+            const LogoWatermark(size: 240, opacity: 0.26),
+          ],
+        ),
       ),
     );
   }
@@ -415,7 +534,48 @@ class _DetectScreenState extends State<DetectScreen> {
           const Divider(height: 1, color: AppColors.divider),
       itemBuilder: (_, i) => rows[i].isClassic
           ? _buildClassicTile(rows[i].classic!, rows[i].detection)
-          : _buildTile(rows[i].ble!, rows[i].detection),
+          : rows[i].isWifi
+              ? _buildWifiTile(rows[i].wifi!, rows[i].detection)
+              : _buildTile(rows[i].ble!, rows[i].detection),
+    );
+  }
+
+  Widget _buildWifiTile(WifiAp ap, Detection? detection) {
+    final name = ap.ssid.isNotEmpty ? ap.ssid : '(hidden network)';
+    return ListTile(
+      dense: true,
+      leading: Icon(Icons.wifi, color: _rssiColor(ap.rssi), size: 22),
+      title: Text(
+        name,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+            color: AppColors.primaryText, fontWeight: FontWeight.w500),
+      ),
+      isThreeLine: detection != null,
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${ap.bssid}  ·  WiFi',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: AppColors.secondaryText, fontSize: 12),
+          ),
+          if (detection != null) ...[
+            const SizedBox(height: 4),
+            _detectionBadge(detection),
+          ],
+        ],
+      ),
+      trailing: Text(
+        '${ap.rssi} dBm',
+        style: TextStyle(
+          color: _rssiColor(ap.rssi),
+          fontWeight: FontWeight.w600,
+          fontSize: 13,
+        ),
+      ),
     );
   }
 

@@ -141,4 +141,21 @@ class DetectionProvider extends ChangeNotifier {
     }
     return best;
   }
+
+  /// Strongest detection for a scanned WiFi access point among enabled
+  /// categories, or null. This is how Flock/ALPR/camera/Ring gear (WiFi-only,
+  /// Bluetooth often disabled) gets flagged.
+  Detection? evaluateWifi(String ssid, String bssid) {
+    final db = _db;
+    if (db == null) return null;
+    Detection? best;
+    for (final c in db.categories) {
+      if (_disabled.contains(c.id)) continue;
+      final g = c.evaluateWifi(ssid, bssid);
+      if (g != null && (best == null || g.index < best.grade.index)) {
+        best = Detection(c, g);
+      }
+    }
+    return best;
+  }
 }

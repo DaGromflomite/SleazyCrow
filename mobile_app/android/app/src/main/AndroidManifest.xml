@@ -15,7 +15,15 @@
     <!-- Legacy Bluetooth permissions for older Android versions -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    
+
+    <!-- WiFi scanning (Flock/ALPR/camera detection over WiFi). On Android 13+
+         NEARBY_WIFI_DEVICES replaces the location requirement for scan results;
+         ACCESS_FINE_LOCATION still covers Android 10-12. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"
+                     tools:targetApi="t" />
+
     <!-- Internet permission — required for OTA update checks and firmware download -->
     <uses-permission android:name="android.permission.INTERNET" />
     

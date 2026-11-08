@@ -103,6 +103,24 @@ class DetectionRule {
     }
   }
 
+  /// True if this rule matches a scanned WiFi access point. BLE rule types
+  /// always return false here. [bssid] is the AP's MAC (any separator), [ssid]
+  /// its network name.
+  bool matchesWifi(String ssid, String bssid) {
+    switch (type) {
+      case 'wifiOui':
+        if (text == null) return false;
+        final oui = text!.replaceAll('-', ':');
+        final b = bssid.toLowerCase().replaceAll('-', ':');
+        return b.startsWith(oui);
+      case 'wifiSsid':
+        if (text == null) return false;
+        return ssid.toLowerCase().contains(text!);
+      default:
+        return false; // BLE rule types: not a WiFi match
+    }
+  }
+
   static String _name(ScanResult r) =>
       '${r.device.platformName} ${r.advertisementData.advName}'.toLowerCase();
 }
@@ -139,6 +157,17 @@ class DetectionCategory {
     Grade? best;
     for (final rule in rules) {
       if (rule.matchesBle(r)) {
+        if (best == null || rule.grade.index < best.index) best = rule.grade;
+      }
+    }
+    return best;
+  }
+
+  /// Best (strongest) grade this category matches for a WiFi AP, or null.
+  Grade? evaluateWifi(String ssid, String bssid) {
+    Grade? best;
+    for (final rule in rules) {
+      if (rule.matchesWifi(ssid, bssid)) {
         if (best == null || rule.grade.index < best.index) best = rule.grade;
       }
     }

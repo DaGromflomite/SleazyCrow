@@ -683,6 +683,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
 
+            // --- Detection ---
+            _buildSubSectionHeader(
+                Icons.notifications_active, 'Detection', AppColors.cyberPink),
+            Consumer<SettingsProvider>(
+              builder: (context, settings, _) => SwitchListTile(
+                dense: true,
+                activeColor: AppColors.cyberPink,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                title: const Text('Surveillance alert sound',
+                    style:
+                        TextStyle(color: AppColors.primaryText, fontSize: 14)),
+                subtitle: const Text(
+                    'Beep + buzz when a surveillance device (camera / body cam / '
+                    'ALPR / Flock etc.) is flagged. Trackers and other gear stay '
+                    'silent. On by default.',
+                    style: TextStyle(
+                        color: AppColors.secondaryText, fontSize: 11)),
+                value: settings.alertSoundEnabled,
+                onChanged: (v) =>
+                    context.read<SettingsProvider>().setAlertSoundEnabled(v),
+              ),
+            ),
+            Consumer<SettingsProvider>(
+              builder: (context, settings, _) => SwitchListTile(
+                dense: true,
+                activeColor: AppColors.cyberPink,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                title: const Text('Tracker alert sound',
+                    style:
+                        TextStyle(color: AppColors.primaryText, fontSize: 14)),
+                subtitle: const Text(
+                    'Also beep + buzz for item trackers (AirTag / Tile / '
+                    'SmartTag). Off by default — trackers are common and noisy.',
+                    style: TextStyle(
+                        color: AppColors.secondaryText, fontSize: 11)),
+                value: settings.trackerAlertSoundEnabled,
+                onChanged: (v) => context
+                    .read<SettingsProvider>()
+                    .setTrackerAlertSoundEnabled(v),
+              ),
+            ),
+
             const SizedBox(height: 16),
           ],
         ),
@@ -1658,7 +1700,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Download .sub files from Zero-Sploit repo and save to device SDCard in "SUB Files" folder',
+                        'Download .sub files from UberGuidoZ\'s Sub-GHz collection (pick by folder) and save to the SD card under "SUB Files"',
                         style: TextStyle(
                           color: AppColors.secondaryText,
                           fontSize: 11,
@@ -3464,108 +3506,86 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
     _startCloning(resume: true);
   }
 
+  /// Shared progress callback → dialog state.
+  void _onPhaseProgress(String phase, String detail, double fraction) {
+    if (mounted) {
+      setState(() {
+        _phase = phase;
+        _statusText = detail;
+        _progress = fraction;
+      });
+    }
+  }
+
   Future<void> _startCloning({required bool resume}) async {
-    // Keep screen awake during the entire cloning process
     WakelockPlus.enable();
     try {
-      List<SubFileEntry> subFiles;
-
       if (resume) {
-        // ── Resume path: re-extract from cached ZIP ──
+        // ── Resume: re-list the catalog, restore the saved folder selection,
+        // re-download those folders, and continue the upload (completed files
+        // are skipped in _beginUpload). ──
         setState(() {
-          _phase = 'extract';
-          _statusText = 'Loading cached database...';
+          _phase = 'catalog';
+          _statusText = 'Resuming — loading the catalog…';
           _progress = 0.0;
         });
-
-        final cachedZip = await FlipperSubDbService.loadCachedZip();
-        if (cachedZip == null) {
-          setState(() {
-            _isDone = true;
-            _hasError = true;
-            _errorMessage = 'Cached ZIP not found. Please start a fresh clone.';
-          });
-          WakelockPlus.disable();
-          return;
-        }
-
-        // Load previously completed files
         _completedPaths = await FlipperSubDbService.loadCompletedFiles();
-
-        subFiles = FlipperSubDbService.extractFromBytes(
-          cachedZip,
-          onProgress: (phase, detail, fraction) {
-            if (mounted) {
-              setState(() {
-                _phase = phase;
-                _statusText = detail;
-                _progress = fraction;
-              });
-            }
-          },
+        final sel = await FlipperSubDbService.loadSelection();
+        final catalog =
+            await FlipperSubDbService.fetchCatalog(onProgress: _onPhaseProgress);
+        _allFiles = catalog;
+        _categoryCounts = FlipperSubDbService.categoryCounts(catalog);
+        _selectedCategories =
+            sel?.categories ?? _categoryCounts.keys.toSet();
+        _includeBruteForce = sel?.includeBruteForce ?? false;
+        final selected = FlipperSubDbService.filterSelection(
+          catalog,
+          categories: _selectedCategories,
+          excludeBruteForce: !_includeBruteForce,
         );
-      } else {
-        // ── Fresh start: download and extract ──
-        _completedPaths = {};
-        await FlipperSubDbService.clearCache();
-
-        setState(() {
-          _phase = 'download';
-          _statusText = 'Downloading SubGHz database from GitHub...';
-          _progress = 0.0;
-        });
-
-        subFiles = await FlipperSubDbService.downloadAndExtract(
-          onProgress: (phase, detail, fraction) {
-            if (mounted) {
-              setState(() {
-                _phase = phase;
-                _statusText = detail;
-                _progress = fraction;
-              });
-            }
-          },
-          onZipDownloaded: (zipBytes) async {
-            // Cache the raw ZIP for potential resume
-            await FlipperSubDbService.cacheZipBytes(zipBytes);
-          },
-        );
+        await _downloadAndUpload(selected);
+        return;
       }
 
-      if (subFiles.isEmpty) {
+      // ── Fresh: one API call lists the Sub-GHz folders (no big download),
+      // then the user picks which to pull. ──
+      _completedPaths = {};
+      await FlipperSubDbService.clearCache();
+      setState(() {
+        _phase = 'catalog';
+        _statusText = 'Listing folders from UberGuidoZ…';
+        _progress = 0.0;
+      });
+
+      final catalog =
+          await FlipperSubDbService.fetchCatalog(onProgress: _onPhaseProgress);
+      if (catalog.isEmpty) {
         setState(() {
           _isDone = true;
           _hasError = true;
-          _errorMessage = 'No .sub files found in the repository';
+          _errorMessage = 'No .sub files found under Sub-GHz.';
         });
         WakelockPlus.disable();
         return;
       }
 
-      // Extraction done. Instead of pushing the whole database over BLE
-      // (impractical — tens of thousands of files, see issue #16), let the
-      // user pick which top-level sections to upload. Stash the full list and
-      // switch to the selection phase; the actual upload runs in _beginUpload
-      // once the user confirms.
-      _allFiles = subFiles;
-      _categoryCounts = FlipperSubDbService.categoryCounts(subFiles);
+      _allFiles = catalog;
+      _categoryCounts = FlipperSubDbService.categoryCounts(catalog);
       _selectedCategories = _categoryCounts.keys.toSet();
-      // Don't hold the wakelock while waiting for the user to choose.
+      // Don't hold the wakelock while the user chooses.
       WakelockPlus.disable();
       if (mounted) {
         setState(() {
           _phase = 'select';
-          _statusText = 'Choose which sections to upload.';
+          _statusText = 'Choose which folders to download.';
           _progress = 0.0;
         });
       }
       return;
     } catch (e) {
-      // On error, save progress so user can resume later
       if (_completedPaths.isNotEmpty) {
         await FlipperSubDbService.saveProgress(_completedPaths);
       }
-      // Release wakelock on error
       WakelockPlus.disable();
       if (mounted) {
         setState(() {
@@ -3578,6 +3598,45 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
     }
   }
 
+  /// Download the selected (stub) entries' real content, split oversized RAW
+  /// files, then upload to the Crow. Shared by the confirm + resume paths.
+  Future<void> _downloadAndUpload(List<SubFileEntry> selectedStubs) async {
+    if (selectedStubs.isEmpty) {
+      WakelockPlus.disable();
+      if (mounted) {
+        setState(() {
+          _isDone = true;
+          _statusText = 'Nothing selected to download.';
+        });
+      }
+      return;
+    }
+    WakelockPlus.enable();
+    setState(() {
+      _phase = 'download';
+      _statusText = 'Downloading selected files…';
+      _progress = 0.0;
+    });
+    final downloaded = await FlipperSubDbService.downloadEntries(
+      selectedStubs,
+      onProgress: _onPhaseProgress,
+    );
+    if (downloaded.isEmpty) {
+      WakelockPlus.disable();
+      if (mounted) {
+        setState(() {
+          _isDone = true;
+          _hasError = true;
+          _errorMessage = 'Downloads failed — check your internet connection.';
+        });
+      }
+      return;
+    }
+    // Split any oversized RAW .sub into smaller, reliably-transferable pieces.
+    final expanded = FlipperSubDbService.expandForUpload(downloaded);
+    await _beginUpload(expanded);
+  }
+
   /// Number of files that the current category selection would upload.
   int get _selectedFileCount => FlipperSubDbService.filterSelection(
         _allFiles,
@@ -3585,17 +3644,18 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
         excludeBruteForce: !_includeBruteForce,
       ).length;
 
-  /// Confirm the category selection and start uploading the chosen files.
-  void _confirmSelection() {
+  /// Confirm the folder selection: persist it (for resume), download the chosen
+  /// folders' files, then upload them to the Crow.
+  Future<void> _confirmSelection() async {
     final selected = FlipperSubDbService.filterSelection(
       _allFiles,
       categories: _selectedCategories,
       excludeBruteForce: !_includeBruteForce,
     );
     if (selected.isEmpty) return;
-    // Split any oversized RAW .sub into smaller, reliably-transferable pieces.
-    final expanded = FlipperSubDbService.expandForUpload(selected);
-    _beginUpload(expanded);
+    await FlipperSubDbService.saveSelection(
+        _selectedCategories, _includeBruteForce);
+    await _downloadAndUpload(selected);
   }
 
   /// Upload the chosen [files] to the SD card. Runs after the user confirms
@@ -3821,9 +3881,9 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
                     fontSize: 13)),
             const SizedBox(height: 6),
             _introStep('1.',
-                'The SubGHz database is downloaded to your phone\'s storage (a one-time download of a few tens of MB).'),
+                'UberGuidoZ\'s Sub-GHz folders are listed (one quick fetch — no large download).'),
             _introStep('2.',
-                'You choose which sections to send to the Crow\'s SD card.'),
+                'You pick which folders to pull; only those download, then transfer to the Crow\'s SD card (his folder layout is kept intact).'),
             _introStep('3.',
                 'The selected files transfer over Bluetooth, which is slow — keep each batch small (recommended under $_recommendedMaxFiles files). You can run more batches afterward.'),
             const SizedBox(height: 10),
@@ -3911,8 +3971,8 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'The full database is too large to push over BLE in one go. '
-              'Pick only the sections you want.',
+              'Pick the folders you want — only those download from UberGuidoZ, '
+              'then transfer to the Crow over Bluetooth.',
               style: TextStyle(color: AppColors.secondaryText, fontSize: 12),
             ),
             const SizedBox(height: 4),
@@ -4116,11 +4176,13 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
                 Text(
                   _phase == 'format'
                       ? 'Preparing: Formatting SD card'
-                      : _phase == 'download'
-                          ? 'Phase 1/3: Downloading'
-                          : _phase == 'extract'
-                              ? 'Phase 2/3: Extracting'
-                              : 'Phase 3/3: Uploading to SDCard',
+                      : _phase == 'catalog'
+                          ? 'Listing folders…'
+                          : _phase == 'download'
+                              ? 'Downloading selected files'
+                              : _phase == 'upload'
+                                  ? 'Uploading to SD card'
+                                  : 'Working…',
                   style: TextStyle(
                     color: AppColors.primaryAccent,
                     fontWeight: FontWeight.w600,
