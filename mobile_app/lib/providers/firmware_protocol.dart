@@ -40,6 +40,12 @@ class FirmwareBinaryProtocol {
   static const int MAGIC_BYTE = 0xAA;
   static const int PACKET_HEADER_SIZE = 7; // magic + type + chunk_id + chunk_num + total_chunks + data_len(2 bytes)
   static const int MAX_CHUNK_SIZE = 500; // Safe maximum: BLE notify limit is 509 bytes, so 509 - 7 (header) - 1 (checksum) - 1 (safety) = 500
+  /// File bytes carried by one upload chunk (chunk minus header and checksum).
+  static const int UPLOAD_CHUNK_DATA = MAX_CHUNK_SIZE - PACKET_HEADER_SIZE - 1;
+  /// The Crow's chunk counters are one byte, so one upload is at most 255
+  /// chunks (1 header + 254 data) = 124,968 bytes. Bigger uploads wrap the
+  /// counter and the Crow saves a cut-off file while reporting success.
+  static const int MAX_UPLOAD_BYTES = 254 * UPLOAD_CHUNK_DATA;
   
   // Packet types (matching firmware)
   static const int PACKET_TYPE_DATA = 0x01;

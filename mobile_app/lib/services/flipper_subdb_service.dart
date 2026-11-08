@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
+import '../providers/firmware_protocol.dart';
 
 /// Entry representing a .sub file from the source SubGHz collection.
 ///
@@ -222,8 +223,10 @@ class FlipperSubDbService {
   // into smaller, fully-valid .sub pieces. (Unchanged logic.)
   // ---------------------------------------------------------------------------
 
-  static const int splitThresholdBytes = 200 * 1024;
-  static const int splitPieceTargetBytes = 128 * 1024;
+  // Anything over the Crow's per-file upload limit is split; pieces stay well
+  // under it (header included).
+  static const int splitThresholdBytes = FirmwareBinaryProtocol.MAX_UPLOAD_BYTES;
+  static const int splitPieceTargetBytes = 100 * 1024;
 
   static List<SubFileEntry> splitIfLargeRaw(SubFileEntry entry) {
     if (entry.content.length <= splitThresholdBytes) return [entry];

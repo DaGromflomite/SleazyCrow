@@ -98,6 +98,7 @@ class _DetectScreenState extends State<DetectScreen> {
       }
       return;
     }
+    if (!mounted) return;
 
     try {
       // Only one BLE scan can run at a time; clear any existing one first
@@ -125,6 +126,11 @@ class _DetectScreenState extends State<DetectScreen> {
         continuousUpdates: true,
         androidScanMode: AndroidScanMode.lowLatency,
       );
+      if (!mounted) {
+        // Left the tab while the scan was starting: don't leave it running.
+        await FlutterBluePlus.stopScan();
+        return;
+      }
       // Classic Bluetooth inquiry runs alongside BLE (catches skimmer modules
       // and other BR/EDR gear BLE can't see).
       _startClassic();
@@ -139,7 +145,7 @@ class _DetectScreenState extends State<DetectScreen> {
   /// Start the WiFi access-point scan and keep its results flowing while we scan.
   Future<void> _startWifi() async {
     _wifiSupported = await _wifiScanner.isSupported();
-    if (!_wifiSupported) return; // e.g. iOS — no public WiFi scan API
+    if (!_wifiSupported || !mounted) return; // e.g. iOS — no public WiFi scan API
     _wifiSub ??= _wifiScanner.results.listen((aps) {
       if (!mounted) return;
       for (final ap in aps) {
@@ -150,17 +156,18 @@ class _DetectScreenState extends State<DetectScreen> {
       setState(() {});
     });
     await _wifiScanner.start();
+    if (!mounted) await _wifiScanner.stop();
   }
 
   /// Start classic-BT inquiry and keep it cycling while we're scanning.
   Future<void> _startClassic() async {
     _classicSupported = await ClassicBt.isSupported();
-    if (!_classicSupported) return;
+    if (!_classicSupported || !mounted || ClassicBt.paused) return;
     _classicSub ??= ClassicBt.events().listen((d) {
       if (!mounted) return;
       if (d == null) {
         // one inquiry cycle finished — re-arm while still scanning
-        if (_scanning) ClassicBt.startDiscovery();
+        if (_scanning && mounted && !ClassicBt.paused) ClassicBt.startDiscovery();
         return;
       }
       _classic[d.address] = d;

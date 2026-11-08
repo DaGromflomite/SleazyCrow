@@ -653,6 +653,13 @@ bool BleAdapter::handleUploadChunk(uint8_t chunkId, uint8_t chunkNum, uint8_t to
             }
         }
         
+        // Never let prefix + '/' + path overrun fullPath (path can be up to 255 bytes).
+        if (strlen(fullPath) + 1 + pathLength >= sizeof(fullPath)) {
+            ESP_LOGE(TAG, "Upload path too long: %d bytes", pathLength);
+            notifyError("Upload path too long");
+            return false;
+        }
+
         if (pathLength > 0) {
             // pathType 4 (LittleFS root) and 5 (SD root) already end with '/'
             if (pathType != 4 && pathType != 5) strcat(fullPath, "/");
