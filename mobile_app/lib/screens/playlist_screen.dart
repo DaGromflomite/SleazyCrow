@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/file_item.dart';
 import '../models/sub_playlist.dart';
 import '../providers/ble_provider.dart';
+import '../services/sd_catalog.dart';
 import '../services/playlist_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/gradient_widgets.dart';
@@ -380,7 +381,28 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
   Future<void> _addFromSd() async {
     final ble = Provider.of<BleProvider>(context, listen: false);
     if (!ble.isConnected) {
-      _snack('Connect your Crow to browse its SD card.');
+      // No Crow: browse the phone's saved list of the card instead.
+      final snap = await SdCatalog.snapshot();
+      if (!mounted) return;
+      if (snap.files.isEmpty) {
+        _snack("The phone doesn't know what's on the SD card yet. Connect the Crow once "
+            '(or download files to it with the app), then you can add files without it.');
+        return;
+      }
+      final picked = await showModalBottomSheet<List<PlaylistItem>>(
+        context: context,
+        backgroundColor: AppColors.primaryBackground,
+        isScrollControlled: true,
+        showDragHandle: false,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (_) => _CatalogPicker(files: snap.files, updated: snap.updated),
+      );
+      if (picked != null && picked.isNotEmpty) {
+        setState(() => pl.items.addAll(picked));
+        await _save();
+      }
       return;
     }
     final picked = await showModalBottomSheet<List<PlaylistItem>>(
@@ -772,6 +794,135 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
 // ---------------------------------------------------------------------------
 // SD file picker: browse the Crow's SD (pathType 5) and multi-select .sub files.
 // ---------------------------------------------------------------------------
+
+/// Picks .sub files from the phone's saved list of the SD card (no Crow needed).
+class _CatalogPicker extends StatefulWidget {
+  final Set<String> files;
+  final DateTime? updated;
+  const _CatalogPicker({required this.files, required this.updated});
+
+  @override
+  State<_CatalogPicker> createState() => _CatalogPickerState();
+}
+
+class _CatalogPickerState extends State<_CatalogPicker> {
+  final Set<String> _selected = {};
+  String _folder = '/';
+
+  String _when() {
+    final u = widget.updated;
+    if (u == null) return 'saved list';
+    final d = DateTime.now().difference(u);
+    if (d.inMinutes < 1) return 'saved just now';
+    if (d.inHours < 1) return 'saved ${d.inMinutes} min ago';
+    if (d.inDays < 1) return 'saved ${d.inHours} h ago';
+    return 'saved ${d.inDays} days ago';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = SdCatalog.children(widget.files, _folder);
+    return SizedBox(
+      height: MediaQuery.of(context).size.height * 0.75,
+      child: Column(
+        children: [
+          GradientSheetHeader(
+            title: 'Pick .sub files',
+            subtitle: "Crow not connected: phone's ${_when()}",
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 8, 4),
+            child: Row(
+              children: [
+                const Icon(Icons.sd_card_outlined, color: AppColors.cyberPink),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(_folder,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: AppColors.primaryText, fontWeight: FontWeight.w600)),
+                ),
+                if (_folder != '/')
+                  TextButton.icon(
+                    onPressed: () => setState(() => _folder = SdCatalog.parentOf(_folder)),
+                    icon: const Icon(Icons.arrow_upward, size: 16),
+                    label: const Text('Up'),
+                  ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: AppColors.divider),
+          Expanded(
+            child: ListView(
+              children: [
+                for (final d in c.dirs)
+                  ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.folder, color: AppColors.goldAccent),
+                    title: Text(d, style: const TextStyle(color: AppColors.primaryText)),
+                    trailing: const Icon(Icons.chevron_right, color: AppColors.secondaryText),
+                    onTap: () => setState(() => _folder = _folder == '/' ? '/$d' : '$_folder/$d'),
+                  ),
+                for (final p in c.files)
+                  CheckboxListTile(
+                    dense: true,
+                    activeColor: AppColors.cyberPink,
+                    value: _selected.contains(p),
+                    onChanged: (v) => setState(() {
+                      if (v == true) {
+                        _selected.add(p);
+                      } else {
+                        _selected.remove(p);
+                      }
+                    }),
+                    secondary: const Icon(Icons.graphic_eq, color: AppColors.cyanAccent),
+                    title: Text(p.substring(p.lastIndexOf('/') + 1),
+                        style: const TextStyle(color: AppColors.primaryText)),
+                  ),
+                if (c.dirs.isEmpty && c.files.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(28),
+                    child: Center(
+                      child: Text('No .sub files or folders here.',
+                          style: TextStyle(color: AppColors.secondaryText)),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Text('${_selected.length} selected',
+                      style: const TextStyle(color: AppColors.secondaryText)),
+                  const Spacer(),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.cyberPink,
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: _selected.isEmpty
+                        ? null
+                        : () => Navigator.pop(
+                              context,
+                              (_selected.toList()..sort())
+                                  .map((p) => PlaylistItem.file(path: p))
+                                  .toList(),
+                            ),
+                    child: const Text('Add selected'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _SubFilePicker extends StatefulWidget {
   const _SubFilePicker();
