@@ -109,6 +109,12 @@ class BleProvider extends ChangeNotifier {
   bool isFormattingSD = false;   // True while SD format command is in progress
   bool sdFormatSuccess = false;  // Result of last SD format
   String sdFormatProgress = '';  // Progress message during SD format (e.g. "Deleting: /somefile")
+  // Completes when the Crow reports the format finished (true = success), or
+  // false if the link drops first. Lets callers wait for the real end of the
+  // format instead of guessing with a fixed delay.
+  Completer<bool>? _sdFormatCompleter;
+  // The Crow deletes files one at a time, so a full card can take minutes.
+  static const Duration sdFormatTimeout = Duration(minutes: 15);
 
   // Scanner state
   List<DetectedSignal> detectedSignals = [];
@@ -290,6 +296,22 @@ class BleProvider extends ChangeNotifier {
     _loadKnownDevice();
     _loadTempOffsetPref();
   }
+
+  /// For unit tests: a provider that doesn't touch Bluetooth or storage.
+  @visibleForTesting
+  BleProvider.forTesting();
+
+  /// For unit tests: feed a parsed file-system message as if the Crow sent it.
+  @visibleForTesting
+  void debugFileSystemResponse(dynamic data) => _handleFileSystemResponse(data);
+
+  /// For unit tests: act as if the Bluetooth link dropped.
+  @visibleForTesting
+  void debugLinkLost() => _resetConnectionState();
+
+  /// For unit tests: the state change formatSDCard() makes before sending.
+  @visibleForTesting
+  void debugBeginFormat() => _beginSdFormat();
 
   // Completes once the startup permission requests have finished (granted or not).
   // Scan/connect wait for it, so nothing touches Bluetooth while the permission
@@ -702,6 +724,13 @@ class BleProvider extends ChangeNotifier {
   }
 
   void _resetConnectionState() {
+    // A format can't finish without the link: release anyone waiting on it.
+    if (_sdFormatCompleter != null && !_sdFormatCompleter!.isCompleted) {
+      isFormattingSD = false;
+      sdFormatSuccess = false;
+      sdFormatProgress = '';
+      _sdFormatCompleter!.complete(false);
+    }
     // Cancel BLE stream subscriptions to prevent leaks on reconnect
     _connectionStateSubscription?.cancel();
     _connectionStateSubscription = null;
@@ -2621,6 +2650,9 @@ class BleProvider extends ChangeNotifier {
             sdFormatProgress = '';
             sdFormatSuccess = responseData['success'] == true;
             _log('info', 'SD format ${sdFormatSuccess ? 'succeeded' : 'failed'}');
+            if (_sdFormatCompleter != null && !_sdFormatCompleter!.isCompleted) {
+              _sdFormatCompleter!.complete(sdFormatSuccess);
+            }
             notifyListeners();
           }
         }
@@ -3490,17 +3522,39 @@ class BleProvider extends ChangeNotifier {
     if (!isConnected || txCharacteristic == null) return false;
     try {
       final cmd = FirmwareBinaryProtocol.createFormatSDCommand();
-      isFormattingSD = true;
-      sdFormatSuccess = false;
-      notifyListeners();
+      _beginSdFormat();
       await sendBinaryCommand(cmd);
       _log('warning', 'Format SD command sent');
       return true;
     } catch (e) {
       isFormattingSD = false;
+      if (_sdFormatCompleter != null && !_sdFormatCompleter!.isCompleted) {
+        _sdFormatCompleter!.complete(false);
+      }
       notifyListeners();
       _log('error', 'Failed to send format SD: $e');
       return false;
+    }
+  }
+
+  void _beginSdFormat() {
+    isFormattingSD = true;
+    sdFormatSuccess = false;
+    sdFormatProgress = '';
+    _sdFormatCompleter = Completer<bool>();
+    notifyListeners();
+  }
+
+  /// Wait until the Crow says the format is finished. Returns true on success,
+  /// false if it failed or the Crow disconnected, and null if it still hadn't
+  /// finished after [timeout] (it may still be deleting on a very full card).
+  Future<bool?> waitForSdFormat({Duration timeout = sdFormatTimeout}) async {
+    final c = _sdFormatCompleter;
+    if (c == null) return isFormattingSD ? null : sdFormatSuccess;
+    try {
+      return await c.future.timeout(timeout);
+    } on TimeoutException {
+      return null;
     }
   }
 

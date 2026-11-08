@@ -187,6 +187,20 @@ From the second on-device test pass. **Shipped in this build (1–3):**
 - **Caveats (surfaced, not bugs):** Android throttles WiFi scans to ~4 / 2 min, so WiFi detections refresh
   slower than BLE (scan loop ~25 s). iOS has no public WiFi-scan API, so the scanner no-ops there (guarded).
 
+### SD card format — both paths now wait for the Crow to finish (2026-11-08)
+- **Bug:** the downloader's **"Format SD card first"** option started the format, waited a fixed **3 seconds**,
+  then started downloading. On a full card the Crow can still be deleting files after 3 s, so the wipe could
+  race the new downloads and delete them. The **Settings → Format SD Card** button had a fixed **30-second**
+  timeout that reported "no response" while a big card was still being wiped.
+- **Fix:** the app now waits for the Crow's own "format finished" message on both paths
+  (`BleProvider.waitForSdFormat()`, backed by a completer; up to 15 minutes, since the Crow deletes files one
+  at a time). If the Crow disconnects mid-format the wait ends at once as a failure instead of hanging.
+  The downloader shows the live "Deleting: …" progress and **stops with a clear error** if the format fails,
+  disconnects or never finishes, instead of downloading onto a half-wiped card.
+- No firmware change: the firmware already sent progress and a final result; the app just wasn't waiting for it.
+- Tests: `test/sd_format_wait_test.dart` (6 cases: progress isn't the end, success, failure, dropped link,
+  no answer, long format not cut off). Files: `lib/providers/ble_provider.dart`, `lib/screens/settings_screen.dart`.
+
 **In progress / next (5):**
 - **Crow disconnects during playlist playback** — needs a BLE keep-alive during inter-file gaps and/or
   mid-playlist auto-reconnect+resume (keep-screen-awake alone isn't enough).
