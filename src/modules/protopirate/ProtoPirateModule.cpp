@@ -69,15 +69,17 @@ bool ProtoPirateModule::startDecode(int ccModule, float frequency) {
         return false;
     }
 
-    // Create decode task (statically allocated)
-    taskHandle_ = xTaskCreateStatic(
+    // Create decode task (statically allocated), pinned to Core 1 (APP core)
+    // so its RF sampling stays off Core 0's BT and watchdog-watched IDLE0.
+    taskHandle_ = xTaskCreateStaticPinnedToCore(
         decodeTask,
         "PPDecode",
         TASK_STACK_SIZE,
         this,
         2,  // Priority (above idle, below main)
         taskStack_,
-        &taskTcb_
+        &taskTcb_,
+        1  // APP_CPU
     );
 
     state_ = PPState::Decoding;

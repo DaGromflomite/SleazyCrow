@@ -750,6 +750,8 @@ class BleProvider extends ChangeNotifier {
   }
 
   void _resetConnectionState() {
+    _completeTxBurst();
+    _completeTxIdle(); // a playlist waiting on the radio must not hang
     // A format can't finish without the link: release anyone waiting on it.
     if (_sdFormatCompleter != null && !_sdFormatCompleter!.isCompleted) {
       isFormattingSD = false;
@@ -2395,6 +2397,18 @@ class BleProvider extends ChangeNotifier {
     }
   }
 
+  // SignalSent only means the Crow *queued* the file; the radio is still
+  // busy until the module reports Idle. Playlists wait on this so the next
+  // file isn't sent into a busy module (which the Crow rejects).
+  Completer<void>? _txIdleCompleter;
+  int _txIdleModule = -1;
+  static const Duration playlistFileTimeout = Duration(minutes: 3);
+  void _completeTxIdle() {
+    if (_txIdleCompleter != null && !_txIdleCompleter!.isCompleted) {
+      _txIdleCompleter!.complete();
+    }
+  }
+
   /// Handle mode switch response
   void _handleModeSwitchResponse(dynamic data) {
     print('Mode switch: $data');
@@ -3313,11 +3327,22 @@ class BleProvider extends ChangeNotifier {
             try {
               _lastBurstFailed = false;
               _txBurstCompleter = Completer<void>();
+              _txIdleCompleter = Completer<void>();
+              _txIdleModule = useModule;
               await transmitFromFile(item.path,
                   module: useModule, pathType: item.pathType, force: true);
+              var answered = true;
               await _txBurstCompleter!.future
-                  .timeout(const Duration(seconds: 6), onTimeout: () {});
-              if (_lastBurstFailed) _playlistFailed.add(item.displayName);
+                  .timeout(const Duration(seconds: 6), onTimeout: () => answered = false);
+              if (_lastBurstFailed || !answered) {
+                _playlistFailed.add(item.displayName);
+              } else {
+                // Accepted: wait until the radio has actually finished it
+                // (long RAW files can transmit for many seconds).
+                await _txIdleCompleter!.future
+                    .timeout(playlistFileTimeout, onTimeout: () {});
+              }
+              _txIdleModule = -1;
             } catch (_) {
               // transient failure — brief pause, then continue the list
               _playlistFailed.add(item.displayName);
@@ -3337,6 +3362,7 @@ class BleProvider extends ChangeNotifier {
     if (!_playlistRunning) return;
     _playlistRunning = false;
     _completeTxBurst(); // unblock the in-flight wait
+    _completeTxIdle();
   }
 
   void _finishPlaylist() {
@@ -4366,6 +4392,8 @@ class BleProvider extends ChangeNotifier {
     print('Mode switch: module=$module, mode=$mode, previous=$previousMode');
     print('Current cc1101Modules state before update: ${cc1101Modules?.map((m) => 'Module ${m['id']}: ${m['mode']}').join(', ')}');
     
+    if (mode == 'Idle' && module == _txIdleModule) _completeTxIdle();
+
     // Update recording state
     if (mode == 'RecordSignal') {
       isRecording[module] = true;
