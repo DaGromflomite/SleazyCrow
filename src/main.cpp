@@ -761,7 +761,7 @@ void setup()
     ESP_LOGD(TAG, "TimeSync task created.");
     
     // Create serial command processing task on Core 1
-    xTaskCreatePinnedToCore(serialCommandTask, "SerialCmd", 3072, NULL, 1, NULL, 1); // 3KB on Core 1
+    xTaskCreatePinnedToCore(serialCommandTask, "SerialCmd", 8192, NULL, 1, NULL, 1); // 8KB on Core 1 (file ops over serial need a deep FATFS stack)
     ESP_LOGD(TAG, "SerialCmd task created.");
     
     // Initialize BLE adapter instead of WiFi
