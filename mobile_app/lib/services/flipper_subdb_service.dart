@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import '../providers/firmware_protocol.dart';
+import 'uber_playlists.dart';
 
 /// Entry representing a .sub file from the source SubGHz collection.
 ///
@@ -69,6 +70,10 @@ class FlipperSubDbService {
   /// Label for files sitting directly at the Sub-GHz root (no category folder).
   static const String rootCategory = '(root)';
 
+  /// Uber's ready-made playlists found by the last [fetchCatalog] (text not
+  /// fetched yet; see [fetchPlaylistTexts]).
+  static List<UberPlaylist> lastPlaylists = [];
+
   // ---------------------------------------------------------------------------
   // Catalog — list the Sub-GHz tree without downloading file contents.
   // ---------------------------------------------------------------------------
@@ -92,12 +97,12 @@ class FlipperSubDbService {
     final rootJson = jsonDecode(rootResp.body) as Map<String, dynamic>;
     final rootTree = (rootJson['tree'] as List?) ?? const [];
     String? subSha;
+    String? playlistSha;
     for (final t in rootTree) {
       final m = t as Map<String, dynamic>;
-      if (m['path'] == _subdir && m['type'] == 'tree') {
-        subSha = m['sha'] as String?;
-        break;
-      }
+      if (m['type'] != 'tree') continue;
+      if (m['path'] == _subdir) subSha = m['sha'] as String?;
+      if (m['path'] == 'subplaylist') playlistSha = m['sha'] as String?;
     }
     if (subSha == null) {
       throw Exception('"$_subdir" folder not found in $_owner/$_repo');
@@ -115,10 +120,14 @@ class FlipperSubDbService {
     }
     final subJson = jsonDecode(subResp.body) as Map<String, dynamic>;
     final entries = <SubFileEntry>[];
+    final playlists = <UberPlaylist>[];
     for (final t in ((subJson['tree'] as List?) ?? const [])) {
       final m = t as Map<String, dynamic>;
       if (m['type'] != 'blob') continue;
       final path = m['path'] as String? ?? '';
+      if (UberPlaylists.isPlaylistPath('$_subdir/$path')) {
+        playlists.add(UberPlaylist(repoPath: '$_subdir/$path'));
+      }
       if (!path.toLowerCase().endsWith('.sub')) continue;
       entries.add(SubFileEntry(
         relativePath: path,
@@ -126,8 +135,54 @@ class FlipperSubDbService {
         size: (m['size'] as int?) ?? 0,
       ));
     }
+
+    // 3. Uber's ready-made playlists (small folder; failure isn't fatal).
+    if (playlistSha != null) {
+      onProgress?.call('catalog', "Listing Uber's playlists…", 0.8);
+      try {
+        final r = await http
+            .get(Uri.parse('$_treesApi/$playlistSha?recursive=1'), headers: _apiHeaders)
+            .timeout(const Duration(seconds: 20));
+        if (r.statusCode == 200) {
+          for (final t in (((jsonDecode(r.body) as Map<String, dynamic>)['tree'] as List?) ??
+              const [])) {
+            final m = t as Map<String, dynamic>;
+            final rp = 'subplaylist/${m['path']}';
+            if (m['type'] == 'blob' && UberPlaylists.isPlaylistPath(rp)) {
+              playlists.add(UberPlaylist(repoPath: rp));
+            }
+          }
+        }
+      } catch (_) {/* no playlists offered this time */}
+    }
+    playlists.sort((a, b) =>
+        a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
+    lastPlaylists = playlists;
+
     onProgress?.call('catalog', '${entries.length} .sub files available', 1.0);
     return entries;
+  }
+
+  /// Fetch the text of each playlist (small files, a few at a time). Ones that
+  /// fail to download are dropped.
+  static Future<List<UberPlaylist>> fetchPlaylistTexts(List<UberPlaylist> lists) async {
+    final out = <UberPlaylist>[];
+    for (var i = 0; i < lists.length; i += 6) {
+      final batch = lists.skip(i).take(6);
+      final got = await Future.wait(batch.map((p) async {
+        try {
+          final url = 'https://raw.githubusercontent.com/$_owner/$_repo/$_branch/'
+              '${p.repoPath.split('/').map(Uri.encodeComponent).join('/')}';
+          final r = await http
+              .get(Uri.parse(url), headers: _apiHeaders)
+              .timeout(const Duration(seconds: 20));
+          if (r.statusCode == 200) return p.withText(utf8.decode(r.bodyBytes, allowMalformed: true));
+        } catch (_) {}
+        return null;
+      }));
+      out.addAll(got.whereType<UberPlaylist>());
+    }
+    return out;
   }
 
   /// Download the real bytes for the given [stubs] from raw.githubusercontent.
@@ -335,17 +390,19 @@ class FlipperSubDbService {
   /// Persist the folder selection so a resumed session re-downloads the same
   /// folders before continuing the upload.
   static Future<void> saveSelection(
-      Set<String> categories, bool includeBruteForce) async {
+      Set<String> categories, bool includeBruteForce,
+      {Set<String> playlists = const {}}) async {
     final dir = await _cacheDir();
     final file = File('${dir.path}/$_selectionFileName');
     await file.writeAsString(jsonEncode({
       'categories': categories.toList(),
       'includeBruteForce': includeBruteForce,
+      'playlists': playlists.toList(),
     }));
   }
 
   /// Load the saved selection, or null if none.
-  static Future<({Set<String> categories, bool includeBruteForce})?>
+  static Future<({Set<String> categories, bool includeBruteForce, Set<String> playlists})?>
       loadSelection() async {
     final dir = await _cacheDir();
     final file = File('${dir.path}/$_selectionFileName');
@@ -355,6 +412,7 @@ class FlipperSubDbService {
       return (
         categories: Set<String>.from(json['categories'] as List),
         includeBruteForce: (json['includeBruteForce'] as bool?) ?? false,
+        playlists: Set<String>.from((json['playlists'] as List?) ?? const []),
       );
     } catch (_) {
       return null;

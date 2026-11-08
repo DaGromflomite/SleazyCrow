@@ -6,6 +6,7 @@ import '../models/protopirate_result.dart';
 import '../providers/ble_provider.dart';
 import '../providers/notification_provider.dart';
 import '../theme/app_colors.dart';
+import '../widgets/sd_sub_picker.dart';
 
 /// Accent color for the ProtoPirate module (cyan / teal)
 const Color _ppAccent = Color(0xFF00BCD4);
@@ -510,6 +511,31 @@ class _ProtoPirateScreenState extends State<ProtoPirateScreen>
     final notifications =
         Provider.of<NotificationProvider>(context, listen: false);
 
+    // Browse the card folder by folder (the old whole-card list stops at ~50
+    // files, so downloaded collections were mostly invisible here).
+    final picked = await SdSubPicker.show(context,
+        single: true, title: 'Load .sub for analysis');
+    if (!context.mounted) return;
+    if (picked != null && picked.isNotEmpty) {
+      final path = picked.first;
+      if (path.length > 127) {
+        notifications.showError('Path too long for the Crow (max 127 characters).');
+        return;
+      }
+      try {
+        await ble.ppLoadSubFile(path);
+        if (context.mounted) notifications.showSuccess('Analyzing: $path');
+      } catch (e) {
+        notifications.showError('Load failed: $e');
+      }
+    }
+  }
+
+  /// Old whole-card list (kept for reference; capped at ~50 files).
+  // ignore: unused_element
+  Future<void> _showLoadSubDialogLegacy(BuildContext context, BleProvider ble) async {
+    final notifications =
+        Provider.of<NotificationProvider>(context, listen: false);
     try {
       await ble.ppListSubFiles('/');
     } catch (e) {

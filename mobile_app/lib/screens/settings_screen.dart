@@ -13,6 +13,9 @@ import '../providers/firmware_protocol.dart';
 import '../widgets/transmit_file_dialog.dart';
 import '../services/update_service.dart';
 import '../services/flipper_subdb_service.dart';
+import '../services/playlist_service.dart';
+import '../services/uber_playlists.dart';
+import '../models/sub_playlist.dart';
 import '../theme/app_colors.dart';
 import 'debug_screen.dart';
 import 'files_screen.dart';
@@ -3434,6 +3437,14 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
   // Brute-force folders are huge pre-made signal dumps (not needed for the
   // firmware's own De Bruijn brute-forcer). Off by default, but available.
   bool _includeBruteForce = false;
+  // Uber's ready-made playlists: picking one pulls exactly the files it needs
+  // (from any folder) and adds it to the Playlists screen when done.
+  List<UberPlaylist> _playlists = [];
+  Map<String, UberPlaylistMatch> _playlistMatches = {};
+  Set<String> _selectedPlaylists = {};
+  // Sub-GHz path -> path(s) it was uploaded as (big RAW files become pieces).
+  Map<String, List<String>> _landed = {};
+  String _playlistResult = '';
   // Optional, destructive: wipe the SD card (delete all + recreate default
   // folders) before uploading. Off by default, confirmed on the intro screen.
   bool _formatFirst = false;
@@ -3563,12 +3574,9 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
         _selectedCategories =
             sel?.categories ?? _categoryCounts.keys.toSet();
         _includeBruteForce = sel?.includeBruteForce ?? false;
-        final selected = FlipperSubDbService.filterSelection(
-          catalog,
-          categories: _selectedCategories,
-          excludeBruteForce: !_includeBruteForce,
-        );
-        await _downloadAndUpload(selected);
+        _selectedPlaylists = sel?.playlists ?? {};
+        if (_selectedPlaylists.isNotEmpty) await _loadPlaylists();
+        await _downloadAndUpload(_selectedStubs());
         return;
       }
 
@@ -3597,6 +3605,8 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
       _allFiles = catalog;
       _categoryCounts = FlipperSubDbService.categoryCounts(catalog);
       _selectedCategories = _categoryCounts.keys.toSet();
+      _selectedPlaylists = {};
+      await _loadPlaylists();
       // Don't hold the wakelock while the user chooses.
       SettingsProvider.releaseTemporaryWakelock();
       if (mounted) {
@@ -3659,34 +3669,108 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
     }
     _downloadFailed = selectedStubs.length - downloaded.length;
     // Split any oversized RAW .sub into smaller, reliably-transferable pieces.
-    final expanded = FlipperSubDbService.expandForUpload(downloaded);
     // Anything still over the Crow's per-file limit can't be sent whole: skip
     // it and say so, rather than letting it fail one by one.
-    final fits = expanded
-        .where((f) => f.content.length <= FirmwareBinaryProtocol.MAX_UPLOAD_BYTES)
-        .toList();
-    _tooBigFiles = expanded.length - fits.length;
+    final fits = <SubFileEntry>[];
+    _landed = {};
+    _tooBigFiles = 0;
+    for (final d in downloaded) {
+      final pieces = FlipperSubDbService.splitIfLargeRaw(d);
+      final ok = pieces
+          .where((f) => f.content.length <= FirmwareBinaryProtocol.MAX_UPLOAD_BYTES)
+          .toList();
+      _tooBigFiles += pieces.length - ok.length;
+      fits.addAll(ok);
+      _landed[d.relativePath] = [for (final f in ok) f.relativePath];
+    }
     await _beginUpload(fits);
   }
 
-  /// Number of files that the current category selection would upload.
-  int get _selectedFileCount => FlipperSubDbService.filterSelection(
-        _allFiles,
-        categories: _selectedCategories,
-        excludeBruteForce: !_includeBruteForce,
-      ).length;
+  /// Fetch Uber's playlists and match each against the catalog. Not fatal.
+  Future<void> _loadPlaylists() async {
+    if (FlipperSubDbService.lastPlaylists.isEmpty) return;
+    if (mounted) {
+      setState(() => _statusText = "Reading Uber's playlists...");
+    }
+    final lists =
+        await FlipperSubDbService.fetchPlaylistTexts(FlipperSubDbService.lastPlaylists);
+    final index = UberPlaylists.indexCatalog(_allFiles.map((f) => f.relativePath));
+    final matches = <String, UberPlaylistMatch>{};
+    final usable = <UberPlaylist>[];
+    for (final p in lists) {
+      final m = UberPlaylists.match(p.text, index);
+      if (m.files.isEmpty) continue;
+      matches[p.repoPath] = m;
+      usable.add(p);
+    }
+    _playlists = usable;
+    _playlistMatches = matches;
+    _selectedPlaylists = _selectedPlaylists.where(matches.containsKey).toSet();
+  }
 
-  /// Confirm the folder selection: persist it (for resume), download the chosen
-  /// folders' files, then upload them to the Crow.
-  Future<void> _confirmSelection() async {
-    final selected = FlipperSubDbService.filterSelection(
+  /// Folder selection plus every file the chosen playlists need.
+  List<SubFileEntry> _selectedStubs() {
+    final picked = FlipperSubDbService.filterSelection(
       _allFiles,
       categories: _selectedCategories,
       excludeBruteForce: !_includeBruteForce,
     );
+    if (_selectedPlaylists.isEmpty) return picked;
+    final have = {for (final f in picked) f.relativePath};
+    final byPath = {for (final f in _allFiles) f.relativePath: f};
+    for (final id in _selectedPlaylists) {
+      for (final rel in _playlistMatches[id]?.files ?? const <String>[]) {
+        if (have.add(rel)) {
+          final stub = byPath[rel];
+          if (stub != null) picked.add(stub);
+        }
+      }
+    }
+    return picked;
+  }
+
+  /// Add the chosen Uber playlists to the Playlists screen, pointing at the
+  /// files that actually made it onto the card.
+  Future<void> _importPlaylists() async {
+    if (_selectedPlaylists.isEmpty) return;
+    final onCard = <String, List<String>>{};
+    _landed.forEach((orig, pieces) {
+      final ok = pieces.where(_completedPaths.contains).toList();
+      if (ok.isNotEmpty && ok.length == pieces.length) onCard[orig] = ok;
+    });
+    final made = <SubPlaylist>[];
+    var skipped = 0;
+    for (final p in _playlists.where((p) => _selectedPlaylists.contains(p.repoPath))) {
+      final r = UberPlaylists.build(p, _playlistMatches[p.repoPath]!, onCard);
+      skipped += r.skipped;
+      if (r.playlist.items.isNotEmpty) made.add(r.playlist);
+    }
+    if (made.isEmpty) {
+      _playlistResult = "No playlists added: their files didn't reach the card.";
+      return;
+    }
+    try {
+      final all = await PlaylistService.load();
+      await PlaylistService.saveAll(UberPlaylists.merge(all, made));
+      _playlistResult = 'Added ${made.length} playlist${made.length == 1 ? '' : 's'} '
+          'to Playlists'
+          '${skipped > 0 ? ' ($skipped listed file${skipped == 1 ? '' : 's'} missing, left out)' : ''}.';
+    } catch (e) {
+      _playlistResult = "Couldn't save the playlists: $e";
+    }
+  }
+
+  /// Number of files that the current category selection would upload.
+  int get _selectedFileCount => _selectedStubs().length;
+
+  /// Confirm the folder selection: persist it (for resume), download the chosen
+  /// folders' files, then upload them to the Crow.
+  Future<void> _confirmSelection() async {
+    final selected = _selectedStubs();
     if (selected.isEmpty) return;
     await FlipperSubDbService.saveSelection(
-        _selectedCategories, _includeBruteForce);
+        _selectedCategories, _includeBruteForce,
+        playlists: _selectedPlaylists);
     await _downloadAndUpload(selected);
   }
 
@@ -3805,7 +3889,9 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
         }
       }
 
-      // All selected files processed – clean up cache
+      // All selected files processed – add any chosen Uber playlists, then
+      // clean up the cache.
+      await _importPlaylists();
       await FlipperSubDbService.clearCache();
 
       if (mounted) {
@@ -3818,9 +3904,10 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
             if (_downloadFailed > 0) "$_downloadFailed couldn't be downloaded",
             if (_tooBigFiles > 0) '$_tooBigFiles too big for the Crow (skipped)',
           ];
-          _statusText = problems.isEmpty
-              ? 'All $_totalFiles files uploaded successfully!'
-              : 'Finished: ${_totalFiles - _failedFiles} uploaded; ${problems.join(', ')}.';
+          _statusText = (problems.isEmpty
+                  ? 'All $_totalFiles files uploaded successfully!'
+                  : 'Finished: ${_totalFiles - _failedFiles} uploaded; ${problems.join(', ')}.') +
+              (_playlistResult.isEmpty ? '' : '\n$_playlistResult');
         });
       }
       // Release wakelock after successful completion
@@ -4027,6 +4114,57 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
               value: _includeBruteForce,
               onChanged: (v) => setState(() => _includeBruteForce = v),
             ),
+            if (_playlists.isNotEmpty)
+              Theme(
+                data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.queue_music, color: Colors.orange),
+                  title: Text(
+                    "Uber's playlists"
+                    '${_selectedPlaylists.isEmpty ? '' : ' (${_selectedPlaylists.length} picked)'}',
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                  subtitle: Text(
+                    'Downloads just the files each one needs and adds it to Playlists.',
+                    style: TextStyle(color: AppColors.secondaryText, fontSize: 11),
+                  ),
+                  children: [
+                    SizedBox(
+                      height: 200,
+                      child: ListView(
+                        children: [
+                          for (final p in _playlists)
+                            CheckboxListTile(
+                              contentPadding: EdgeInsets.zero,
+                              dense: true,
+                              controlAffinity: ListTileControlAffinity.leading,
+                              activeColor: Colors.orange,
+                              value: _selectedPlaylists.contains(p.repoPath),
+                              title: Text(
+                                p.displayName.substring(UberPlaylists.namePrefix.length),
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              secondary: Text(
+                                '${_playlistMatches[p.repoPath]?.files.length ?? 0}',
+                                style: TextStyle(
+                                    color: AppColors.secondaryText, fontSize: 11),
+                              ),
+                              onChanged: (v) => setState(() {
+                                if (v == true) {
+                                  _selectedPlaylists.add(p.repoPath);
+                                } else {
+                                  _selectedPlaylists.remove(p.repoPath);
+                                }
+                              }),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             Row(
               children: [
                 TextButton(
