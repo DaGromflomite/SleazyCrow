@@ -335,7 +335,9 @@ class _ConnectTab extends StatelessWidget {
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              AppLocalizations.of(context)!.permissionError,
+                              _isRealPermissionError(bleProvider.statusMessage)
+                                  ? AppLocalizations.of(context)!.permissionError
+                                  : 'Connection problem',
                               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                                 color: AppColors.primaryText,
                                 fontWeight: FontWeight.bold,
@@ -363,6 +365,11 @@ class _ConnectTab extends StatelessWidget {
         );
       },
     );
+  }
+
+  bool _isRealPermissionError(String status) {
+    final s = status.toLowerCase();
+    return s.contains('permission') || s.contains('denied');
   }
 
   bool _isPermissionError(String status) {

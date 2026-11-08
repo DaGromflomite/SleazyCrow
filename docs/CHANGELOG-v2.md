@@ -201,6 +201,17 @@ From the second on-device test pass. **Shipped in this build (1–3):**
 - Tests: `test/sd_format_wait_test.dart` (6 cases: progress isn't the end, success, failure, dropped link,
   no answer, long format not cut off). Files: `lib/providers/ble_provider.dart`, `lib/screens/settings_screen.dart`.
 
+### Connect errors + WiFi permission (2026-11-08)
+- **Wrong label:** any status containing "error" showed a red **"Permission Error"** card, so a plain connect
+  timeout looked like a permission problem. The card now says **"Connection problem"** unless the message is
+  really about a permission. File: `lib/screens/home_screen.dart`.
+- **Clearer timeout message:** a connect timeout now says the Crow didn't answer and what to check (switched on,
+  close by, not connected to another phone/app, power-cycle it), instead of "Bluetooth not ready".
+  Connect timeout raised from 10 s to 15 s. File: `lib/providers/ble_provider.dart`.
+- **Missing permission request:** the app declared **Nearby WiFi devices** (Android 13+) but never asked for it,
+  so the WiFi detector (Flock/ALPR/cameras) could stay blind. It's now requested at startup with the Bluetooth
+  and location permissions (optional; Bluetooth and the Crow work without it).
+
 **In progress / next (5):**
 - **Crow disconnects during playlist playback** — needs a BLE keep-alive during inter-file gaps and/or
   mid-playlist auto-reconnect+resume (keep-screen-awake alone isn't enough).
