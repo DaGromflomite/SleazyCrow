@@ -20,6 +20,7 @@ import '../services/cc1101/cc1101_calculator.dart';
 import '../services/cc1101/cc1101_values.dart';
 import '../services/binary_message_parser.dart';
 import '../services/classic_bt.dart';
+import '../services/sd_catalog.dart';
 // import 'log_provider.dart'; // Unused import removed
 
 class BleProvider extends ChangeNotifier {
@@ -2591,6 +2592,8 @@ class BleProvider extends ChangeNotifier {
               }
               
               _log('info', 'File list complete', details: 'Path: $currentPath, Files: ${fileList.length}');
+              // Remember what's in this folder so playlists can be built offline.
+              SdCatalog.syncListing(currentPath, currentPathType, List.of(fileList));
               
               // Save to cache
               if (fileList.isNotEmpty || files.isEmpty) {
@@ -2680,6 +2683,7 @@ class BleProvider extends ChangeNotifier {
             sdFormatProgress = '';
             sdFormatSuccess = responseData['success'] == true;
             _log('info', 'SD format ${sdFormatSuccess ? 'succeeded' : 'failed'}');
+            if (sdFormatSuccess) SdCatalog.clear();
             if (_sdFormatCompleter != null && !_sdFormatCompleter!.isCompleted) {
               _sdFormatCompleter!.complete(sdFormatSuccess);
             }
@@ -2926,6 +2930,7 @@ class BleProvider extends ChangeNotifier {
 
       try {
         final response = await uploadCompleter.future;
+        SdCatalog.addUpload(targetPath, pathType);
         timeout.cancel();
         _uploadProgress = 1.0;
         onProgress?.call(1.0);

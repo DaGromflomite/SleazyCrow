@@ -248,6 +248,21 @@ Whole app + firmware reviewed (not just v2), with tests and an emulator pass thr
 - **Upload path bounds check** (a 255-byte path could overrun a 256-byte buffer).
 - Files: `include/FileCommands.h`, `src/core/ble/BleAdapter.cpp`, `include/config.h` (1.2.1-dev).
 
+### Build playlists without the Crow — offline SD list (2026-11-08)
+- The phone now keeps its own list of the `.sub` files on the Crow's SD card (`lib/services/sd_catalog.dart`),
+  updated automatically: every successful upload adds its file (so the UberGuidoZ downloader fills it), every
+  folder listing from the Crow replaces what the phone knew about that folder (corrects deletes/moves made
+  elsewhere), and a successful format empties it.
+- **Playlist → Add from SD with no Crow connected** now browses that saved list (header says how old it is)
+  instead of refusing. If the phone has never seen the card it says how to fill the list.
+- Because the card can change while the phone isn't looking, playlists report any file that fails to play.
+- Tests: `test/sd_catalog_test.dart`.
+
+### Firmware 1.2.1-dev flashed to the user's Crow (2026-11-08 13:15)
+- Full 4 MB flash backed up first (`D:\Backups\SleazyCrow\crow-flash-backups\`, copy on Nextcloud); flashed
+  over USB (COM15), all checksums verified; boots as "Sleazy Crow v1.2.1-dev". NVS settings + LittleFS kept.
+  Quick format still to be tried on hardware.
+
 **In progress / next (5):**
 - **Crow disconnects during playlist playback** — needs a BLE keep-alive during inter-file gaps and/or
   mid-playlist auto-reconnect+resume (keep-screen-awake alone isn't enough).
