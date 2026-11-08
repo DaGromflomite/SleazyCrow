@@ -142,6 +142,59 @@ but it won't read/parse/decode files — a real functional break inherited from 
 (app parse path vs firmware decode module) until a live `adb logcat` repro with the Crow connected.
 May need a firmware fix/rebuild. Deferred per user's time. Pinned.
 
+## Hardware test round 3 — UberGuidoZ playlists, ProtoPirate import, TX reboot fix (2026-11-08)
+
+Session on real hardware (Pixel 8 Pro + Crow on USB/BLE). **Firmware 1.2.5-dev, app 2.0.0-dev.**
+
+**New app features**
+- **Import UberGuidoZ's ready-made playlists** — the Sub-GHz downloader now lists Uber's 30
+  `subplaylist/` playlists; ticking one downloads exactly the files it needs (from any folder,
+  split pieces expanded, Uber's own broken entries reported) and adds it to the Playlists screen.
+- **ProtoPirate "Load .sub" uses the folder browser** — the old whole-card list capped at ~50 files,
+  so downloaded collections were invisible. Now browses the card folder-by-folder (shared
+  `SdSubPicker` widget, also used by playlists and the new Play Sub File button).
+- **Play Sub File** button on the Sub-GHz Record screen — pick any `.sub` on the card and transmit it
+  without going through the Files tab.
+
+**Critical firmware fix — TX watchdog reboot (dropped BLE / killed dual-radio)**
+- A long RAW transmit (e.g. the 13 s Tesla sweep, or a De Bruijn brute sweep) busy-waited on **core 0**
+  — the same core as BT and the watchdog-watched IDLE0 — so the task WDT rebooted the Crow mid-transmit
+  and dropped the BLE link. Root-caused from the decoded backtrace (sub-GHz transmit loop).
+- Fix: `holdPulse()` sleeps through long LOW gaps instead of busy-waiting the whole file; and the three
+  long RF tasks (CC1101Worker, bruter_atk, PPDecode) are pinned to **core 1** via
+  `xTaskCreateStaticPinnedToCore` so an RF busy-wait starves only the unwatched IDLE1. App side: the
+  playlist now waits for the module to report Idle before sending the next file.
+- **Verified on hardware:** record on module 2 (433.92) while transmitting the long Tesla file on
+  module 1 (315) captured a live key-fob press with **no reboot** — dual CC1101 capture+transmit intact
+  (capture is ISR-driven; TX never disables interrupts).
+
+**Critical firmware fix — ProtoPirate file-load crashes**
+- Loading a `.sub` into ProtoPirate crashed two ways (found on hardware): a **stack overflow**
+  (`loadSubFile` opens via FATFS + runs every decoder inline on the small SerialCmd/BleInbound task),
+  and a **`bad_alloc` abort** (a 100 KB RAW file grew the sample vector past free heap).
+- Fix: run the load on a dedicated 12 KB `PPFileLoad` task (`loadSubFileAsync`) so it can't overflow
+  the caller regardless of BLE/serial origin; cap samples at 8192; swallow exceptions; SerialCmd stack
+  3 KB→8 KB.
+- **Verified on hardware:** loading an Isuzu fob `.sub` via the app's folder browser over BLE decoded
+  it (Kia V3/V4 family — serial, button, ENC, CRC) with no crash; the large Tesla RAW file that aborted
+  before now loads cleanly.
+
+**Detection (Flock / Axon / Taser / WiFi path) — confirmed wired**
+- The WiFi scanner feeds the detection engine end-to-end (`detect_screen` → `evaluateWifi`). 19 categories
+  incl. flock, axon (covers Taser), alpr, bodycam, ring, shotspotter, fleet — Flock & Axon have both BLE
+  (manufacturer/service) and WiFi (OUI/SSID) rules.
+- `detection_matching_test.dart` (19 tests) verifies the WiFi path against the real `signatures.json`
+  (Flock OUI `b4:1e:52` + SSIDs, Axon SSIDs `axon-`/`ab4-` + OUI `00:25:df`, ALPR/bodycam/ring/shotspotter
+  OUIs) plus no-false-positives. BLE manufacturer/service matching is structurally verified; full BLE
+  match needs physical devices (user's upcoming field test).
+
+**Automated test sweep (all green)**
+- 55 Flutter unit tests pass (detection, uber playlists, sd catalog, upload limits, format wait, …).
+- Firmware feature smoke test over serial — GET_STATE, frequency search, PP live decode start/stop,
+  PP file list, bruter start/stop, jam (auto-stop): **no reboot/crash** on any.
+- App UI crash-sweep — all 12 screens/sub-tabs render with no Flutter exceptions, app stays running.
+- Firmware builds clean (RAM 26.1%, Flash 57.8%).
+
 ## Hardware test round 2 — fixes (2026-11-07)
 
 From the second on-device test pass. **Shipped in this build (1–3):**
