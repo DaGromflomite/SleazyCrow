@@ -188,15 +188,15 @@ Session on real hardware (Pixel 8 Pro + Crow on USB/BLE). **Firmware 1.2.5-dev, 
   OUIs) plus no-false-positives. BLE manufacturer/service matching is structurally verified; full BLE
   match needs physical devices (user's upcoming field test).
 
-**⚠ Quick SD format — NOT confirmed fixed (2026-11-08 PM hardware test).** Triggering Settings → Format SD
-Card on a full card left the app on "Formatting…" for 5+ min: the firmware's `quickFormatSD()` (`f_mkfs`
-fast path) returned false and **fell back to the slow Phase-2b per-file delete** — the exact slow path the
-fix was meant to replace, and a long BLE delete risks the original GATT timeout. Likely `sdcard_init`/
-`f_mkfs` failing to re-init the card after `SD.end()` (possibly aggravated by the dual-USB test rig: Crow
-+ Pixel both tethered to the PC rather than Crow↔phone direct — user says it worked once connected
-directly). DEFERRED to physical testing: read the Crow USB serial during a format — `f_mkfs result 0 …
-Quick format done` = fast path OK; `Deleted N items` = slow fallback; `did not mount` = card lost. Both
-format entry points (Settings, and the downloader "Format SD card first") hit the same firmware path.
+**Quick SD format — works in the field (user-confirmed); only the PC-tethered test rig misbehaved.** In the
+normal setup (Crow powered by the phone) the quick format works fine per the user. During the 2026-11-08 PM
+automated test the Crow was on the **PC's** USB with the serial logger holding the port while the Pixel was
+separate; there, `quickFormatSD()` (`f_mkfs`) returned false and **fell back to the slow Phase-2b per-file
+delete** (app stuck on "Formatting…" 5+ min). Attributed to the test rig — the SD re-init after `SD.end()`
+differs when the Crow isn't powered by the phone — not a field bug. Still worth a glance during physical
+testing to confirm the fast path: read the Crow USB serial during a format — `f_mkfs result 0 … Quick format
+done` = fast path OK; `Deleted N items` = slow fallback; `did not mount` = card lost. Both format entry
+points (Settings, and the downloader "Format SD card first") hit the same firmware path.
 Also found: the Sub-GHz **jammer runs continuously by design** — `maxDurationMs` is a cooldown-then-resume
 duty cycle (overheat protection), NOT a stop; it jams until an explicit Stop Jam. (A smoke test that
 assumed a short maxDuration would auto-stop left a jam cycling — test bug, not firmware.)
