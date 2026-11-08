@@ -19,6 +19,7 @@ import '../services/file_parsers/file_parser_factory.dart';
 import '../services/cc1101/cc1101_calculator.dart';
 import '../services/cc1101/cc1101_values.dart';
 import '../services/binary_message_parser.dart';
+import '../services/classic_bt.dart';
 // import 'log_provider.dart'; // Unused import removed
 
 class BleProvider extends ChangeNotifier {
@@ -601,7 +602,18 @@ class BleProvider extends ChangeNotifier {
       print('Connecting to device: ${device.name} (${device.id})');
       notifyListeners();
       
-      await device.connect(timeout: const Duration(seconds: 15));
+      // A running BLE scan (Detect tab / device scan) and especially classic
+      // Bluetooth discovery block connection setup on Android. Stop both first.
+      ClassicBt.paused = true;
+      await ClassicBt.stopDiscovery();
+      try {
+        if (FlutterBluePlus.isScanningNow) await FlutterBluePlus.stopScan();
+      } catch (_) {/* ignore */}
+      try {
+        await device.connect(timeout: const Duration(seconds: 15));
+      } finally {
+        ClassicBt.paused = false;
+      }
       connectedDevice = device;
       
       // Set up connection state monitoring (cancel previous subscription on reconnect)
@@ -2364,6 +2376,7 @@ class BleProvider extends ChangeNotifier {
     print('Signal sending error: $data');
     statusMessage = errorMessage;
     _log('error', 'Signal sending error', details: errorMessage);
+    _lastBurstFailed = true;
     _completeTxBurst(); // unblock the repeat loop on a real error
     if (!_suppressTxNotify) _notify('error', errorMessage);
     notifyListeners();
@@ -2371,6 +2384,10 @@ class BleProvider extends ChangeNotifier {
 
   // Completes when the current transmit burst finishes (SignalSent/Error).
   Completer<void>? _txBurstCompleter;
+  // Set when the Crow reports a send error for the current burst (e.g. the
+  // file isn't on the SD card any more). Playlists use it to report skips.
+  bool _lastBurstFailed = false;
+  final Set<String> _playlistFailed = {};
   void _completeTxBurst() {
     if (_txBurstCompleter != null && !_txBurstCompleter!.isCompleted) {
       _txBurstCompleter!.complete();
@@ -2822,8 +2839,14 @@ class BleProvider extends ChangeNotifier {
       // First chunk contains: [0x0D][pathLength:1][pathType:1][path:variable] in payload
       // Subsequent chunks contain only file data
       // Payload size = MAX_CHUNK_SIZE - PACKET_HEADER_SIZE - checksum(1)
-      const int maxChunkDataSize = FirmwareBinaryProtocol.MAX_CHUNK_SIZE - FirmwareBinaryProtocol.PACKET_HEADER_SIZE - 1;
+      const int maxChunkDataSize = FirmwareBinaryProtocol.UPLOAD_CHUNK_DATA;
       final int totalChunks = 1 + ((fileSize + maxChunkDataSize - 1) ~/ maxChunkDataSize);
+      // Refuse before sending anything: past 255 chunks the one-byte counters
+      // wrap and the Crow would keep a truncated file and report success.
+      if (fileSize > FirmwareBinaryProtocol.MAX_UPLOAD_BYTES) {
+        throw Exception('File too big for the Crow: ${(fileSize / 1024).toStringAsFixed(0)} KB '
+            '(max ${FirmwareBinaryProtocol.MAX_UPLOAD_BYTES ~/ 1024} KB per file)');
+      }
 
       _log('INFO', 'Total chunks: $totalChunks');
 
@@ -3264,6 +3287,7 @@ class BleProvider extends ChangeNotifier {
     _playlistRunning = true;
     _suppressTxNotify = true; // one flow, don't toast per burst
     _playlistPass = 0;
+    _playlistFailed.clear();
     final useModule = module ?? 0;
     final gap = Duration(milliseconds: gapMs < 0 ? 0 : gapMs);
     final reps = repeatEach < 1 ? 1 : repeatEach;
@@ -3282,13 +3306,16 @@ class BleProvider extends ChangeNotifier {
           }
           for (var r = 0; r < reps && _playlistRunning && isConnected; r++) {
             try {
+              _lastBurstFailed = false;
               _txBurstCompleter = Completer<void>();
               await transmitFromFile(item.path,
                   module: useModule, pathType: item.pathType, force: true);
               await _txBurstCompleter!.future
                   .timeout(const Duration(seconds: 6), onTimeout: () {});
+              if (_lastBurstFailed) _playlistFailed.add(item.displayName);
             } catch (_) {
               // transient failure — brief pause, then continue the list
+              _playlistFailed.add(item.displayName);
               await Future.delayed(const Duration(milliseconds: 150));
             }
             if (_playlistRunning) await _interruptibleDelay(gap);
@@ -3311,6 +3338,15 @@ class BleProvider extends ChangeNotifier {
     _playlistRunning = false;
     _suppressTxNotify = false;
     _playlistIndex = -1;
+    // Errors are muted during playback (one toast per burst would flood the
+    // screen), so say once at the end which files didn't play.
+    if (_playlistFailed.isNotEmpty) {
+      final names = _playlistFailed.take(3).join(', ');
+      final more = _playlistFailed.length > 3 ? ' and ${_playlistFailed.length - 3} more' : '';
+      _notify('error',
+          "${_playlistFailed.length} playlist file(s) didn't play: $names$more. "
+          'Check they are still on the SD card.');
+    }
     try {
       sendIdleCommand(0);
     } catch (_) {}

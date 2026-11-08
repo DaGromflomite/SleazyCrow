@@ -94,7 +94,13 @@ class MainActivity : FlutterActivity() {
                             } catch (e: SecurityException) {
                                 null
                             }
-                            val btClass = device.bluetoothClass
+                            // Needs BLUETOOTH_CONNECT on Android 12+; never crash the
+                            // receiver if it was revoked.
+                            val btClass = try {
+                                device.bluetoothClass
+                            } catch (e: SecurityException) {
+                                null
+                            }
                             eventSink?.success(
                                 hashMapOf<String, Any?>(
                                     "address" to device.address,

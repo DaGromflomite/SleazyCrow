@@ -107,11 +107,23 @@ class SettingsProvider with ChangeNotifier {
     _nrfChannel = (prefs.getInt('nrfChannel') ?? 76).clamp(0, 125);
     _nrfAutoRetransmit = (prefs.getInt('nrfAutoRetransmit') ?? 5).clamp(0, 15);
     _keepScreenAwake = prefs.getBool('keepScreenAwake') ?? true;
+    _keepAwakeSetting = _keepScreenAwake;
     _alertSoundEnabled = prefs.getBool('alertSoundEnabled') ?? true;
     _trackerAlertSoundEnabled =
         prefs.getBool('trackerAlertSoundEnabled') ?? false;
     _applyWakelock();
     notifyListeners();
+  }
+
+  // Last known "Keep screen awake" choice, readable without a context.
+  static bool _keepAwakeSetting = true;
+
+  /// End a temporary wakelock (OTA, downloads) without overriding the user's
+  /// "Keep screen awake" setting, which keeps the BLE link from dropping.
+  static void releaseTemporaryWakelock() {
+    try {
+      if (!_keepAwakeSetting) WakelockPlus.disable();
+    } catch (_) {/* ignore */}
   }
 
   void _applyWakelock() {
@@ -126,6 +138,7 @@ class SettingsProvider with ChangeNotifier {
 
   Future<void> setKeepScreenAwake(bool value) async {
     _keepScreenAwake = value;
+    _keepAwakeSetting = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('keepScreenAwake', value);
     _applyWakelock();

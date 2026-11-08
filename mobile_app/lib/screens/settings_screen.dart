@@ -3408,6 +3408,8 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
   int _totalFiles = 0;
   int _uploadedFiles = 0;
   int _failedFiles = 0;
+  int _downloadFailed = 0; // files GitHub didn't deliver
+  int _tooBigFiles = 0; // files over the Crow's per-file upload limit
   bool _isDone = false;
   bool _hasError = false;
   String _errorMessage = '';
@@ -3588,7 +3590,7 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
           _hasError = true;
           _errorMessage = 'No .sub files found under Sub-GHz.';
         });
-        WakelockPlus.disable();
+        SettingsProvider.releaseTemporaryWakelock();
         return;
       }
 
@@ -3596,7 +3598,7 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
       _categoryCounts = FlipperSubDbService.categoryCounts(catalog);
       _selectedCategories = _categoryCounts.keys.toSet();
       // Don't hold the wakelock while the user chooses.
-      WakelockPlus.disable();
+      SettingsProvider.releaseTemporaryWakelock();
       if (mounted) {
         setState(() {
           _phase = 'select';
@@ -3609,7 +3611,7 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
       if (_completedPaths.isNotEmpty) {
         await FlipperSubDbService.saveProgress(_completedPaths);
       }
-      WakelockPlus.disable();
+      SettingsProvider.releaseTemporaryWakelock();
       if (mounted) {
         setState(() {
           _isDone = true;
@@ -3625,7 +3627,7 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
   /// files, then upload to the Crow. Shared by the confirm + resume paths.
   Future<void> _downloadAndUpload(List<SubFileEntry> selectedStubs) async {
     if (selectedStubs.isEmpty) {
-      WakelockPlus.disable();
+      SettingsProvider.releaseTemporaryWakelock();
       if (mounted) {
         setState(() {
           _isDone = true;
@@ -3645,7 +3647,7 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
       onProgress: _onPhaseProgress,
     );
     if (downloaded.isEmpty) {
-      WakelockPlus.disable();
+      SettingsProvider.releaseTemporaryWakelock();
       if (mounted) {
         setState(() {
           _isDone = true;
@@ -3655,9 +3657,16 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
       }
       return;
     }
+    _downloadFailed = selectedStubs.length - downloaded.length;
     // Split any oversized RAW .sub into smaller, reliably-transferable pieces.
     final expanded = FlipperSubDbService.expandForUpload(downloaded);
-    await _beginUpload(expanded);
+    // Anything still over the Crow's per-file limit can't be sent whole: skip
+    // it and say so, rather than letting it fail one by one.
+    final fits = expanded
+        .where((f) => f.content.length <= FirmwareBinaryProtocol.MAX_UPLOAD_BYTES)
+        .toList();
+    _tooBigFiles = expanded.length - fits.length;
+    await _beginUpload(fits);
   }
 
   /// Number of files that the current category selection would upload.
@@ -3749,7 +3758,7 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
                   'Paused – $_uploadedFiles / $_totalFiles files uploaded. You can close and resume later.';
             });
           }
-          WakelockPlus.disable();
+          SettingsProvider.releaseTemporaryWakelock();
           return;
         }
 
@@ -3804,20 +3813,25 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
           _isDone = true;
           _uploadedFiles = _totalFiles;
           _progress = 1.0;
-          _statusText = _failedFiles > 0
-              ? 'Completed with $_failedFiles errors'
-              : 'All $_totalFiles files uploaded successfully!';
+          final problems = <String>[
+            if (_failedFiles > 0) '$_failedFiles failed to upload',
+            if (_downloadFailed > 0) "$_downloadFailed couldn't be downloaded",
+            if (_tooBigFiles > 0) '$_tooBigFiles too big for the Crow (skipped)',
+          ];
+          _statusText = problems.isEmpty
+              ? 'All $_totalFiles files uploaded successfully!'
+              : 'Finished: ${_totalFiles - _failedFiles} uploaded; ${problems.join(', ')}.';
         });
       }
       // Release wakelock after successful completion
-      WakelockPlus.disable();
+      SettingsProvider.releaseTemporaryWakelock();
     } catch (e) {
       // On error, save progress so user can resume later
       if (_completedPaths.isNotEmpty) {
         await FlipperSubDbService.saveProgress(_completedPaths);
       }
       // Release wakelock on error
-      WakelockPlus.disable();
+      SettingsProvider.releaseTemporaryWakelock();
       if (mounted) {
         setState(() {
           _isDone = true;

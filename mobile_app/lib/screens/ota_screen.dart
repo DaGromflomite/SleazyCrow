@@ -318,7 +318,7 @@ class _OtaScreenState extends State<OtaScreen> with TickerProviderStateMixin {
       } catch (_) {}
     } finally {
       // Release wake lock
-      WakelockPlus.disable();
+      SettingsProvider.releaseTemporaryWakelock();
     }
   }
 
@@ -440,7 +440,7 @@ class _OtaScreenState extends State<OtaScreen> with TickerProviderStateMixin {
         await bleProvider.sendBinaryCommand(abortCmd);
       } catch (_) {}
     } finally {
-      WakelockPlus.disable();
+      SettingsProvider.releaseTemporaryWakelock();
     }
   }
 

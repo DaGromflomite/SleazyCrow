@@ -32,6 +32,11 @@ class ClassicBtDevice {
 /// spotting, not for a tight fox hunt.
 class ClassicBt {
   static const _method = MethodChannel('sleazycrow/classic_bt');
+
+  /// While true, the Detect screen won't restart discovery after a cycle ends.
+  /// Set during a Crow connect (discovery blocks BLE connects) and a fox hunt
+  /// (discovery degrades BLE RSSI).
+  static bool paused = false;
   static const _events = EventChannel('sleazycrow/classic_bt/events');
 
   static Future<bool> isSupported() async {

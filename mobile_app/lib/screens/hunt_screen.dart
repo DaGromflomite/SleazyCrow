@@ -1,3 +1,4 @@
+import '../services/classic_bt.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -47,6 +48,9 @@ class _HuntScreenState extends State<HuntScreen> {
   @override
   void initState() {
     super.initState();
+    // Classic-BT discovery (from the Detect tab) disturbs BLE RSSI: pause it.
+    ClassicBt.paused = true;
+    ClassicBt.stopDiscovery();
     WidgetsBinding.instance.addPostFrameCallback((_) => _start());
   }
 
@@ -160,6 +164,7 @@ class _HuntScreenState extends State<HuntScreen> {
     _resultsSub?.cancel();
     _pulseTimer?.cancel();
     FlutterBluePlus.stopScan();
+    ClassicBt.paused = false;
     super.dispose();
   }
 

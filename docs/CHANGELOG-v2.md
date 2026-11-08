@@ -212,6 +212,42 @@ From the second on-device test pass. **Shipped in this build (1–3):**
   so the WiFi detector (Flock/ALPR/cameras) could stay blind. It's now requested at startup with the Bluetooth
   and location permissions (optional; Bluetooth and the Crow work without it).
 
+### Full-app bug sweep (2026-11-08)
+Whole app + firmware reviewed (not just v2), with tests and an emulator pass through every screen.
+- **Uploads over ~122 KB were silently truncated (upstream bug).** The Crow's upload chunk counters are one
+  byte, so past 255 chunks (124,968 bytes) the counter wrapped and the Crow saved a cut-off file while
+  reporting success. 239 of UberGuidoZ's 11,290 `.sub` files are bigger than that (mostly Gates/Garages brute
+  force). The app now refuses an upload it can't deliver whole (`FirmwareBinaryProtocol.MAX_UPLOAD_BYTES`),
+  and the downloader splits any RAW file over the limit into ~100 KB pieces (was: only files over 200 KB, into
+  128 KB pieces, which were still too big). Verified losslessly on real UberGuidoZ files up to 3.2 MB (every
+  piece fits, parses as a valid `.sub`, and the samples join back exactly). The finish message now also says
+  how many files failed to download or were too big.
+- **Connecting while Detect was scanning:** classic-Bluetooth discovery (Detect tab) blocks BLE connections on
+  Android. Connecting now stops any scan and pauses discovery first; the Detect tab no longer starts scans
+  after you've left it; the fox hunt pauses classic discovery (it disturbed RSSI).
+- **Trackers could be hidden:** `BLUETOOTH_SCAN` was declared `neverForLocation`, which makes Android filter
+  some BLE beacons out of scan results. Removed (location is requested anyway).
+- **Service-UUID matching was substring-based**, so a short UUID like Tile's `feed` could match any 128-bit
+  UUID containing "feed". Now exact, full 128-bit comparison.
+- **"Keep screen awake" was switched off after OTA or a download** (they called `disable()` at the end).
+  They now release only their own temporary wakelock.
+- **Playlist files that fail are no longer skipped silently** (errors are muted during playback). At the end
+  the app says which files didn't play, e.g. because they're no longer on the SD card.
+- **Native classic-BT receiver** can no longer crash if Bluetooth Connect permission is revoked.
+- Files: `ble_provider.dart`, `firmware_protocol.dart`, `flipper_subdb_service.dart`, `settings_screen.dart`,
+  `detect_screen.dart`, `hunt_screen.dart`, `classic_bt.dart`, `detection_models.dart`, `settings_provider.dart`,
+  `ota_screen.dart`, `MainActivity.kt`, `AndroidManifest.xml`. Tests: `test/upload_limits_test.dart`.
+
+### Firmware 1.2.1-dev — fast SD format (2026-11-08) — NOT YET FLASHED/TESTED ON HARDWARE
+- **Quick format:** "Format SD Card" now rebuilds the card's FAT filesystem in one pass (`f_mkfs`) instead of
+  deleting every file one at a time, which took 10+ minutes on a full card and could end with the Crow
+  dropping the Bluetooth link. Falls back to the delete method if the quick format can't run.
+- **Delete fallback fixed for deep folders:** the recursive delete kept every parent folder open; the SD
+  library allows only 5 open files, so trees like `SUB Files/Gates/Bruteforcing/...` failed to delete. It now
+  holds no folder open while going deeper.
+- **Upload path bounds check** (a 255-byte path could overrun a 256-byte buffer).
+- Files: `include/FileCommands.h`, `src/core/ble/BleAdapter.cpp`, `include/config.h` (1.2.1-dev).
+
 **In progress / next (5):**
 - **Crow disconnects during playlist playback** — needs a BLE keep-alive during inter-file gaps and/or
   mid-playlist auto-reconnect+resume (keep-screen-awake alone isn't enough).

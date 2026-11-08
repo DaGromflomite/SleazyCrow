@@ -85,11 +85,12 @@ class DetectionRule {
         return true;
       case 'service':
         if (uuid == null) return false;
+        final want = fullUuid(uuid!);
         for (final g in adv.serviceUuids) {
-          if (g.str.toLowerCase().contains(uuid!)) return true;
+          if (fullUuid(g.str128) == want) return true;
         }
         for (final g in adv.serviceData.keys) {
-          if (g.str.toLowerCase().contains(uuid!)) return true;
+          if (fullUuid(g.str128) == want) return true;
         }
         return false;
       case 'nameContains':
@@ -119,6 +120,16 @@ class DetectionRule {
       default:
         return false; // BLE rule types: not a WiFi match
     }
+  }
+
+  /// A UUID in full 128-bit form, lowercase. 16- and 32-bit short UUIDs are
+  /// expanded with the Bluetooth base UUID, so "feed" only matches 0xFEED and
+  /// not any random 128-bit UUID that happens to contain "feed".
+  static String fullUuid(String u) {
+    final s = u.toLowerCase().trim();
+    if (s.length == 4) return '0000$s-0000-1000-8000-00805f9b34fb';
+    if (s.length == 8) return '$s-0000-1000-8000-00805f9b34fb';
+    return s;
   }
 
   static String _name(ScanResult r) =>
