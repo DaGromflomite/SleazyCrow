@@ -351,6 +351,19 @@ Roadmap: **P4** WiFi scanner (lights up the staged ALPR/Ring/camera/body-cam/hac
 **P5** passive background alerts (opt-in; includes a **"alert on surveillance-tool detection"** setting —
 notify when Flock/Axon/ALPR/bodycam/ShotSpotter/camera/Ring/fleet/drone is seen; only meaningful once
 background scanning exists) · **P6** Sub-GHz fox hunt *(firmware)* · **P7** polish + release.
+**★ TPMS vehicle tail-detection — "is a car following me?" (flagship dual-radio idea, pinned 2026-11-08).**
+Passive sub-GHz counter-surveillance: each car's 4 tire-pressure sensors broadcast a unique fixed ID, so
+every nearby vehicle has an RF fingerprint. **Best justification on the board for TWO CC1101s** — TPMS is
+315 MHz (N. America) + 433.92 MHz (EU/Asia); radio A parks on 315, radio B on 433.92, covering both bands
+at once (a one-radio tool misses half the cars). The phone's GPS+clock make "following" computable: if the
+same TPMS IDs reappear across multiple GPS points while you drive, that car is behind you. Reuses the P5
+persistence/`followingScore` anti-stalking engine (applied to TPMS IDs instead of BLE addresses) + the
+existing CC1101 OOK/FSK decode infra (ProtoPirate/FrequencyAnalyzer/ProtocolDecoder); TPMS protocols are
+openly documented in rtl_433. Purely passive RX (defensive framing). Caveats: TPMS transmits mostly while
+moving (~60–90 s) — ideal for the follow-in-traffic threat case; short range (tens of m) — fine for a tail.
+Backups pinned with it: **dual-radio "capture trap"** (radio A detects a burst firing, radio B already
+parked records it in full — kills the single-radio scan-vs-capture problem) and **sub-GHz wardriving**
+(GPS+timestamp heatmap of TPMS/433 weather/AMR meters/garage remotes). Builds on/after P5.
 Firmware-side: BLE + WiFi AP spam · deauth detection · POCSAG/FLEX pager decode ·
 **nRF24 raw ESB sniffer/logger** (with legacy-keyboard keystroke decode) ·
 **nRF24 ESB capture→replay + fuzzing** (own device). *(Reviewed 2026-11-05: promiscuous sniffing,
