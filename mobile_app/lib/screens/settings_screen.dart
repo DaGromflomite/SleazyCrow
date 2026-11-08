@@ -2262,22 +2262,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
               });
             }
             
-            // Safety timeout — only start ONCE
+            // Safety net — only start ONCE. Waits for the Crow's own "done"
+            // (a full card can take minutes), not a fixed short timer.
             if (ble.isFormattingSD && !timeoutStarted) {
               timeoutStarted = true;
-              Future.delayed(const Duration(seconds: 30), () {
-                if (ctx.mounted && !closed) {
-                  closed = true;
-                  Navigator.of(ctx).pop();
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Format timeout: No response from device.'),
-                        backgroundColor: AppColors.error,
-                        duration: Duration(seconds: 4),
-                      ),
-                    );
-                  }
+              ble.waitForSdFormat().then((result) {
+                if (result != null || !ctx.mounted || closed) return;
+                closed = true;
+                Navigator.of(ctx).pop();
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('The Crow is still formatting. Keep it connected '
+                          'and wait before using the card.'),
+                      backgroundColor: AppColors.error,
+                      duration: Duration(seconds: 6),
+                    ),
+                  );
                 }
               });
             }
@@ -2307,7 +2308,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    'Do not disconnect the device.',
+                    'Do not disconnect the device. A full card can take a few minutes.',
                     style: TextStyle(color: AppColors.secondaryText, fontSize: 12),
                     textAlign: TextAlign.center,
                   ),
@@ -3476,14 +3477,36 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
         _statusText = 'Formatting SD card (erasing and recreating folders)...';
         _progress = 0.0;
       });
+      // Wait for the Crow to report the format is finished. Starting the
+      // download early would race the delete and could wipe new files.
+      void showProgress() {
+        final p = widget.bleProvider.sdFormatProgress;
+        if (mounted && p.isNotEmpty) setState(() => _statusText = 'Formatting SD card: $p');
+      }
+      widget.bleProvider.addListener(showProgress);
+      bool? ok;
       try {
-        await widget.bleProvider.formatSDCard();
-        // Give the firmware a moment to delete + recreate the default folders.
-        await Future.delayed(const Duration(seconds: 3));
+        final sent = await widget.bleProvider.formatSDCard();
+        ok = sent ? await widget.bleProvider.waitForSdFormat() : false;
       } catch (_) {
-        // If formatting fails we still proceed; upload will create folders.
+        ok = false;
+      } finally {
+        widget.bleProvider.removeListener(showProgress);
       }
       if (!mounted) return;
+      if (ok != true) {
+        final msg = ok == null
+            ? 'The SD card format did not finish in time. Keep the Crow connected, '
+                'wait a minute, then try again without "Format SD card first".'
+            : 'The SD card format failed or the Crow disconnected. Nothing was downloaded.';
+        setState(() {
+          _isDone = true;
+          _hasError = true;
+          _errorMessage = msg;
+          _statusText = 'Error: $msg';
+        });
+        return;
+      }
     }
     _startCloning(resume: effectiveResume);
   }
