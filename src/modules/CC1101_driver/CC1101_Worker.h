@@ -201,18 +201,46 @@ private:
     static bool transmitRaw(int module, float frequency, int modulation, float deviation, std::string& data, int repeat);
     static bool transmitData(PulsePayload& payload, int module);
     
+    /**
+     * Hold the output for one pulse of [us] microseconds.
+     *
+     * The worker runs at priority 5 and used to busy-wait every pulse, so a
+     * long RAW file (e.g. a 13 s Tesla sweep) kept a core from ever running
+     * its idle task: the task watchdog fired after 5 s and rebooted the Crow,
+     * which dropped Bluetooth mid-playlist.
+     *
+     * Long LOW gaps (the silence between repeats/frames) are now slept through
+     * with the scheduler, and only the last ~2 ms are busy-waited, so the gap
+     * still ends on time. A signal with no long gaps at all still gets a
+     * 1-tick rest every ~2 s inside a LOW pulse (stretching that one gap by
+     * up to ~1 ms) rather than a reboot.
+     */
+    static inline void holdPulse(uint32_t us, bool level, uint32_t& lastRest) {
+        const uint32_t start = micros();
+        if (!level && us >= 3000) {
+            vTaskDelay(pdMS_TO_TICKS((us - 2000) / 1000));
+            lastRest = micros();
+        } else if (!level && (uint32_t)(start - lastRest) > 2000000UL) {
+            vTaskDelay(1);
+            lastRest = micros();
+        }
+        while ((uint32_t)(micros() - start) < us) {
+        }
+    }
+
     // Template version for streaming payload (works with any type that has next())
     template<typename PayloadT>
     static bool transmitData(PayloadT& payload, int module) {
         uint32_t duration;
         bool pinState;
-        
+        uint32_t lastRest = micros();
+        const int pin = moduleCC1101State[module].getOutputPin();
+
         while (payload.next(duration, pinState)) {
-            digitalWrite(moduleCC1101State[module].getOutputPin(), pinState);
-            delayMicroseconds(duration);
-            taskYIELD();
+            digitalWrite(pin, pinState);
+            holdPulse(duration, pinState, lastRest);
         }
-        
+
         return true;
     }
     

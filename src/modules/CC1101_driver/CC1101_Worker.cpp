@@ -177,14 +177,18 @@ void CC1101Worker::start() {
     static StackType_t workerStack[6144 / sizeof(StackType_t)];
     static StaticTask_t workerBuffer;
     
-    workerTaskHandle = xTaskCreateStatic(
+    // Pinned to Core 1 (APP core). BT/WiFi and the task watchdog's watched
+    // IDLE0 live on Core 0, so a long RF busy-wait here starves only the
+    // unwatched IDLE1 — it can't reboot the Crow or drop the BLE link.
+    workerTaskHandle = xTaskCreateStaticPinnedToCore(
         workerTask,
         "CC1101Worker",
         6144 / sizeof(StackType_t),
         nullptr,
         5,  // Priority 3 (high priority for time-sensitive RF operations, increased for jamming stability)
         workerStack,
-        &workerBuffer
+        &workerBuffer,
+        1  // APP_CPU
     );
     
     if (workerTaskHandle == nullptr) {
@@ -1105,10 +1109,11 @@ bool CC1101Worker::transmitRawData(const std::vector<int> &rawData, int module)
         return false;
     }
 
+    uint32_t lastRest = micros();
     for (const auto &rawValue : rawData) {
         if (rawValue != 0) {
             digitalWrite(moduleCC1101State[module].getOutputPin(), (rawValue > 0));
-            delayMicroseconds(abs(rawValue));
+            holdPulse((uint32_t)abs(rawValue), rawValue > 0, lastRest);
         }
     }
 
@@ -1120,10 +1125,10 @@ bool CC1101Worker::transmitData(PulsePayload &payload, int module)
     uint32_t duration;
     bool pinState;
 
+    uint32_t lastRest = micros();
     while (payload.next(duration, pinState)) {
         digitalWrite(moduleCC1101State[module].getOutputPin(), pinState);
-        delayMicroseconds(duration);
-        taskYIELD();
+        holdPulse(duration, pinState, lastRest);
     }
 
     return true;
