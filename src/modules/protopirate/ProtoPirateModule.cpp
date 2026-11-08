@@ -1,4 +1,5 @@
 /**
+#include <exception>
  * @file ProtoPirateModule.cpp
  * @brief ProtoPirate module implementation.
  *
@@ -15,6 +16,48 @@
 // Static allocation for FreeRTOS task
 StackType_t ProtoPirateModule::taskStack_[ProtoPirateModule::TASK_STACK_SIZE];
 StaticTask_t ProtoPirateModule::taskTcb_;
+
+// Static allocation for the dedicated file-load task
+StackType_t ProtoPirateModule::loadStack_[ProtoPirateModule::LOAD_STACK_SIZE];
+StaticTask_t ProtoPirateModule::loadTcb_;
+char ProtoPirateModule::loadPath_[128];
+volatile bool ProtoPirateModule::loadBusy_ = false;
+
+void ProtoPirateModule::loadFileTask(void* param) {
+    (void)param;
+    // A malformed or oversized file must never crash the device: swallow any
+    // exception (e.g. bad_alloc from a huge RAW file) and fail gracefully.
+    try {
+        getInstance().loadSubFile(loadPath_);
+    } catch (const std::exception& e) {
+        ESP_LOGE(TAG, "loadFileTask: exception loading %s: %s", loadPath_, e.what());
+    } catch (...) {
+        ESP_LOGE(TAG, "loadFileTask: unknown exception loading %s", loadPath_);
+    }
+    loadBusy_ = false;
+    vTaskDelete(nullptr);
+}
+
+bool ProtoPirateModule::loadSubFileAsync(const char* filePath) {
+    if (loadBusy_) {
+        ESP_LOGW(TAG, "loadSubFileAsync: a load is already running");
+        return false;
+    }
+    if (!filePath || filePath[0] == '\0') return false;
+    loadBusy_ = true;
+    strncpy(loadPath_, filePath, sizeof(loadPath_) - 1);
+    loadPath_[sizeof(loadPath_) - 1] = '\0';
+    // Pinned to Core 1 (APP core), like the other RF tasks.
+    TaskHandle_t h = xTaskCreateStaticPinnedToCore(
+        loadFileTask, "PPFileLoad", LOAD_STACK_SIZE, nullptr, 2,
+        loadStack_, &loadTcb_, 1);
+    if (h == nullptr) {
+        loadBusy_ = false;
+        ESP_LOGE(TAG, "loadSubFileAsync: failed to create task");
+        return false;
+    }
+    return true;
+}
 
 bool ProtoPirateModule::init() {
     if (mutex_) return true;  // Already initialized
@@ -393,22 +436,32 @@ bool ProtoPirateModule::loadSubFile(const char* filePath) {
         activeFrequency_ = (float)header.frequency / 1000000.0f;
     }
 
-    // Collect all samples from the .sub file first
-    // (streamRawData gives us signed durations: + = HIGH, - = LOW)
+    // Collect samples from the .sub file, but CAP the count: a big RAW sweep
+    // (e.g. a 100 KB Tesla file ≈ 25k pulses) would grow this vector past the
+    // free heap and throw bad_alloc. Decoders identify a protocol from the
+    // start of the signal, so the first MAX_LOAD_SAMPLES pulses are plenty.
+    static constexpr size_t MAX_LOAD_SAMPLES = 8192;  // 32 KB, well within heap
     std::vector<unsigned long> samples;
-    samples.reserve(2048);
+    samples.reserve(MAX_LOAD_SAMPLES);
     size_t totalPulses = 0;
+    bool capped = false;
 
     parser.streamRawData(filePath, [&](int32_t duration_us, bool pinState) {
         // We just store absolute duration; the alternation HIGH/LOW
         // is implied by position (even=HIGH, odd=LOW) in the RAW stream.
         // The .sub format already has correct signing.
         (void)pinState;
-        if (duration_us > 0) {
+        if (duration_us > 0 && samples.size() < MAX_LOAD_SAMPLES) {
             samples.push_back((unsigned long)duration_us);
+        } else if (samples.size() >= MAX_LOAD_SAMPLES) {
+            capped = true;
         }
         totalPulses++;
     });
+    if (capped) {
+        ESP_LOGW(TAG, "loadSubFile: %s has %zu pulses; capped at %zu for decode",
+                 filePath, totalPulses, MAX_LOAD_SAMPLES);
+    }
 
     if (samples.size() < 20) {
         ESP_LOGW(TAG, "loadSubFile: too few samples (%zu) in %s", samples.size(), filePath);
