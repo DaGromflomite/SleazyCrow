@@ -379,6 +379,11 @@ class BleProvider extends ChangeNotifier {
   String _friendlyBleError(Object e) {
     if (e is FlutterBluePlusException) {
       final what = e.description?.trim();
+      if (e.function == 'connect' && (what ?? '').toLowerCase().contains('timed out')) {
+        return "The Crow didn't answer. Check it's switched on and close to the phone, "
+            'and that no other phone or app is connected to it. If it still fails, '
+            'switch the Crow off and on again, then tap Connect.';
+      }
       return 'Bluetooth not ready (${e.function}${what != null && what.isNotEmpty ? ': $what' : ''}). '
           'Wait a moment and try again.';
     }
@@ -457,6 +462,14 @@ class BleProvider extends ChangeNotifier {
     if (await Permission.location.isDenied) {
       await Permission.location.request();
     }
+
+    // Nearby WiFi devices (Android 13+): needed for the WiFi detector (Flock,
+    // ALPR, cameras). Optional — Bluetooth and the Crow work without it.
+    try {
+      if (await Permission.nearbyWifiDevices.isDenied) {
+        await Permission.nearbyWifiDevices.request();
+      }
+    } catch (_) {/* not applicable on this Android version */}
     
     // Check if all permissions are granted
     bool allGranted = await Permission.bluetooth.isGranted &&
@@ -588,7 +601,7 @@ class BleProvider extends ChangeNotifier {
       print('Connecting to device: ${device.name} (${device.id})');
       notifyListeners();
       
-      await device.connect(timeout: const Duration(seconds: 10));
+      await device.connect(timeout: const Duration(seconds: 15));
       connectedDevice = device;
       
       // Set up connection state monitoring (cancel previous subscription on reconnect)
