@@ -107,6 +107,21 @@
           "Install unknown apps" for your browser or Files app, then go back and install.</li>
       <li>Open <b>Sleazy Crow</b> and allow the Bluetooth and location permissions when asked.</li>
     </ol>
+    <h3>Prefer to install from a computer?</h3>
+    <p><b>Easiest — copy the file over USB:</b></p>
+    <ol>
+      <li>On the computer, download <code>{{APK}}</code> (the button above, or the releases page).</li>
+      <li>Connect the phone by USB and set it to <b>File transfer</b> mode (swipe down and tap the USB notification to choose it).</li>
+      <li>Copy <code>{{APK}}</code> onto the phone, e.g. into its <b>Download</b> folder.</li>
+      <li>On the phone, open <b>Files</b>, tap the <code>.apk</code>, allow "Install unknown apps" if asked, then install.</li>
+    </ol>
+    <p><b>For developers — <code>adb</code>:</b></p>
+    <ol>
+      <li>Install Android <b>platform-tools</b> (adb) on the computer.</li>
+      <li>On the phone, enable <b>Developer options &rarr; USB debugging</b>.</li>
+      <li>Connect by USB, accept the "Allow USB debugging" prompt, then run:
+          <code>adb install {{APK}}</code></li>
+    </ol>
     <p class="muted">All releases and checksums are on the
     <a href="https://github.com/DaGromflomite/SleazyCrow/releases">Sleazy Crow releases page</a>.</p>
   </section>
