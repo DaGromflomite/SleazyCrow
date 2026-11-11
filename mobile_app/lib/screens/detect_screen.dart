@@ -260,13 +260,20 @@ class _DetectScreenState extends State<DetectScreen> {
       return b.rssi.compareTo(a.rssi);
     });
 
-    final shown =
-        _flaggedOnly ? rows.where((e) => e.detection != null).toList() : rows;
+    // Unflagged WiFi networks are just noise — the WiFi scan only exists to
+    // catch WiFi-based gear (Flock/ALPR/cameras/Ring), so an AP that matched
+    // nothing is never shown. (BLE/classic still obey the Filter: ON/OFF
+    // toggle, since an unknown BLE device can still be worth eyeballing.)
+    final shown = rows.where((e) {
+      if (e.isWifi && e.detection == null) return false;
+      if (_flaggedOnly && e.detection == null) return false;
+      return true;
+    }).toList();
 
     return GradientBackground(
       child: Column(
         children: [
-          _buildHeader(rows.length, flagged),
+          _buildHeader(shown.length, flagged),
           if (_error != null) _buildError(_error!),
           Expanded(
             child: shown.isEmpty ? _buildEmpty() : _buildList(shown),
