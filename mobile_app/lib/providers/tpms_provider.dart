@@ -12,10 +12,14 @@ class TpmsSensor {
   int? pressureKpa;
   int? temperatureC;
   int rssi;
+  int protocol; // 0=generic, 1=Ford, 2=Toyota
   int tripsSeen; // distinct past sessions this id appeared in (incl. current)
 
   TpmsSensor(this.id, this.firstSeen, this.lastSeen, this.rssi,
-      {this.pressureKpa, this.temperatureC, this.tripsSeen = 1});
+      {this.pressureKpa,
+      this.temperatureC,
+      this.protocol = 0,
+      this.tripsSeen = 1});
 
   String get hex => '0x${id.toRadixString(16).toUpperCase().padLeft(8, '0')}';
 }
@@ -112,11 +116,13 @@ class TpmsProvider extends ChangeNotifier {
         rssi: (d['rssi'] ?? -50) is int ? d['rssi'] as int : -50,
         pressureKpa: d['pressureKpa'] as int?,
         temperatureC: d['temperatureC'] as int?,
+        protocol: (d['protocol'] ?? 0) is int ? d['protocol'] as int : 0,
       );
     }
   }
 
-  void _recordHit(int id, {required int rssi, int? pressureKpa, int? temperatureC}) {
+  void _recordHit(int id,
+      {required int rssi, int? pressureKpa, int? temperatureC, int protocol = 0}) {
     final now = DateTime.now();
     final existing = _session[id];
     if (existing == null) {
@@ -125,6 +131,7 @@ class TpmsProvider extends ChangeNotifier {
       _session[id] = TpmsSensor(id, now, now, rssi,
           pressureKpa: pressureKpa,
           temperatureC: temperatureC,
+          protocol: protocol,
           tripsSeen: tripsFor(id));
       _saveHistory();
     } else {
@@ -132,6 +139,7 @@ class TpmsProvider extends ChangeNotifier {
       existing.rssi = rssi;
       if (pressureKpa != null) existing.pressureKpa = pressureKpa;
       if (temperatureC != null) existing.temperatureC = temperatureC;
+      if (protocol != 0) existing.protocol = protocol;
     }
     notifyListeners();
   }

@@ -103,10 +103,11 @@ class FirmwareBinaryProtocol {
   static const int MSG_NRF_CLEAR_TARGETS = 0x2E;
   static const int MSG_NRF_STOP_ALL     = 0x2F;
 
-  // ── TPMS sniffer Commands (0x70-0x72) ───────────────────────
-  static const int MSG_TPMS_START  = 0x70;
-  static const int MSG_TPMS_STOP   = 0x71;
-  static const int MSG_TPMS_STATUS = 0x72;
+  // ── TPMS sniffer Commands (0x70-0x73) ───────────────────────
+  static const int MSG_TPMS_START    = 0x70;
+  static const int MSG_TPMS_STOP     = 0x71;
+  static const int MSG_TPMS_STATUS   = 0x72;
+  static const int MSG_TPMS_SELFTEST = 0x73;
 
   // ── ProtoPirate Commands (0x60) ─────────────────────────────
   static const int MSG_PROTOPIRATE = 0x60;
@@ -938,6 +939,12 @@ class FirmwareBinaryProtocol {
   /// Request TPMS sniffer status (0x72).
   static Uint8List createTpmsStatusCommand() {
     return _createEnhancedCommand(MSG_TPMS_STATUS, Uint8List(0));
+  }
+
+  /// Run the on-device TPMS decoder self-test (0x73). The Crow replies with a
+  /// pass mask and emits the decoded Ford test vector as a demo sensor hit.
+  static Uint8List createTpmsSelfTestCommand() {
+    return _createEnhancedCommand(MSG_TPMS_SELFTEST, Uint8List(0));
   }
 
   /// Start 2.4 GHz spectrum analyzer (0x28)
