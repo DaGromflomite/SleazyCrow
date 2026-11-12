@@ -5,9 +5,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sleazycrow/detection/detection_models.dart';
 
 /// End-to-end matching tests for the detection engine's WiFi path against the
-/// REAL shipped signatures.json — the primary avenue for Flock / ALPR / body
-/// cameras, which announce over WiFi. (BLE matching needs a platform
-/// ScanResult and is covered by on-device testing.)
+/// REAL shipped signatures.json. (flock + alpr were removed 2026-11-11: a
+/// deployed Flock/ALPR runs on LTE and never broadcasts a WiFi AP a phone can
+/// see, so keeping them was false advertising.) BLE matching needs a platform
+/// ScanResult and is covered by on-device testing.
 void main() {
   late SignatureDb db;
   setUpAll(() {
@@ -25,25 +26,9 @@ void main() {
     return null;
   }
 
-  group('Flock Safety (ALPR camera)', () {
-    test('WiFi OUI b4:1e:52 matches high', () {
-      expect(cat('flock').evaluateWifi('whatever', 'B4:1E:52:AA:BB:CC'), Grade.high);
-    });
-    test('OUI match tolerates dash separators and case', () {
-      expect(cat('flock').evaluateWifi('x', 'b4-1e-52-00-11-22'), Grade.high);
-    });
-    test('SSID "Flock Camera Net-5" matches high', () {
-      expect(cat('flock').evaluateWifi('Flock Camera Net-5', 'aa:bb:cc:dd:ee:ff'), Grade.high);
-    });
-    test('SSID "FLOCK-1234" matches high', () {
-      expect(cat('flock').evaluateWifi('FLOCK-1234', '00:00:00:00:00:00'), Grade.high);
-    });
-    test('bare "flock" SSID still flags (low)', () {
-      expect(cat('flock').evaluateWifi('myflocknet', '00:00:00:00:00:00'), Grade.low);
-    });
-    test('has a BLE manufacturer rule (company 2504) for on-device BLE path', () {
-      expect(cat('flock').rules.any((r) => r.type == 'manufacturer' && r.company == 2504), isTrue);
-    });
+  test('flock + alpr are removed (phone cannot detect deployed LTE cameras)', () {
+    expect(db.categories.any((c) => c.id == 'flock'), isFalse);
+    expect(db.categories.any((c) => c.id == 'alpr'), isFalse);
   });
 
   group('Axon / Taser body camera', () {
@@ -64,7 +49,6 @@ void main() {
   });
 
   group('other WiFi-path surveillance categories fire on their OUIs', () {
-    test('ALPR 00:0e:a5', () => expect(cat('alpr').evaluateWifi('x', '00:0e:a5:00:00:01'), isNotNull));
     test('bodycam 00:23:bd', () => expect(cat('bodycam').evaluateWifi('x', '00:23:bd:00:00:01'), isNotNull));
     test('ring ac:9f:c3', () => expect(cat('ring').evaluateWifi('x', 'ac:9f:c3:00:00:01'), isNotNull));
     test('shotspotter d4:11:d6', () => expect(cat('shotspotter').evaluateWifi('x', 'd4:11:d6:00:00:01'), isNotNull));
@@ -82,9 +66,9 @@ void main() {
     });
   });
 
-  test('strongest grade wins when multiple rules match (Flock OUI+SSID)', () {
-    // OUI(high) + bare-flock SSID(low) present together -> high.
-    expect(cat('flock').evaluateWifi('flock', 'b4:1e:52:00:00:01'), Grade.high);
+  test('strongest grade wins when multiple rules match (Axon OUI+SSID)', () {
+    // OUI 00:25:df (high) + SSID "axon-" (high) both present -> high.
+    expect(cat('axon').evaluateWifi('axon-7', '00:25:df:00:00:01'), Grade.high);
   });
 
   test('BLE rule types never match on the WiFi path', () {

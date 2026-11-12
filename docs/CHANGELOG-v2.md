@@ -253,6 +253,41 @@ From the second on-device test pass. **Shipped in this build (1–3):**
 - **Caveats (surfaced, not bugs):** Android throttles WiFi scans to ~4 / 2 min, so WiFi detections refresh
   slower than BLE (scan loop ~25 s). iOS has no public WiFi-scan API, so the scanner no-ops there (guarded).
 
+### P4b — Crow WiFi promiscuous sniffer — ATTEMPTED then REMOVED 2026-11-11 (hardware can't support it)
+**Outcome: REMOVED.** Real-hardware BLE testing proved the ESP32-PICO-D4 can't run a WiFi promiscuous
+sniffer alongside NimBLE + the full firmware: idle free heap is only ~15 KB and `esp_wifi_init()` needs
+~40-50 KB (`ESP_ERR_NO_MEM`, verified on-device; trimming WiFi buffers didn't help — init fails before the
+buffers). The feature was fully reverted from firmware + app. Removing the linked WiFi stack recovered
+**free heap 15 KB → 51 KB** and **flash 81% → 58%**. KEPT: the phone's own WiFi AP scanner (phone hardware)
++ signatures. Lesson recorded: verify feasibility on real hardware before building. Original (now-removed)
+design below, for the record:
+
+### (removed) original sniffer design — 2026-11-11
+- **Field-test correction:** a **deployed** Flock camera is NOT visible to the phone's WiFi AP scan above.
+  It backhauls over **LTE** (no persistent WiFi AP to scan), and Flock disabled the BLE beacon — so the
+  phone sees nothing. The only live signal is the camera's **802.11 management frames** (probe requests /
+  beacons) carrying a Flock MAC OUI, which require **monitor/promiscuous mode** the phone's OS never exposes.
+  The ESP32 can do it. (Signatures also bumped to **v9**: added phone-visible `flockos`/`flocksafety`/
+  `pigvision` SSIDs + `flockcam` name for setup-mode / older BLE-beaconing units.)
+- **Firmware:** new `WifiSniffer` module — ESP32 WiFi promiscuous RX, channel-hops **1–13** (~120 ms dwell),
+  hardware-filters **management** frames, extracts source MAC + SSID + RSSI, de-dups (LRU of 64 MACs,
+  re-reports a MAC at most every 8 s or on a ≥12 dB jump), and streams each unique sighting to the app.
+  Runs on **core 1** with the RX callback feeding a FreeRTOS queue, so the NimBLE host task on core 0 never
+  stalls — WiFi/BT **coexistence** keeps the app link up (a little less snappy while scanning). Passive,
+  receive-only. New commands **0x70 start / 0x71 stop / 0x72 status**; new messages **MSG_WIFI_HIT (0xD8)**
+  and **MSG_WIFI_SCAN_STATUS (0xD9)**. Build clean (Flash 80.9 %).
+  Files: `src/modules/wifi/WifiSniffer.{h,cpp}` (new), `include/WifiCommands.h` (new),
+  `include/BinaryMessages.h`, `src/core/ble/ClientsManager.h`, `src/main.cpp`.
+- **App:** a **"Flock" toggle** on the Detect header (shown only when the Crow is connected) starts/stops the
+  sniffer and **holds the screen awake** while scanning (for in-car / walking detection). Crow sightings
+  merge into the Detect list through the **same `evaluateWifi` engine** (so Flock OUI/SSID updates stay in the
+  hosted signatures — no reflash), BSSID-deduped against the phone's own WiFi. Surveillance hits fire the
+  existing audible/haptic alert. Files: `lib/providers/firmware_protocol.dart`,
+  `lib/services/binary_message_parser.dart`, `lib/providers/ble_provider.dart`, `lib/screens/detect_screen.dart`.
+- **Still to do:** background foreground-service (P5) so it alerts with the screen off / app backgrounded —
+  the real "plug into the car, turn on, forget, get alerted" detector; on-device flash + field test; optional
+  GPS/wardrive logging (deferred). Until P5 lands, the sniffer runs while the Detect tab is open.
+
 ### SD card format — both paths now wait for the Crow to finish (2026-11-08)
 - **Bug:** the downloader's **"Format SD card first"** option started the format, waited a fixed **3 seconds**,
   then started downloading. On a full card the Crow can still be deleting files after 3 s, so the wipe could
