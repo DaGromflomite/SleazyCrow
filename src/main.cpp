@@ -9,6 +9,7 @@
 #include "StateCommands.h"
 #include "BruterCommands.h"
 #include "NrfCommands.h"
+#include "TpmsCommands.h"
 #include "OtaCommands.h"
 #include "ButtonCommands.h"
 #include "SdrCommands.h"
@@ -697,6 +698,7 @@ void setup()
     ProtoPirateCommands::registerCommands(commandHandler);
 #endif
     NrfCommands::registerCommands(commandHandler);
+    TpmsCommands::registerCommands(commandHandler);
     OtaCommands::registerCommands(commandHandler);
     ButtonCommands::registerCommands(commandHandler);
 #if SDR_MODULE_ENABLED

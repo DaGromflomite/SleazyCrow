@@ -81,6 +81,10 @@ enum BinaryMessageType : uint8_t {
     // nRF24 module status (sent on GetState)
     MSG_NRF_STATUS    = 0xCA, // [present:1][initialized:1][activeState:1]
 
+    // TPMS (tire-pressure sensor sniffer — vehicle stalking detection)
+    MSG_TPMS_HIT    = 0xD8,  // One decoded TPMS sensor: see BinaryTpmsHit
+    MSG_TPMS_STATUS = 0xD9,  // Sniffer status: active/module/freq/seen/packets
+
     // ProtoPirate (automotive key fob decoder)
     MSG_PP_DECODE_RESULT = 0xB5,  // Decoded signal: [nameLen:1][name...][data:8][data2:8][serial:4][btn:1][cnt:4][bits:1][enc:1][crc:1]
     MSG_PP_HISTORY_ENTRY = 0xB6,  // History entry: [idx:1][ts:4][nameLen:1][name...][data fields...]
@@ -323,6 +327,32 @@ struct BinaryNrfStatus {
     uint8_t present;       // 0 = not present, 1 = present
     uint8_t initialized;   // 0 = not initialized, 1 = initialized
     uint8_t activeState;   // 0=idle, 1=jamming, 2=scanning, 3=attacking, 4=spectrum
+};
+
+// TPMS sensor hit (12 bytes). The 32-bit sensorId is the fixed, unencrypted
+// per-sensor fingerprint used for tracking — a vehicle seen repeatedly across
+// trips/locations by the same IDs is a candidate follower. Matched + tracked
+// APP-SIDE. [0xD8][sensorId:4LE][pressure_kpa:2LE][temp_c:int8][rssi:int8][protocol:1][flags:1]
+struct BinaryTpmsHit {
+    uint8_t  messageType = MSG_TPMS_HIT;
+    uint32_t sensorId;        // 32-bit sensor ID (the trackable fingerprint)
+    uint16_t pressure_kpa;    // kPa, 0xFFFF = unknown
+    int8_t   temperature_c;   // °C, -128 = unknown
+    int8_t   rssi;            // dBm
+    uint8_t  protocol;        // 0=raw/unknown, 1=Schrader FSK, 2=Toyota, ...
+    uint8_t  flags;           // bit0 = CRC valid
+};
+
+// TPMS sniffer status (10 bytes).
+// [0xD9][active:1][module:1][freqx100:2LE][seen:2LE][packets:2LE][reserved:1]
+struct BinaryTpmsStatus {
+    uint8_t  messageType = MSG_TPMS_STATUS;
+    uint8_t  active;          // 0 = off, 1 = sniffing
+    uint8_t  module;          // CC1101 module used (0 or 1)
+    uint16_t freqx100;        // frequency * 100 MHz (31500 = 315.00)
+    uint16_t seen;            // unique sensor IDs seen this session
+    uint16_t packets;         // raw packets captured (reception confidence)
+    uint8_t  reserved;
 };
 
 #pragma pack(pop)

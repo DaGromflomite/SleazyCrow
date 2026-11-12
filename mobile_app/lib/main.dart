@@ -9,6 +9,7 @@ import 'providers/log_provider.dart';
 import 'providers/notification_provider.dart';
 import 'providers/locale_provider.dart';
 import 'providers/settings_provider.dart';
+import 'providers/tpms_provider.dart';
 import 'theme/app_colors.dart';
 
 void main() {
@@ -27,6 +28,10 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (context) => LogProvider()),
         ChangeNotifierProvider(create: (context) => NotificationProvider()),
         ChangeNotifierProvider(create: (context) => SettingsProvider()),
+        ChangeNotifierProxyProvider<BleProvider, TpmsProvider>(
+          create: (context) => TpmsProvider(context.read<BleProvider>()),
+          update: (context, ble, previous) => previous ?? TpmsProvider(ble),
+        ),
       ],
       child: Consumer<LocaleProvider>(
         builder: (context, localeProvider, child) {
