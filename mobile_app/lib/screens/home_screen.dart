@@ -16,7 +16,6 @@ import 'files_screen.dart';
 import 'settings_screen.dart';
 import 'record_screen.dart';
 import 'signal_scanner_screen.dart';
-import 'detect_screen.dart';
 import 'subghz_screen.dart';
 import 'nrf_screen.dart';
 
@@ -226,38 +225,10 @@ class HomeTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Home is a hub with sub-tabs, filled in as phases land. Connect + Detect
-    // now; Hunt / WiFi / Alerts get added later. The Detect tab uses the phone's
-    // own radios and needs no Crow connected.
-    return DefaultTabController(
-      length: 2,
-      child: Column(
-        children: [
-          Container(
-            decoration: const BoxDecoration(gradient: AppColors.cyberGradient),
-            child: const TabBar(
-              labelColor: Colors.white,
-              unselectedLabelColor: Colors.white70,
-              indicatorColor: Colors.white,
-              tabs: [
-                Tab(
-                    icon: Icon(Icons.bluetooth_searching, size: 20),
-                    text: 'Connect'),
-                Tab(icon: Icon(Icons.radar, size: 20), text: 'Detect'),
-              ],
-            ),
-          ),
-          const Expanded(
-            child: TabBarView(
-              children: [
-                _ConnectTab(),
-                DetectScreen(),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
+    // Home is the Crow connection screen (and, when connected, the Crow's RF
+    // signal scanner). The phone-radio "Detect" suite was removed — the phone
+    // hardware couldn't reliably detect what it claimed to.
+    return const _ConnectTab();
   }
 }
 
