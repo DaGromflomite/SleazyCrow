@@ -93,39 +93,116 @@ inline bool decodeToyota(const uint8_t* b, int n, TpmsDecoded& out) {
     return true;
 }
 
+// ── Hyundai/Kia (Continental VDO, rtl_433 tpms_hyundai_vdo): 10 bytes ───────
+// FSK Manchester. ID = b1..b4 big-endian. CRC-8 poly 0x07 init 0xAA over b0..b8.
+// Pressure = b6 * 1.375 kPa. Temp = b7 - 50 C. (proto 3)
+inline bool decodeHyundaiVDO(const uint8_t* b, int n, TpmsDecoded& out) {
+    if (n < 10) return false;
+    if (crc8(b, 9, 0x07, 0xAA) != b[9]) return false;
+    out.id = ((uint32_t)b[1] << 24) | ((uint32_t)b[2] << 16) |
+             ((uint32_t)b[3] << 8) | (uint32_t)b[4];
+    if (out.id == 0 || out.id == 0xFFFFFFFFu) return false;
+    uint16_t kpa = (uint16_t)(b[6] * 1.375f + 0.5f);
+    out.pressureKpa = kpa;
+    out.tempC = (int8_t)((int)b[7] - 50);
+    out.protocol = 3;
+    out.ok = true;
+    return true;
+}
+
+// ── Schrader generic (rtl_433 schraeder): 8 bytes (after sync nibble) ───────
+// OOK Manchester. 28-bit ID = (b1&0x0F)<<24 | b2<<16 | b3<<8 | b4.
+// CRC-8 poly 0x07 init 0xF0 over b0..b6 == b7. Pressure b5*2.5 kPa, temp b6-50.
+// (proto 4) FCC MRXGG4 — many Schrader-equipped vehicles.
+inline bool decodeSchrader(const uint8_t* b, int n, TpmsDecoded& out) {
+    if (n < 8) return false;
+    if (crc8(b, 7, 0x07, 0xF0) != b[7]) return false;
+    out.id = ((uint32_t)(b[1] & 0x0F) << 24) | ((uint32_t)b[2] << 16) |
+             ((uint32_t)b[3] << 8) | (uint32_t)b[4];
+    if (out.id == 0) return false;
+    out.pressureKpa = (uint16_t)(b[5] * 2.5f + 0.5f);
+    out.tempC = (int8_t)((int)b[6] - 50);
+    out.protocol = 4;
+    out.ok = true;
+    return true;
+}
+
+// ── Schrader EG53MA4 (rtl_433): 10 bytes (after 40-bit discard) ─────────────
+// OOK Manchester. 24-bit ID = b4,b5,b6. Pressure b7*2.5 kPa. Temp b8 (deg F raw).
+// Checksum = sum(b0..b8) & 0xFF == b9. (proto 5) GM/Chevy, Opel/Saab/Vauxhall.
+inline bool decodeSchraderEG53(const uint8_t* b, int n, TpmsDecoded& out) {
+    if (n < 10) return false;
+    uint8_t sum = 0;
+    for (int i = 0; i < 9; i++) sum += b[i];
+    if (sum != b[9]) return false;
+    // sanity: these are never all-zero in a real packet
+    if (!b[1] && !b[2] && !b[4] && !b[5] && !b[7] && !b[8]) return false;
+    out.id = ((uint32_t)b[4] << 16) | ((uint32_t)b[5] << 8) | (uint32_t)b[6];
+    if (out.id == 0 || out.id == 0xFFFFFF) return false;
+    out.pressureKpa = (uint16_t)(b[7] * 2.5f + 0.5f);
+    out.tempC = (int8_t)(((int)b[8] - 32) * 5 / 9);  // deg F -> C
+    out.protocol = 5;
+    out.ok = true;
+    return true;
+}
+
 // Try every known protocol on a payload byte buffer. Returns true on first hit.
+// CRC/checksum validation makes a false match at a wrong alignment near-impossible.
 inline bool decodeAny(const uint8_t* b, int n, TpmsDecoded& out) {
     if (decodeFord(b, n, out)) return true;
     if (decodeToyota(b, n, out)) return true;
+    if (decodeHyundaiVDO(b, n, out)) return true;
+    if (decodeSchraderEG53(b, n, out)) return true;
+    if (decodeSchrader(b, n, out)) return true;
     return false;
 }
 
-// On-device self-test: validate the decoders against known vectors.
-// Ford vector is rtl_433's documented layout with an INDEPENDENTLY verifiable
-// additive checksum. Toyota vector is built to the spec (CRC self-consistent).
-// Returns a bitmask: bit0 = Ford pass, bit1 = Toyota pass.
+// On-device self-test: validate every byte-decoder against known vectors.
+// Ford uses rtl_433's documented INDEPENDENTLY verifiable additive checksum;
+// the others are built to spec with a self-consistent CRC/checksum (confirms
+// field extraction + the CRC implementation). Returns a bitmask:
+// bit0 Ford, bit1 Toyota, bit2 Hyundai-VDO, bit3 Schrader, bit4 Schrader-EG53.
 inline uint8_t selfTest() {
     uint8_t result = 0;
+    TpmsDecoded d;
     // Ford: 12 34 56 78 7C 47 04 DB -> ID 0x12345678, 31.00 PSI, 15 C.
     {
         const uint8_t v[8] = {0x12, 0x34, 0x56, 0x78, 0x7C, 0x47, 0x04, 0xDB};
-        TpmsDecoded d;
+        d = TpmsDecoded();
         if (decodeFord(v, 8, d) && d.id == 0x12345678u &&
-            d.tempC == 15 && d.pressureKpa == psiToKpa(31.0f)) {
-            result |= 0x01;
-        }
+            d.tempC == 15 && d.pressureKpa == psiToKpa(31.0f)) result |= 0x01;
     }
-    // Toyota: build a valid packet to spec, append correct CRC, decode, verify.
+    // Toyota: pressure1=128 -> 25 PSI, temp raw 60 -> 20 C.
     {
         uint8_t v[9] = {0x12, 0x34, 0x56, 0x78, 0x40, 0x1E, 0x00, 0x7F, 0x00};
         v[8] = crc8(v, 8, 0x07, 0x80);
-        TpmsDecoded d;
-        // pressure1 = (0x40<<1)|(0x1E>>7) = 0x80 = 128 -> 128*0.25-7 = 25 PSI
-        // temp = (0x1E<<1)|(0x00>>7) = 0x3C = 60 -> 60-40 = 20 C
+        d = TpmsDecoded();
         if (decodeToyota(v, 9, d) && d.id == 0x12345678u &&
-            d.tempC == 20 && d.pressureKpa == psiToKpa(25.0f)) {
-            result |= 0x02;
-        }
+            d.tempC == 20 && d.pressureKpa == psiToKpa(25.0f)) result |= 0x02;
+    }
+    // Hyundai-VDO: ID=b1..b4=0x0ABBCCDD, b6=160 -> 220 kPa, b7=70 -> 20 C.
+    {
+        uint8_t v[10] = {0x20, 0x0A, 0xBB, 0xCC, 0xDD, 0x00, 160, 70, 0x00, 0x00};
+        v[9] = crc8(v, 9, 0x07, 0xAA);
+        d = TpmsDecoded();
+        if (decodeHyundaiVDO(v, 10, d) && d.id == 0x0ABBCCDDu &&
+            d.tempC == 20 && d.pressureKpa == 220) result |= 0x04;
+    }
+    // Schrader generic: ID=(b1&0x0F)<<24|b2<<16|b3<<8|b4 = 0x0A345678, b5=88 ->220kPa, b6=70->20C.
+    {
+        uint8_t v[8] = {0x12, 0x0A, 0x34, 0x56, 0x78, 88, 70, 0x00};
+        v[7] = crc8(v, 7, 0x07, 0xF0);
+        d = TpmsDecoded();
+        if (decodeSchrader(v, 8, d) && d.id == 0x0A345678u &&
+            d.tempC == 20 && d.pressureKpa == 220) result |= 0x08;
+    }
+    // Schrader EG53 (GM): ID=b4..b6=0x123456, b7=88 ->220kPa, b8=68F ->20C.
+    {
+        uint8_t v[10] = {0x01, 0x02, 0x03, 0x04, 0x12, 0x34, 0x56, 88, 68, 0x00};
+        uint8_t s = 0; for (int i = 0; i < 9; i++) s += v[i]; v[9] = s;
+        d = TpmsDecoded();
+        if (decodeSchraderEG53(v, 10, d) && d.id == 0x123456u &&
+            d.pressureKpa == 220 && d.tempC == 20) result |= 0x10;
     }
     return result;
 }

@@ -60,17 +60,16 @@ private:
         return true;
     }
 
-    // 0x73 — run the TPMS self-test on the real device.
-    // Reply: [MSG_COMMAND_SUCCESS][mask]
-    //   bit0 = Ford byte-decoder, bit1 = Toyota byte-decoder,
-    //   bit2 = full demod->decode chain (synthetic Ford pulse train). 0x07 = all.
+    // 0x73 — run the TPMS self-test on the real device. Reply: [SUCCESS][mask]
+    //   bit0 Ford, bit1 Toyota, bit2 Hyundai-VDO, bit3 Schrader, bit4 Schrader-EG53
+    //   (byte decoders, 0x1F = all), bit7 = full demod->decode chain. 0x9F = all pass.
     static bool handleSelfTest(const uint8_t* data, size_t len) {
-        uint8_t mask = tpms::selfTest();          // bit0 Ford, bit1 Toyota
-        if (TpmsModule::demodSelfTest()) mask |= 0x04;
+        uint8_t mask = tpms::selfTest();          // bits 0-4 = 5 byte decoders
+        if (TpmsModule::demodSelfTest()) mask |= 0x80;
         uint8_t resp[] = { MSG_COMMAND_SUCCESS, mask };
         ClientsManager::getInstance().notifyAllBinary(
             NotificationType::TpmsEvent, resp, sizeof(resp));
-        ESP_LOGI("Tpms", "self-test mask=0x%02X (b0=Ford b1=Toyota b2=demod)", mask);
+        ESP_LOGI("Tpms", "self-test mask=0x%02X (b0-4 decoders, b7 demod)", mask);
 
         // Also emit the decoded Ford vector as a real TPMS hit, so the app can
         // show exactly how a decoded sensor displays (a live demo + diagnostic).
@@ -87,7 +86,7 @@ private:
             ClientsManager::getInstance().notifyAllBinary(
                 NotificationType::TpmsEvent, (const uint8_t*)&hit, sizeof(hit));
         }
-        return (mask == 0x07);
+        return (mask == 0x9F);
     }
 };
 

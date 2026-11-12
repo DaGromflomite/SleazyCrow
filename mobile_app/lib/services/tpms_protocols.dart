@@ -17,6 +17,12 @@ const Map<int, TpmsProtocolInfo> kTpmsProtocols = {
       'Ford', 'Continental / VDO', 'Ford: Fiesta, Focus, Kuga, Escape, Transit…'),
   2: TpmsProtocolInfo(
       'Toyota', 'Pacific Industries', 'Toyota, Lexus, Subaru, Scion…'),
+  3: TpmsProtocolInfo('Hyundai / VDO', 'Continental / VDO',
+      'Hyundai, Kia — also BMW, Fiat/Chrysler, Peugeot/Citroën, Mazda, Mitsubishi'),
+  4: TpmsProtocolInfo(
+      'Schrader', 'Schrader', 'many Schrader-equipped vehicles (FCC MRXGG4)'),
+  5: TpmsProtocolInfo('Schrader (GM)', 'Schrader',
+      'GM / Chevy (2006–2025), Opel / Saab / Vauxhall'),
 };
 
 TpmsProtocolInfo tpmsInfo(int protocol) =>
