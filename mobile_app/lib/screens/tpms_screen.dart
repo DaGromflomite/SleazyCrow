@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/ble_provider.dart';
 import '../providers/tpms_provider.dart';
+import '../services/tpms_protocols.dart';
 import '../theme/app_colors.dart';
 
 /// TPMS stalking-detection screen. The Crow decodes nearby cars' tire-pressure
@@ -79,8 +80,12 @@ class TpmsScreen extends StatelessWidget {
             icon: const Icon(Icons.more_vert, color: Colors.white),
             onSelected: (v) {
               if (v == 'clear') _confirmClear(context, tpms);
+              if (v == 'selftest') context.read<BleProvider>().runTpmsSelfTest();
             },
             itemBuilder: (_) => const [
+              PopupMenuItem(
+                  value: 'selftest',
+                  child: Text('Run self-test (demo sensor)')),
               PopupMenuItem(value: 'clear', child: Text('Clear history')),
             ],
           ),
@@ -176,17 +181,45 @@ class TpmsScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(s.hex,
-                    style: const TextStyle(
-                        color: AppColors.primaryText,
-                        fontWeight: FontWeight.w700,
-                        fontFamily: 'monospace',
-                        fontSize: 14)),
+                Row(
+                  children: [
+                    Text(s.hex,
+                        style: const TextStyle(
+                            color: AppColors.primaryText,
+                            fontWeight: FontWeight.w700,
+                            fontFamily: 'monospace',
+                            fontSize: 14)),
+                    const SizedBox(width: 8),
+                    if (s.protocol != 0)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: AppColors.cyanAccent.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(tpmsInfo(s.protocol).name,
+                            style: const TextStyle(
+                                color: AppColors.cyanAccent,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700)),
+                      ),
+                  ],
+                ),
+                if (s.protocol != 0) ...[
+                  const SizedBox(height: 2),
+                  Text(tpmsInfo(s.protocol).makes,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: AppColors.secondaryText, fontSize: 11)),
+                ],
                 const SizedBox(height: 2),
                 Text(
                   [
                     'seen in $trips trip${trips == 1 ? '' : 's'}',
-                    if (s.pressureKpa != null) '${s.pressureKpa} kPa',
+                    if (s.pressureKpa != null)
+                      '${kpaToPsi(s.pressureKpa!).toStringAsFixed(1)} psi',
                     if (s.temperatureC != null) '${s.temperatureC}°C',
                   ].join(' · '),
                   style: const TextStyle(

@@ -5,6 +5,7 @@
 #include <vector>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "modules/tpms/TpmsDecoders.h"
 
 /**
  * @file TpmsModule.h
@@ -40,6 +41,15 @@ public:
     bool isActive() const { return active_; }
 
     void sendStatus();
+
+    // Demodulate + decode a pulse burst (pure). protocol>0 = validated decode,
+    // 0 = generic fingerprint. Exposed for the on-device demod self-test.
+    static bool demodPulses(const std::vector<unsigned long>& pulses, TpmsDecoded& out);
+
+    // On-device roundtrip test of the FULL demod->decode chain: Manchester-encode
+    // the known Ford vector into a synthetic pulse train and confirm it decodes
+    // back to ID 0x12345678. Returns true on success.
+    static bool demodSelfTest();
 
 private:
     TpmsModule() = default;

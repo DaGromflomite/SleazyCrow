@@ -4300,6 +4300,11 @@ class BleProvider extends ChangeNotifier {
     await sendBinaryCommand(FirmwareBinaryProtocol.createTpmsStopCommand());
   }
 
+  /// Run the Crow's TPMS decoder self-test; it emits a decoded demo sensor hit.
+  Future<void> runTpmsSelfTest() async {
+    await sendBinaryCommand(FirmwareBinaryProtocol.createTpmsSelfTestCommand());
+  }
+
   /// Send updated settings to the device (0xC1).
   /// Payload: [0xAA][cmd=0xC1][5 bytes settings data][checksum]
   Future<void> sendSettingsToDevice({
