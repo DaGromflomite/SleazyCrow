@@ -1,41 +1,64 @@
 {
-  "version": 8,
-  "updated": "2026-11-05",
+  "version": 10,
+  "updated": "2026-11-11",
   "note": "Sleazy Crow BLE/WiFi detection signatures. Reimplemented from PRIMARY public sources (IEEE MA-L OUI registry, Bluetooth SIG assigned numbers / company identifiers, ASTM F3411 / OpenDroneID, Apple Find My & iBeacon specs, Google FMDN, DULT spec) and cross-checked against MIT community references (colonelpanichacks/flock-you + OUI-SPY, DeFlock, seemoo-lab/AirGuard). NOT copied from any GPL project (SquatchWatch-CYD or magikh0e/surveillance-signatures are GPL and were used only as a pointer to WHICH identifiers to verify). Grades: high = vendor-specific / strong match; med = likely; low = weak/ambiguous (shared chip vendor, generic word, or unconfirmed). Chip-vendor OUIs that merely hint at a device (SiLabs/Liteon/Espressif/Realtek/Murata) are deliberately omitted to avoid false positives. Rule types: manufacturer (company id dec + optional dataPrefix hex), service (16- or 128-bit UUID substring), nameContains/namePrefix (lowercase) all match BLE now; wifiOui/wifiSsid are stored and match once the WiFi scanner (P4) is live. The app auto-fetches the latest of this file from the repo and falls back to this bundled copy offline.",
   "categories": [
-    {
-      "id": "flock",
-      "label": "Flock Safety (ALPR camera)",
-      "severity": "surveillance",
-      "defaultOn": true,
-      "rules": [
-        { "type": "wifiOui", "text": "b4:1e:52", "grade": "high" },
-        { "type": "wifiSsid", "text": "flock camera net", "grade": "high" },
-        { "type": "wifiSsid", "text": "flock-", "grade": "high" },
-        { "type": "wifiSsid", "text": "flock", "grade": "low" },
-        { "type": "nameContains", "text": "fs ext battery", "grade": "high" },
-        { "type": "nameContains", "text": "pigvision", "grade": "med" },
-        { "type": "nameContains", "text": "flock", "grade": "med" },
-        { "type": "nameContains", "text": "penguin", "grade": "low" },
-        { "type": "manufacturer", "company": 2504, "grade": "med" }
-      ]
-    },
     {
       "id": "axon",
       "label": "Axon / Taser body camera",
       "severity": "surveillance",
       "defaultOn": true,
       "rules": [
-        { "type": "manufacturer", "company": 845, "grade": "high" },
-        { "type": "service", "uuid": "fc81", "grade": "high" },
-        { "type": "service", "uuid": "fe6b", "grade": "high" },
-        { "type": "service", "uuid": "fe6c", "grade": "high" },
-        { "type": "nameContains", "text": "bodyworn", "grade": "med" },
-        { "type": "wifiSsid", "text": "ab2-", "grade": "high" },
-        { "type": "wifiSsid", "text": "ab3-", "grade": "high" },
-        { "type": "wifiSsid", "text": "ab4-", "grade": "high" },
-        { "type": "wifiSsid", "text": "axon-", "grade": "high" },
-        { "type": "wifiOui", "text": "00:25:df", "grade": "high" }
+        {
+          "type": "manufacturer",
+          "company": 845,
+          "grade": "high"
+        },
+        {
+          "type": "service",
+          "uuid": "fc81",
+          "grade": "high"
+        },
+        {
+          "type": "service",
+          "uuid": "fe6b",
+          "grade": "high"
+        },
+        {
+          "type": "service",
+          "uuid": "fe6c",
+          "grade": "high"
+        },
+        {
+          "type": "nameContains",
+          "text": "bodyworn",
+          "grade": "med"
+        },
+        {
+          "type": "wifiSsid",
+          "text": "ab2-",
+          "grade": "high"
+        },
+        {
+          "type": "wifiSsid",
+          "text": "ab3-",
+          "grade": "high"
+        },
+        {
+          "type": "wifiSsid",
+          "text": "ab4-",
+          "grade": "high"
+        },
+        {
+          "type": "wifiSsid",
+          "text": "axon-",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "00:25:df",
+          "grade": "high"
+        }
       ]
     },
     {
@@ -44,27 +67,41 @@
       "severity": "surveillance",
       "defaultOn": true,
       "rules": [
-        { "type": "wifiOui", "text": "00:23:bd", "grade": "high" },
-        { "type": "wifiOui", "text": "00:09:bc", "grade": "high" },
-        { "type": "wifiOui", "text": "00:16:ed", "grade": "high" },
-        { "type": "wifiOui", "text": "00:1d:96", "grade": "high" },
-        { "type": "wifiOui", "text": "fc:01:9e", "grade": "high" },
-        { "type": "wifiOui", "text": "48:46:8d", "grade": "high" },
-        { "type": "wifiOui", "text": "00:1b:be", "grade": "high" }
-      ]
-    },
-    {
-      "id": "alpr",
-      "label": "License-plate reader (ALPR)",
-      "severity": "surveillance",
-      "defaultOn": true,
-      "rules": [
-        { "type": "wifiOui", "text": "00:0e:a5", "grade": "high" },
-        { "type": "wifiOui", "text": "00:18:29", "grade": "high" },
-        { "type": "wifiOui", "text": "00:30:7e", "grade": "high" },
-        { "type": "wifiOui", "text": "00:14:7b", "grade": "high" },
-        { "type": "wifiOui", "text": "00:bf:15", "grade": "med" },
-        { "type": "wifiOui", "text": "0c:bf:15", "grade": "med" }
+        {
+          "type": "wifiOui",
+          "text": "00:23:bd",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "00:09:bc",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "00:16:ed",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "00:1d:96",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "fc:01:9e",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "48:46:8d",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "00:1b:be",
+          "grade": "high"
+        }
       ]
     },
     {
@@ -73,10 +110,26 @@
       "severity": "surveillance",
       "defaultOn": true,
       "rules": [
-        { "type": "wifiOui", "text": "d4:11:d6", "grade": "high" },
-        { "type": "service", "uuid": "00003100", "grade": "med" },
-        { "type": "service", "uuid": "00003200", "grade": "med" },
-        { "type": "service", "uuid": "00003300", "grade": "med" }
+        {
+          "type": "wifiOui",
+          "text": "d4:11:d6",
+          "grade": "high"
+        },
+        {
+          "type": "service",
+          "uuid": "00003100",
+          "grade": "med"
+        },
+        {
+          "type": "service",
+          "uuid": "00003200",
+          "grade": "med"
+        },
+        {
+          "type": "service",
+          "uuid": "00003300",
+          "grade": "med"
+        }
       ]
     },
     {
@@ -85,10 +138,26 @@
       "severity": "surveillance",
       "defaultOn": true,
       "rules": [
-        { "type": "namePrefix", "text": "ray-ban", "grade": "high" },
-        { "type": "namePrefix", "text": "spectacles", "grade": "high" },
-        { "type": "manufacturer", "company": 3411, "grade": "med" },
-        { "type": "service", "uuid": "fd5f", "grade": "low" }
+        {
+          "type": "namePrefix",
+          "text": "ray-ban",
+          "grade": "high"
+        },
+        {
+          "type": "namePrefix",
+          "text": "spectacles",
+          "grade": "high"
+        },
+        {
+          "type": "manufacturer",
+          "company": 3411,
+          "grade": "med"
+        },
+        {
+          "type": "service",
+          "uuid": "fd5f",
+          "grade": "low"
+        }
       ]
     },
     {
@@ -97,19 +166,71 @@
       "severity": "surveillance",
       "defaultOn": true,
       "rules": [
-        { "type": "wifiOui", "text": "ac:9f:c3", "grade": "high" },
-        { "type": "wifiOui", "text": "18:7f:88", "grade": "high" },
-        { "type": "wifiOui", "text": "34:3e:a4", "grade": "high" },
-        { "type": "wifiOui", "text": "54:e0:19", "grade": "high" },
-        { "type": "wifiOui", "text": "5c:47:5e", "grade": "high" },
-        { "type": "wifiOui", "text": "64:9a:63", "grade": "high" },
-        { "type": "wifiOui", "text": "90:48:6c", "grade": "high" },
-        { "type": "wifiOui", "text": "9c:76:13", "grade": "high" },
-        { "type": "wifiOui", "text": "cc:3b:fb", "grade": "high" },
-        { "type": "wifiOui", "text": "c4:db:ad", "grade": "high" },
-        { "type": "wifiOui", "text": "24:2b:d6", "grade": "high" },
-        { "type": "wifiOui", "text": "00:b4:63", "grade": "high" },
-        { "type": "wifiOui", "text": "50:e4:67", "grade": "high" }
+        {
+          "type": "wifiOui",
+          "text": "ac:9f:c3",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "18:7f:88",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "34:3e:a4",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "54:e0:19",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "5c:47:5e",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "64:9a:63",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "90:48:6c",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "9c:76:13",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "cc:3b:fb",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "c4:db:ad",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "24:2b:d6",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "00:b4:63",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "50:e4:67",
+          "grade": "high"
+        }
       ]
     },
     {
@@ -118,24 +239,96 @@
       "severity": "surveillance",
       "defaultOn": true,
       "rules": [
-        { "type": "wifiOui", "text": "14:ba:88", "grade": "high" },
-        { "type": "wifiOui", "text": "48:ea:63", "grade": "high" },
-        { "type": "wifiOui", "text": "6c:f1:7e", "grade": "high" },
-        { "type": "wifiOui", "text": "88:26:3f", "grade": "high" },
-        { "type": "wifiOui", "text": "c4:79:05", "grade": "high" },
-        { "type": "wifiOui", "text": "48:62:64", "grade": "high" },
-        { "type": "wifiOui", "text": "a4:11:62", "grade": "high" },
-        { "type": "wifiOui", "text": "fc:9c:98", "grade": "high" },
-        { "type": "wifiOui", "text": "c0:56:e3", "grade": "high" },
-        { "type": "wifiOui", "text": "44:19:b6", "grade": "high" },
-        { "type": "wifiOui", "text": "28:57:be", "grade": "high" },
-        { "type": "wifiOui", "text": "2c:aa:8e", "grade": "high" },
-        { "type": "wifiOui", "text": "d0:3f:27", "grade": "high" },
-        { "type": "wifiOui", "text": "7c:78:b2", "grade": "high" },
-        { "type": "wifiOui", "text": "00:40:8c", "grade": "high" },
-        { "type": "wifiOui", "text": "b8:a4:4f", "grade": "high" },
-        { "type": "wifiOui", "text": "e0:a7:00", "grade": "high" },
-        { "type": "wifiOui", "text": "70:1a:d5", "grade": "high" }
+        {
+          "type": "wifiOui",
+          "text": "14:ba:88",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "48:ea:63",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "6c:f1:7e",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "88:26:3f",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "c4:79:05",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "48:62:64",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "a4:11:62",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "fc:9c:98",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "c0:56:e3",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "44:19:b6",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "28:57:be",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "2c:aa:8e",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "d0:3f:27",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "7c:78:b2",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "00:40:8c",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "b8:a4:4f",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "e0:a7:00",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "70:1a:d5",
+          "grade": "high"
+        }
       ]
     },
     {
@@ -144,10 +337,26 @@
       "severity": "surveillance",
       "defaultOn": true,
       "rules": [
-        { "type": "manufacturer", "company": 2923, "grade": "high" },
-        { "type": "wifiOui", "text": "28:ea:5b", "grade": "high" },
-        { "type": "wifiOui", "text": "fc:db:21", "grade": "high" },
-        { "type": "wifiOui", "text": "98:5d:46", "grade": "high" }
+        {
+          "type": "manufacturer",
+          "company": 2923,
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "28:ea:5b",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "fc:db:21",
+          "grade": "high"
+        },
+        {
+          "type": "wifiOui",
+          "text": "98:5d:46",
+          "grade": "high"
+        }
       ]
     },
     {
@@ -156,7 +365,12 @@
       "severity": "tracker",
       "defaultOn": true,
       "rules": [
-        { "type": "manufacturer", "company": 76, "dataPrefix": "12", "grade": "med" }
+        {
+          "type": "manufacturer",
+          "company": 76,
+          "dataPrefix": "12",
+          "grade": "med"
+        }
       ]
     },
     {
@@ -165,9 +379,21 @@
       "severity": "tracker",
       "defaultOn": true,
       "rules": [
-        { "type": "service", "uuid": "feed", "grade": "high" },
-        { "type": "service", "uuid": "feec", "grade": "high" },
-        { "type": "service", "uuid": "fd84", "grade": "med" }
+        {
+          "type": "service",
+          "uuid": "feed",
+          "grade": "high"
+        },
+        {
+          "type": "service",
+          "uuid": "feec",
+          "grade": "high"
+        },
+        {
+          "type": "service",
+          "uuid": "fd84",
+          "grade": "med"
+        }
       ]
     },
     {
@@ -176,7 +402,11 @@
       "severity": "tracker",
       "defaultOn": true,
       "rules": [
-        { "type": "service", "uuid": "fd5a", "grade": "high" }
+        {
+          "type": "service",
+          "uuid": "fd5a",
+          "grade": "high"
+        }
       ]
     },
     {
@@ -185,7 +415,11 @@
       "severity": "tracker",
       "defaultOn": true,
       "rules": [
-        { "type": "service", "uuid": "feaa", "grade": "med" }
+        {
+          "type": "service",
+          "uuid": "feaa",
+          "grade": "med"
+        }
       ]
     },
     {
@@ -194,7 +428,11 @@
       "severity": "tracker",
       "defaultOn": true,
       "rules": [
-        { "type": "service", "uuid": "fcb2", "grade": "high" }
+        {
+          "type": "service",
+          "uuid": "fcb2",
+          "grade": "high"
+        }
       ]
     },
     {
@@ -203,7 +441,11 @@
       "severity": "drone",
       "defaultOn": true,
       "rules": [
-        { "type": "service", "uuid": "fffa", "grade": "high" }
+        {
+          "type": "service",
+          "uuid": "fffa",
+          "grade": "high"
+        }
       ]
     },
     {
@@ -212,12 +454,36 @@
       "severity": "tool",
       "defaultOn": true,
       "rules": [
-        { "type": "nameContains", "text": "flipper", "grade": "high" },
-        { "type": "service", "uuid": "00003080", "grade": "med" },
-        { "type": "service", "uuid": "00003081", "grade": "med" },
-        { "type": "service", "uuid": "00003082", "grade": "med" },
-        { "type": "service", "uuid": "00003083", "grade": "med" },
-        { "type": "wifiOui", "text": "0c:fa:22", "grade": "high" }
+        {
+          "type": "nameContains",
+          "text": "flipper",
+          "grade": "high"
+        },
+        {
+          "type": "service",
+          "uuid": "00003080",
+          "grade": "med"
+        },
+        {
+          "type": "service",
+          "uuid": "00003081",
+          "grade": "med"
+        },
+        {
+          "type": "service",
+          "uuid": "00003082",
+          "grade": "med"
+        },
+        {
+          "type": "service",
+          "uuid": "00003083",
+          "grade": "med"
+        },
+        {
+          "type": "wifiOui",
+          "text": "0c:fa:22",
+          "grade": "high"
+        }
       ]
     },
     {
@@ -226,11 +492,31 @@
       "severity": "tool",
       "defaultOn": true,
       "rules": [
-        { "type": "wifiOui", "text": "00:13:37", "grade": "high" },
-        { "type": "wifiSsid", "text": "pineapple", "grade": "med" },
-        { "type": "wifiSsid", "text": "pwnagotchi", "grade": "med" },
-        { "type": "wifiSsid", "text": "o.mg", "grade": "med" },
-        { "type": "wifiSsid", "text": "pwned", "grade": "low" }
+        {
+          "type": "wifiOui",
+          "text": "00:13:37",
+          "grade": "high"
+        },
+        {
+          "type": "wifiSsid",
+          "text": "pineapple",
+          "grade": "med"
+        },
+        {
+          "type": "wifiSsid",
+          "text": "pwnagotchi",
+          "grade": "med"
+        },
+        {
+          "type": "wifiSsid",
+          "text": "o.mg",
+          "grade": "med"
+        },
+        {
+          "type": "wifiSsid",
+          "text": "pwned",
+          "grade": "low"
+        }
       ]
     },
     {
@@ -239,13 +525,41 @@
       "severity": "skimmer",
       "defaultOn": true,
       "rules": [
-        { "type": "nameContains", "text": "hc-05", "grade": "high" },
-        { "type": "nameContains", "text": "hc-06", "grade": "high" },
-        { "type": "nameContains", "text": "hc-03", "grade": "med" },
-        { "type": "nameContains", "text": "rn-42", "grade": "med" },
-        { "type": "nameContains", "text": "bt04", "grade": "med" },
-        { "type": "nameContains", "text": "linvor", "grade": "med" },
-        { "type": "nameContains", "text": "jdy-3", "grade": "low" }
+        {
+          "type": "nameContains",
+          "text": "hc-05",
+          "grade": "high"
+        },
+        {
+          "type": "nameContains",
+          "text": "hc-06",
+          "grade": "high"
+        },
+        {
+          "type": "nameContains",
+          "text": "hc-03",
+          "grade": "med"
+        },
+        {
+          "type": "nameContains",
+          "text": "rn-42",
+          "grade": "med"
+        },
+        {
+          "type": "nameContains",
+          "text": "bt04",
+          "grade": "med"
+        },
+        {
+          "type": "nameContains",
+          "text": "linvor",
+          "grade": "med"
+        },
+        {
+          "type": "nameContains",
+          "text": "jdy-3",
+          "grade": "low"
+        }
       ]
     },
     {
@@ -254,7 +568,12 @@
       "severity": "info",
       "defaultOn": false,
       "rules": [
-        { "type": "manufacturer", "company": 76, "dataPrefix": "0215", "grade": "low" }
+        {
+          "type": "manufacturer",
+          "company": 76,
+          "dataPrefix": "0215",
+          "grade": "low"
+        }
       ]
     }
   ]
