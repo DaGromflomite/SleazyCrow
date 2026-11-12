@@ -19,7 +19,6 @@ import '../services/file_parsers/file_parser_factory.dart';
 import '../services/cc1101/cc1101_calculator.dart';
 import '../services/cc1101/cc1101_values.dart';
 import '../services/binary_message_parser.dart';
-import '../services/classic_bt.dart';
 import '../services/sd_catalog.dart';
 // import 'log_provider.dart'; // Unused import removed
 
@@ -603,18 +602,11 @@ class BleProvider extends ChangeNotifier {
       print('Connecting to device: ${device.name} (${device.id})');
       notifyListeners();
       
-      // A running BLE scan (Detect tab / device scan) and especially classic
-      // Bluetooth discovery block connection setup on Android. Stop both first.
-      ClassicBt.paused = true;
-      await ClassicBt.stopDiscovery();
+      // A running BLE scan blocks connection setup on Android. Stop it first.
       try {
         if (FlutterBluePlus.isScanningNow) await FlutterBluePlus.stopScan();
       } catch (_) {/* ignore */}
-      try {
-        await device.connect(timeout: const Duration(seconds: 15));
-      } finally {
-        ClassicBt.paused = false;
-      }
+      await device.connect(timeout: const Duration(seconds: 15));
       connectedDevice = device;
       
       // Set up connection state monitoring (cancel previous subscription on reconnect)

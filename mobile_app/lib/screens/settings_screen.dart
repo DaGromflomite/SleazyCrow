@@ -686,48 +686,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
 
-            // --- Detection ---
-            _buildSubSectionHeader(
-                Icons.notifications_active, 'Detection', AppColors.cyberPink),
-            Consumer<SettingsProvider>(
-              builder: (context, settings, _) => SwitchListTile(
-                dense: true,
-                activeColor: AppColors.cyberPink,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                title: const Text('Surveillance alert sound',
-                    style:
-                        TextStyle(color: AppColors.primaryText, fontSize: 14)),
-                subtitle: const Text(
-                    'Beep + buzz when a surveillance device (camera / body cam / '
-                    'ALPR / Flock etc.) is flagged. Trackers and other gear stay '
-                    'silent. On by default.',
-                    style: TextStyle(
-                        color: AppColors.secondaryText, fontSize: 11)),
-                value: settings.alertSoundEnabled,
-                onChanged: (v) =>
-                    context.read<SettingsProvider>().setAlertSoundEnabled(v),
-              ),
-            ),
-            Consumer<SettingsProvider>(
-              builder: (context, settings, _) => SwitchListTile(
-                dense: true,
-                activeColor: AppColors.cyberPink,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                title: const Text('Tracker alert sound',
-                    style:
-                        TextStyle(color: AppColors.primaryText, fontSize: 14)),
-                subtitle: const Text(
-                    'Also beep + buzz for item trackers (AirTag / Tile / '
-                    'SmartTag). Off by default — trackers are common and noisy.',
-                    style: TextStyle(
-                        color: AppColors.secondaryText, fontSize: 11)),
-                value: settings.trackerAlertSoundEnabled,
-                onChanged: (v) => context
-                    .read<SettingsProvider>()
-                    .setTrackerAlertSoundEnabled(v),
-              ),
-            ),
-
             const SizedBox(height: 16),
           ],
         ),

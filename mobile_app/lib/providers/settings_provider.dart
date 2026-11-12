@@ -60,14 +60,6 @@ class SettingsProvider with ChangeNotifier {
   // "device disconnected"). User can turn it off to save battery.
   bool _keepScreenAwake = true;
   bool get keepScreenAwake => _keepScreenAwake;
-  // Play a short audible alert (+ haptic) when a new device is flagged on the
-  // Detect screen. On by default; user can mute it here.
-  bool _alertSoundEnabled = true;
-  bool get alertSoundEnabled => _alertSoundEnabled;
-  // Also sound the alert for item trackers (AirTag/Tile/SmartTag). Default OFF
-  // — trackers are common and noisy; surveillance gear is the priority.
-  bool _trackerAlertSoundEnabled = false;
-  bool get trackerAlertSoundEnabled => _trackerAlertSoundEnabled;
   bool get debugMode => _debugMode;
   int get bruterDelayMs => _bruterDelayMs;
   int get bruterModule => _bruterModule;
@@ -108,9 +100,6 @@ class SettingsProvider with ChangeNotifier {
     _nrfAutoRetransmit = (prefs.getInt('nrfAutoRetransmit') ?? 5).clamp(0, 15);
     _keepScreenAwake = prefs.getBool('keepScreenAwake') ?? true;
     _keepAwakeSetting = _keepScreenAwake;
-    _alertSoundEnabled = prefs.getBool('alertSoundEnabled') ?? true;
-    _trackerAlertSoundEnabled =
-        prefs.getBool('trackerAlertSoundEnabled') ?? false;
     _applyWakelock();
     notifyListeners();
   }
@@ -142,20 +131,6 @@ class SettingsProvider with ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('keepScreenAwake', value);
     _applyWakelock();
-    notifyListeners();
-  }
-
-  Future<void> setAlertSoundEnabled(bool value) async {
-    _alertSoundEnabled = value;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('alertSoundEnabled', value);
-    notifyListeners();
-  }
-
-  Future<void> setTrackerAlertSoundEnabled(bool value) async {
-    _trackerAlertSoundEnabled = value;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('trackerAlertSoundEnabled', value);
     notifyListeners();
   }
 

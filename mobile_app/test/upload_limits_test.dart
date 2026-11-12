@@ -2,7 +2,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sleazycrow/detection/detection_models.dart';
 import 'package:sleazycrow/providers/firmware_protocol.dart';
 import 'package:sleazycrow/services/file_parsers/file_parser_factory.dart';
 import 'package:sleazycrow/services/flipper_subdb_service.dart';
@@ -94,15 +93,6 @@ void main() {
       checkSplit(f.uri.pathSegments.last, f.readAsBytesSync());
     });
   }
-
-  test('short service UUIDs match exactly, never as a substring', () {
-    expect(DetectionRule.fullUuid('feed'), '0000feed-0000-1000-8000-00805f9b34fb');
-    expect(DetectionRule.fullUuid('00003100'), '00003100-0000-1000-8000-00805f9b34fb');
-    expect(DetectionRule.fullUuid('FEED'), DetectionRule.fullUuid('0000feed-0000-1000-8000-00805f9b34fb'));
-    // A random 128-bit UUID that merely contains "feed" must not equal Tile's 0xFEED.
-    expect(DetectionRule.fullUuid('12feed34-5678-90ab-cdef-1234567890ab'),
-        isNot(DetectionRule.fullUuid('feed')));
-  });
 
   test('upload chunk header encodes the last allowed chunk without wrapping', () {
     final cmd = FirmwareBinaryProtocol.createUploadFileChunkCommand(

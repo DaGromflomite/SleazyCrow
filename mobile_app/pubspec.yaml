@@ -26,8 +26,6 @@ dependencies:
   wakelock_plus: ^1.2.8
   package_info_plus: ^8.0.0
   archive: ^4.0.2
-  audioplayers: ^6.1.0
-  wifi_scan: ^0.4.1
 
 dev_dependencies:
   flutter_test:
@@ -38,7 +36,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/
-    - assets/detection/
-    - assets/sounds/
   generate: true
 
