@@ -166,12 +166,15 @@ public:
     static bool startProtoPirateRX(int module, float frequency);
     static void stopProtoPirateRX(int module);
 
-    // TPMS RX: 2-FSK async capture for tire-pressure sensors (315 MHz US /
-    // 433.92 MHz EU). Same async-capture path as ProtoPirate but FSK-configured.
-    // dataRate/deviation default to common Schrader/Toyota TPMS params.
+    // TPMS RX async capture for tire-pressure sensors (315 MHz US / 433.92 EU).
+    // Same async-capture path as ProtoPirate. Starts in FSK; TpmsModule alternates
+    // modulation (FSK for Toyota/Ford/Hyundai, OOK for Schrader/GM) via retuneTpms.
+    // Wide RX bandwidth (232 kHz) tolerates the TPMS sensors' loose-crystal drift.
     static bool startTpmsRX(int module, float frequency,
-                            float dataRate = 19.2f, float deviation = 38.0f,
-                            float rxBandwidth = 135.0f);
+                            float dataRate = 19.2f, float deviation = 30.0f,
+                            float rxBandwidth = 232.0f);
+    // Re-tune an active TPMS module between FSK and OOK without dropping capture.
+    static void retuneTpms(int module, float frequency, bool ook);
     static void stopTpmsRX(int module);
 
 private:

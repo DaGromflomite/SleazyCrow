@@ -555,6 +555,22 @@ void CC1101Worker::stopTpmsRX(int module) {
     sendModeNotification(module, CC1101State::Idle);
 }
 
+void CC1101Worker::retuneTpms(int module, float frequency, bool ook) {
+    if (module < 0 || module >= CC1101_NUM_MODULES) return;
+    if (moduleStates[module] != CC1101State::Tpms) return;
+    // Reconfigure the CC1101 in place; the GDO ISR stays attached (capture
+    // continues). OOK for Schrader-family (~120us symbols, GM/Opel/BMW),
+    // FSK for Toyota/Ford/Hyundai (~52us). Wide BW tolerates crystal drift.
+    if (ook) {
+        moduleCC1101State[module].setReceiveConfig(
+            frequency, false, MODULATION_ASK_OOK, 232.0f, 0.0f, 8.0f).initConfig();
+    } else {
+        moduleCC1101State[module].setReceiveConfig(
+            frequency, false, MODULATION_2_FSK, 232.0f, 30.0f, 19.2f).initConfig();
+    }
+    clearReceivedSamples(module);
+}
+
 void CC1101Worker::handleTransmit(int module, const std::string& filename, int repeat, int pathType) {
     ESP_LOGI(TAG, "Transmitting on module %d: %s (repeat=%d)", module, filename.c_str(), repeat);
     

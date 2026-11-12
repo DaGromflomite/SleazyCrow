@@ -25,6 +25,7 @@ class TpmsScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _header(context, tpms, connected),
+            _sensitivityBar(context, tpms),
             if (followers.isNotEmpty) _followerBanner(followers.length),
             if (!connected) _notice(
                 'Connect to the Crow first — TPMS reception uses its CC1101 radio.'),
@@ -107,6 +108,47 @@ class TpmsScreen extends StatelessWidget {
     );
   }
 
+  Widget _sensitivityBar(BuildContext context, TpmsProvider tpms) => Container(
+        width: double.infinity,
+        color: AppColors.secondaryBackground,
+        padding: const EdgeInsets.fromLTRB(16, 8, 10, 8),
+        child: Row(
+          children: [
+            const Icon(Icons.tune, size: 15, color: AppColors.secondaryText),
+            const SizedBox(width: 8),
+            const Text('Flag a follower when:',
+                style:
+                    TextStyle(color: AppColors.secondaryText, fontSize: 12)),
+            const Spacer(),
+            PopupMenuButton<TpmsSensitivity>(
+              initialValue: tpms.sensitivity,
+              onSelected: tpms.setSensitivity,
+              itemBuilder: (_) => [
+                for (final s in TpmsSensitivity.values)
+                  PopupMenuItem(value: s, child: Text(s.label)),
+              ],
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  border: Border.all(color: AppColors.cyanAccent),
+                  borderRadius: BorderRadius.circular(7),
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Text(tpms.sensitivity.chip,
+                      style: const TextStyle(
+                          color: AppColors.cyanAccent,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700)),
+                  const Icon(Icons.arrow_drop_down,
+                      size: 18, color: AppColors.cyanAccent),
+                ]),
+              ),
+            ),
+          ],
+        ),
+      );
+
   Widget _followerBanner(int n) => Container(
         width: double.infinity,
         color: AppColors.error.withValues(alpha: 0.15),
@@ -117,7 +159,7 @@ class TpmsScreen extends StatelessWidget {
           Expanded(
             child: Text(
               '$n vehicle${n == 1 ? '' : 's'} seen this session '
-              'already appeared on several past trips — possible follower${n == 1 ? '' : 's'}.',
+              'match your follower criteria — possible follower${n == 1 ? '' : 's'}.',
               style: const TextStyle(
                   color: AppColors.error,
                   fontSize: 12,
@@ -160,7 +202,6 @@ class TpmsScreen extends StatelessWidget {
 
   Widget _sensorTile(TpmsProvider tpms, TpmsSensor s) {
     final follower = tpms.isFollower(s.id);
-    final trips = tpms.tripsFor(s.id);
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 6, 12, 0),
       padding: const EdgeInsets.all(12),
@@ -217,7 +258,7 @@ class TpmsScreen extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   [
-                    'seen in $trips trip${trips == 1 ? '' : 's'}',
+                    tpms.flagReason(s.id),
                     if (s.pressureKpa != null)
                       '${kpaToPsi(s.pressureKpa!).toStringAsFixed(1)} psi',
                     if (s.temperatureC != null) '${s.temperatureC}°C',

@@ -99,8 +99,17 @@ void TpmsModule::decodeTask(void* param) {
     ReceivedSamples& rxData = CC1101Worker::getSamples(module);
     std::vector<unsigned long> local;
     uint32_t statusTimer = millis();
+    uint32_t modTimer = millis();
+    bool ookMode = false;   // start FSK (Toyota/Ford/Hyundai), alternate to OOK
 
     while (self->active_) {
+        // Alternate modulation every ~4 s so we hear both TPMS families:
+        // FSK (Toyota/Ford/Hyundai ~52us) and OOK (Schrader/GM/BMW ~120us).
+        if (millis() - modTimer >= 4000) {
+            modTimer = millis();
+            ookMode = !ookMode;
+            CC1101Worker::retuneTpms(self->module_, self->freqMHz_, ookMode);
+        }
         size_t count = 0;
         unsigned long lastRx = 0;
         taskENTER_CRITICAL(&mux);
