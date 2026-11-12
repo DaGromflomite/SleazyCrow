@@ -60,7 +60,8 @@ enum class CC1101State {
     Transmitting,
     Analyzing,
     Jamming,
-    ProtoPirate   // Continuous RX managed by ProtoPirateModule's own task
+    ProtoPirate,  // Continuous RX managed by ProtoPirateModule's own task
+    Tpms          // Continuous FSK RX managed by TpmsModule's own task (315/433 MHz)
 };
 
 // DetectedSignal structure (simplified from Detector.h)
@@ -164,6 +165,14 @@ public:
     // ProtoPirate continuous RX — bypasses workerTask processRecording
     static bool startProtoPirateRX(int module, float frequency);
     static void stopProtoPirateRX(int module);
+
+    // TPMS RX: 2-FSK async capture for tire-pressure sensors (315 MHz US /
+    // 433.92 MHz EU). Same async-capture path as ProtoPirate but FSK-configured.
+    // dataRate/deviation default to common Schrader/Toyota TPMS params.
+    static bool startTpmsRX(int module, float frequency,
+                            float dataRate = 19.2f, float deviation = 38.0f,
+                            float rxBandwidth = 135.0f);
+    static void stopTpmsRX(int module);
 
 private:
     static void workerTask(void* parameter);

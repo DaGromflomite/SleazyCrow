@@ -508,6 +508,53 @@ void CC1101Worker::stopProtoPirateRX(int module) {
     sendModeNotification(module, CC1101State::Idle);
 }
 
+bool CC1101Worker::startTpmsRX(int module, float frequency, float dataRate,
+                               float deviation, float rxBandwidth) {
+    if (module < 0 || module >= CC1101_NUM_MODULES) return false;
+    if (moduleStates[module] != CC1101State::Idle) {
+        ESP_LOGW(TAG, "Module %d not idle (state=%d), cannot start TPMS RX",
+                 module, (int)moduleStates[module]);
+        return false;
+    }
+
+    handleGoIdle(module);
+
+    // Configure CC1101 for 2-FSK RX — typical TPMS (Schrader/Toyota/Ford) on
+    // 315 MHz (US) or 433.92 MHz (EU), Manchester over FSK, ~19.2 kbps.
+    moduleCC1101State[module].setReceiveConfig(
+        frequency,
+        false,              // keep DC filter (FSK)
+        MODULATION_2_FSK,
+        rxBandwidth,        // ~135 kHz covers TPMS deviation + drift
+        deviation,          // ~38 kHz
+        dataRate            // ~19.2 kbps
+    ).initConfig();
+
+    clearReceivedSamples(module);
+    addModuleReceiver(module);
+
+    sendModeNotification(module, CC1101State::Tpms);
+    moduleStates[module] = CC1101State::Tpms;
+
+    ESP_LOGI(TAG, "TPMS RX started on module %d, freq=%.2f MHz, drate=%.1f dev=%.1f bw=%.0f",
+             module, frequency, dataRate, deviation, rxBandwidth);
+    return true;
+}
+
+void CC1101Worker::stopTpmsRX(int module) {
+    if (module < 0 || module >= CC1101_NUM_MODULES) return;
+    if (moduleStates[module] != CC1101State::Tpms) return;
+
+    removeModuleReceiver(module);
+    moduleCC1101State[module].setSidle();
+    moduleCC1101State[module].unlock();
+    clearReceivedSamples(module);
+    moduleStates[module] = CC1101State::Idle;
+
+    ESP_LOGI(TAG, "TPMS RX stopped on module %d", module);
+    sendModeNotification(module, CC1101State::Idle);
+}
+
 void CC1101Worker::handleTransmit(int module, const std::string& filename, int repeat, int pathType) {
     ESP_LOGI(TAG, "Transmitting on module %d: %s (repeat=%d)", module, filename.c_str(), repeat);
     

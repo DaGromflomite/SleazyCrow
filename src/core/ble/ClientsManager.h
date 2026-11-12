@@ -27,6 +27,7 @@ enum class NotificationType
     NrfEvent,
     OtaEvent,
     SdrEvent,
+    TpmsEvent,
     DeviceInfo,
     Unknown
 };
@@ -70,6 +71,8 @@ inline const String NotificationTypeToString(NotificationType v)
             return "OtaEvent";
         case NotificationType::SdrEvent:
             return "SdrEvent";
+        case NotificationType::TpmsEvent:
+            return "TpmsEvent";
         case NotificationType::DeviceInfo:
             return "DeviceInfo";
         default:

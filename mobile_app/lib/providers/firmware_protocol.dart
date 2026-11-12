@@ -103,6 +103,11 @@ class FirmwareBinaryProtocol {
   static const int MSG_NRF_CLEAR_TARGETS = 0x2E;
   static const int MSG_NRF_STOP_ALL     = 0x2F;
 
+  // ── TPMS sniffer Commands (0x70-0x72) ───────────────────────
+  static const int MSG_TPMS_START  = 0x70;
+  static const int MSG_TPMS_STOP   = 0x71;
+  static const int MSG_TPMS_STATUS = 0x72;
+
   // ── ProtoPirate Commands (0x60) ─────────────────────────────
   static const int MSG_PROTOPIRATE = 0x60;
 
@@ -914,6 +919,25 @@ class FirmwareBinaryProtocol {
   /// Stop current NRF attack (0x27)
   static Uint8List createNrfAttackStopCommand() {
     return _createEnhancedCommand(MSG_NRF_ATTACK_STOP, Uint8List(0));
+  }
+
+  /// Start the TPMS sniffer (0x70). freqX100 = freq*100 MHz (31500=315 US, 43392=433.92 EU).
+  static Uint8List createTpmsStartCommand({int module = 0, int freqX100 = 31500}) {
+    final p = Uint8List(3);
+    p[0] = module & 0x01;
+    p[1] = freqX100 & 0xFF;
+    p[2] = (freqX100 >> 8) & 0xFF;
+    return _createEnhancedCommand(MSG_TPMS_START, p);
+  }
+
+  /// Stop the TPMS sniffer (0x71), freeing the CC1101.
+  static Uint8List createTpmsStopCommand() {
+    return _createEnhancedCommand(MSG_TPMS_STOP, Uint8List(0));
+  }
+
+  /// Request TPMS sniffer status (0x72).
+  static Uint8List createTpmsStatusCommand() {
+    return _createEnhancedCommand(MSG_TPMS_STATUS, Uint8List(0));
   }
 
   /// Start 2.4 GHz spectrum analyzer (0x28)

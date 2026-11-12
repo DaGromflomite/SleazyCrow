@@ -1979,6 +1979,13 @@ class BleProvider extends ChangeNotifier {
         case 'NrfModuleStatus':
           _handleNrfModuleStatus(data['data']);
           break;
+        // ── TPMS sniffer notifications ──
+        case 'TpmsHit':
+        case 'TpmsStatus':
+          if (!_tpmsController.isClosed) {
+            _tpmsController.add({'type': type, 'data': data['data']});
+          }
+          break;
         // ── NRF24 notifications ──
         case 'NrfDeviceFound':
           final d = data['data'] as Map?;
@@ -4275,6 +4282,22 @@ class BleProvider extends ChangeNotifier {
     nrfSpectrumRunning = (state == 4);
     _log('info', 'NrfModuleStatus: present=$nrfPresent init=$nrfInitialized state=$state');
     notifyListeners();
+  }
+
+  // ── TPMS sniffer (vehicle stalking detection) ─────────────────────────────
+  // The Crow decodes nearby TPMS sensor IDs (315/433 MHz) and streams them here.
+  // TpmsProvider consumes this stream to do cross-trip follower detection.
+  final StreamController<Map<String, dynamic>> _tpmsController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get tpmsEvents => _tpmsController.stream;
+
+  Future<void> startTpmsScan({int module = 0, int freqX100 = 31500}) async {
+    await sendBinaryCommand(FirmwareBinaryProtocol.createTpmsStartCommand(
+        module: module, freqX100: freqX100));
+  }
+
+  Future<void> stopTpmsScan() async {
+    await sendBinaryCommand(FirmwareBinaryProtocol.createTpmsStopCommand());
   }
 
   /// Send updated settings to the device (0xC1).

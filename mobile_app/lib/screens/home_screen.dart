@@ -16,6 +16,7 @@ import 'files_screen.dart';
 import 'settings_screen.dart';
 import 'record_screen.dart';
 import 'signal_scanner_screen.dart';
+import 'tpms_screen.dart';
 import 'subghz_screen.dart';
 import 'nrf_screen.dart';
 
@@ -225,10 +226,38 @@ class HomeTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Home is the Crow connection screen (and, when connected, the Crow's RF
-    // signal scanner). The phone-radio "Detect" suite was removed — the phone
-    // hardware couldn't reliably detect what it claimed to.
-    return const _ConnectTab();
+    // Home is a hub: Connect (Crow link + RF scanner) and TPMS (vehicle
+    // follower detection via the Crow's CC1101). The old phone-radio "Detect"
+    // suite was removed — the phone hardware couldn't reliably do it.
+    return DefaultTabController(
+      length: 2,
+      child: Column(
+        children: [
+          Container(
+            decoration: const BoxDecoration(gradient: AppColors.cyberGradient),
+            child: const TabBar(
+              labelColor: Colors.white,
+              unselectedLabelColor: Colors.white70,
+              indicatorColor: Colors.white,
+              tabs: [
+                Tab(
+                    icon: Icon(Icons.bluetooth_searching, size: 20),
+                    text: 'Connect'),
+                Tab(icon: Icon(Icons.directions_car, size: 20), text: 'TPMS'),
+              ],
+            ),
+          ),
+          const Expanded(
+            child: TabBarView(
+              children: [
+                _ConnectTab(),
+                TpmsScreen(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
