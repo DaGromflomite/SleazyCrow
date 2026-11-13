@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -11,7 +11,7 @@ import '../providers/locale_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/firmware_protocol.dart';
 import '../widgets/transmit_file_dialog.dart';
-import '../services/update_service.dart';
+import '../services/app_update_flow.dart';
 import '../services/flipper_subdb_service.dart';
 import '../services/playlist_service.dart';
 import '../services/uber_playlists.dart';
@@ -113,148 +113,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// Check for app updates on GitHub and show dialog
-  Future<void> _checkAppUpdate(BuildContext context) async {
-    try {
-      final info = await PackageInfo.fromPlatform();
-      final currentVersion = info.version;
-
-      // Show loading
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const SizedBox(
-                  width: 16, height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                ),
-                const SizedBox(width: 12),
-                Text(AppLocalizations.of(context)!.checkingForAppUpdates),
-              ],
-            ),
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
-
-      final update = await UpdateService.checkAppUpdate(currentVersion);
-
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-
-      if (update == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(AppLocalizations.of(context)!.appUpToDate(currentVersion)),
-            backgroundColor: AppColors.success,
-          ),
-        );
-        return;
-      }
-
-      // Show update available dialog
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Row(
-            children: [
-              const Icon(Icons.system_update_alt, color: AppColors.primaryAccent),
-              const SizedBox(width: 8),
-              Text(AppLocalizations.of(context)!.appUpdateAvailable,
-                  style: const TextStyle(color: AppColors.primaryText, fontSize: 16)),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(AppLocalizations.of(context)!.currentVersionLabel(currentVersion),
-                  style: const TextStyle(color: AppColors.secondaryText, fontSize: 13)),
-              Text(AppLocalizations.of(context)!.latestVersionLabel(update.version),
-                  style: const TextStyle(color: AppColors.success, fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              Text(AppLocalizations.of(context)!.changelogLabel, style: const TextStyle(color: AppColors.primaryText, fontWeight: FontWeight.w600, fontSize: 13)),
-              const SizedBox(height: 4),
-              Container(
-                constraints: const BoxConstraints(maxHeight: 150),
-                child: SingleChildScrollView(
-                  child: Text(update.changelog,
-                      style: const TextStyle(color: AppColors.secondaryText, fontSize: 12)),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: Text(AppLocalizations.of(context)!.later),
-            ),
-            if (update.apkUrl != null)
-              ElevatedButton.icon(
-                onPressed: () async {
-                  Navigator.of(ctx).pop();
-                  _downloadAndInstallApk(context, update);
-                },
-                icon: const Icon(Icons.download, size: 16),
-                label: Text(AppLocalizations.of(context)!.downloadAndInstall),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primaryAccent,
-                  foregroundColor: AppColors.primaryBackground,
-                ),
-              ),
-          ],
-        ),
-      );
-    } on UpdateServiceException catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context)!.updateCheckFailed(e.message ?? '')),
-              backgroundColor: AppColors.error),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.error),
-        );
-      }
-    }
-  }
-
-  /// Download APK and trigger install
-  Future<void> _downloadAndInstallApk(BuildContext context, AppUpdate update) async {
-    if (update.apkUrl == null) return;
-    try {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Downloading APK...'), duration: Duration(seconds: 30)),
-      );
-      final apkPath = await UpdateService.downloadApk(update.apkUrl!);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        // Open the APK for install
-        final result = await Process.run('am', ['start', '-a', 'android.intent.action.VIEW',
-            '-d', 'file://$apkPath', '-t', 'application/vnd.android.package-archive']);
-        if (result.exitCode != 0) {
-          // Fallback: try using content URI
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(AppLocalizations.of(context)!.apkSavedPleaseInstall(apkPath)),
-                duration: const Duration(seconds: 5)),
-          );
-        }
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Download failed: $e'), backgroundColor: AppColors.error),
-        );
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -284,7 +142,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   icon: const Icon(Icons.system_update_alt,
                       size: 22, color: AppColors.warning),
                   tooltip: AppLocalizations.of(context)!.checkAppUpdate,
-                  onPressed: () => _checkAppUpdate(context),
+                  onPressed: () => checkAppUpdateFlow(context),
                 ),
                 // About button
                 IconButton(

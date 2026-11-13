@@ -96,6 +96,8 @@ class _OtaScreenState extends State<OtaScreen> with TickerProviderStateMixin {
     final version = bleProvider.firmwareVersion;
     if (version.isNotEmpty) {
       setState(() => _currentVersion = version);
+      // Check DaGromflomite/SleazyCrow releases straight away.
+      _checkForUpdates();
     }
   }
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
 import '../l10n/app_localizations.dart';
+import '../services/app_update_flow.dart';
 import '../providers/ble_provider.dart';
 import '../providers/log_provider.dart';
 import '../providers/notification_provider.dart';
@@ -52,6 +53,9 @@ class _HomeScreenState extends State<HomeScreen> {
       
       // Listen for connection state changes
       _bleProvider!.addListener(_onConnectionStateChanged);
+
+      // Quiet check for a newer Sleazy Crow app release (max every 12 h).
+      maybeAutoCheckAppUpdate(context);
       
       // Forward BLE events to notification provider (status bar feedback)
       _bleProvider!.setNotificationCallback((level, message) {
