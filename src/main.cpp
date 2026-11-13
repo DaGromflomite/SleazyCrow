@@ -604,7 +604,8 @@ void setup()
     esp_log_level_set("*", ESP_LOG_INFO);
     // Confirm serial is working
     Serial.printf("Serial started at %d bps\n", serialBaud);
-    Serial.printf("%s v%s (fork of %s)\n", FIRMWARE_NAME, FIRMWARE_VERSION_STRING, FIRMWARE_UPSTREAM);
+    Serial.printf("%s v%s by %s\n", FIRMWARE_NAME, FIRMWARE_VERSION_STRING, FIRMWARE_AUTHOR);
+    Serial.printf("  %s  (fork of %s)\n", FIRMWARE_URL, FIRMWARE_UPSTREAM);
 
     // Ensure GPIO ISR service is available for detachInterrupt usage
     static bool isrServiceReady = false;
