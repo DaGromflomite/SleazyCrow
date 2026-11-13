@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
 import '../l10n/app_localizations.dart';
+import '../services/app_update_flow.dart';
 import '../providers/ble_provider.dart';
 import '../providers/log_provider.dart';
 import '../providers/notification_provider.dart';
@@ -9,12 +10,14 @@ import '../providers/settings_provider.dart';
 import '../widgets/quick_connect_widget.dart';
 import '../widgets/module_status_widget.dart';
 import '../widgets/status_bar_widget.dart';
+import '../widgets/logo_watermark.dart';
 import '../theme/app_colors.dart';
 import 'brute_screen.dart';
 import 'files_screen.dart';
 import 'settings_screen.dart';
 import 'record_screen.dart';
 import 'signal_scanner_screen.dart';
+import 'tpms_screen.dart';
 import 'subghz_screen.dart';
 import 'nrf_screen.dart';
 
@@ -50,6 +53,9 @@ class _HomeScreenState extends State<HomeScreen> {
       
       // Listen for connection state changes
       _bleProvider!.addListener(_onConnectionStateChanged);
+
+      // Quiet check for a newer Sleazy Crow app release (max every 12 h).
+      maybeAutoCheckAppUpdate(context);
       
       // Forward BLE events to notification provider (status bar feedback)
       _bleProvider!.setNotificationCallback((level, message) {
@@ -157,60 +163,11 @@ class _HomeScreenState extends State<HomeScreen> {
         type: BottomNavigationBarType.fixed,
         currentIndex: _currentIndex,
         onTap: (index) {
-          final bleProvider = Provider.of<BleProvider>(context, listen: false);
-          
-          // Allow Home (index 0) and Settings (index 4) without connection
-          // Block Sub-GHz (1), NRF (2) and Files (3) if not connected
-          if (!bleProvider.isConnected && index != 0 && index != 4) {
-            // Show connection required dialog
-            final l10n = AppLocalizations.of(context)!;
-            showDialog(
-              context: context,
-              builder: (context) => AlertDialog(
-                title: Text(
-                  l10n.connectionRequired,
-                  style: const TextStyle(color: AppColors.primaryText),
-                ),
-                content: Text(
-                  l10n.connectionRequiredMessage,
-                  style: const TextStyle(color: AppColors.primaryText),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: Text(l10n.ok),
-                  ),
-                ],
-              ),
-            );
-            return;
-          }
+          // Every tab is browsable with no Crow attached — you can peruse the
+          // menus and build/edit playlists offline. Individual Crow functions
+          // (transmit, record, SD browse, NRF ops) guard themselves and prompt
+          // to connect when a device is needed, instead of locking the tab.
 
-          // Block NRF tab (index 2) if nRF module is not present
-          if (index == 2 && !bleProvider.nrfPresent) {
-            final l10n = AppLocalizations.of(context)!;
-            showDialog(
-              context: context,
-              builder: (context) => AlertDialog(
-                title: const Text(
-                  'nRF24 Not Detected',
-                  style: TextStyle(color: AppColors.primaryText),
-                ),
-                content: const Text(
-                  'The nRF24L01 module is not connected or not detected on this device.',
-                  style: TextStyle(color: AppColors.primaryText),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: Text(l10n.ok),
-                  ),
-                ],
-              ),
-            );
-            return;
-          }
-          
           // Handle debug mode activation on Settings tap
           if (index == 4) {
             _settingsTapCount++;
@@ -273,6 +230,48 @@ class HomeTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Home is a hub: Connect (Crow link + RF scanner) and TPMS (vehicle
+    // follower detection via the Crow's CC1101). The old phone-radio "Detect"
+    // suite was removed — the phone hardware couldn't reliably do it.
+    return DefaultTabController(
+      length: 2,
+      child: Column(
+        children: [
+          Container(
+            decoration: const BoxDecoration(gradient: AppColors.cyberGradient),
+            child: const TabBar(
+              labelColor: Colors.white,
+              unselectedLabelColor: Colors.white70,
+              indicatorColor: Colors.white,
+              tabs: [
+                Tab(
+                    icon: Icon(Icons.bluetooth_searching, size: 20),
+                    text: 'Connect'),
+                Tab(icon: Icon(Icons.directions_car, size: 20), text: 'TPMS'),
+              ],
+            ),
+          ),
+          const Expanded(
+            child: TabBarView(
+              children: [
+                _ConnectTab(),
+                TpmsScreen(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The Connect sub-tab: Crow connection, and (when connected) the Crow's RF
+/// signal scanner. This is the original Home content, behavior unchanged.
+class _ConnectTab extends StatelessWidget {
+  const _ConnectTab();
+
+  @override
+  Widget build(BuildContext context) {
     return Consumer<BleProvider>(
       builder: (context, bleProvider, child) {
         // When connected, show scanner as main home content
@@ -307,8 +306,14 @@ class HomeTab extends StatelessWidget {
           );
         }
 
-        // When not connected, show quick connect + permission errors
-        return SingleChildScrollView(
+        // When not connected, show quick connect + permission errors over a
+        // subtle logo watermark so the empty space isn't a flat black wall.
+        return Stack(
+          children: [
+            const Positioned.fill(
+              child: Center(child: LogoWatermark(size: 320, opacity: 0.20)),
+            ),
+            SingleChildScrollView(
           padding: const EdgeInsets.all(12.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -334,7 +339,9 @@ class HomeTab extends StatelessWidget {
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              AppLocalizations.of(context)!.permissionError,
+                              _isRealPermissionError(bleProvider.statusMessage)
+                                  ? AppLocalizations.of(context)!.permissionError
+                                  : 'Connection problem',
                               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                                 color: AppColors.primaryText,
                                 fontWeight: FontWeight.bold,
@@ -357,9 +364,16 @@ class HomeTab extends StatelessWidget {
               ],
             ],
           ),
+            ),
+          ],
         );
       },
     );
+  }
+
+  bool _isRealPermissionError(String status) {
+    final s = status.toLowerCase();
+    return s.contains('permission') || s.contains('denied');
   }
 
   bool _isPermissionError(String status) {

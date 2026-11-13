@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 /// Available actions for hardware buttons.
 /// Order matches firmware enum HwButtonAction (0-6).
@@ -54,6 +55,16 @@ class SettingsProvider with ChangeNotifier {
   int _nrfDataRate = 0;      // 0=1MBPS, 1=2MBPS, 2=250KBPS
   int _nrfChannel = 76;      // Default channel (0-125)
   int _nrfAutoRetransmit = 5; // Retransmit count (0-15)
+  // Keep the screen awake while the app is open. Default ON because Android
+  // screen-dim/sleep can drop the BLE link mid-transmit (GATT timeout / FBP
+  // "device disconnected"). User can turn it off to save battery.
+  bool _keepScreenAwake = true;
+  bool get keepScreenAwake => _keepScreenAwake;
+  // Opt-in: also offer UNSTABLE releases (`-unstable` assets) for app/firmware
+  // updates. Off by default; turning it on shows a disclaimer.
+  bool _offerUnstableUpdates = false;
+  bool get offerUnstableUpdates => _offerUnstableUpdates;
+  static const String prefOfferUnstable = 'offerUnstableUpdates';
   bool get debugMode => _debugMode;
   int get bruterDelayMs => _bruterDelayMs;
   int get bruterModule => _bruterModule;
@@ -92,6 +103,47 @@ class SettingsProvider with ChangeNotifier {
     _nrfDataRate = (prefs.getInt('nrfDataRate') ?? 0).clamp(0, 2);
     _nrfChannel = (prefs.getInt('nrfChannel') ?? 76).clamp(0, 125);
     _nrfAutoRetransmit = (prefs.getInt('nrfAutoRetransmit') ?? 5).clamp(0, 15);
+    _keepScreenAwake = prefs.getBool('keepScreenAwake') ?? true;
+    _offerUnstableUpdates = prefs.getBool(prefOfferUnstable) ?? false;
+    _keepAwakeSetting = _keepScreenAwake;
+    _applyWakelock();
+    notifyListeners();
+  }
+
+  // Last known "Keep screen awake" choice, readable without a context.
+  static bool _keepAwakeSetting = true;
+
+  /// End a temporary wakelock (OTA, downloads) without overriding the user's
+  /// "Keep screen awake" setting, which keeps the BLE link from dropping.
+  static void releaseTemporaryWakelock() {
+    try {
+      if (!_keepAwakeSetting) WakelockPlus.disable();
+    } catch (_) {/* ignore */}
+  }
+
+  void _applyWakelock() {
+    try {
+      if (_keepScreenAwake) {
+        WakelockPlus.enable();
+      } else {
+        WakelockPlus.disable();
+      }
+    } catch (_) {/* platform may not support it; ignore */}
+  }
+
+  Future<void> setKeepScreenAwake(bool value) async {
+    _keepScreenAwake = value;
+    _keepAwakeSetting = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('keepScreenAwake', value);
+    _applyWakelock();
+    notifyListeners();
+  }
+
+  Future<void> setOfferUnstableUpdates(bool value) async {
+    _offerUnstableUpdates = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(prefOfferUnstable, value);
     notifyListeners();
   }
 

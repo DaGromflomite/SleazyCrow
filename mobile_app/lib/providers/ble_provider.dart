@@ -7,6 +7,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/file_item.dart';
+import '../models/sub_playlist.dart';
 import '../models/detected_signal.dart';
 import '../models/directory_tree_node.dart';
 import '../models/protopirate_result.dart';
@@ -18,6 +19,7 @@ import '../services/file_parsers/file_parser_factory.dart';
 import '../services/cc1101/cc1101_calculator.dart';
 import '../services/cc1101/cc1101_values.dart';
 import '../services/binary_message_parser.dart';
+import '../services/sd_catalog.dart';
 // import 'log_provider.dart'; // Unused import removed
 
 class BleProvider extends ChangeNotifier {
@@ -108,6 +110,12 @@ class BleProvider extends ChangeNotifier {
   bool isFormattingSD = false;   // True while SD format command is in progress
   bool sdFormatSuccess = false;  // Result of last SD format
   String sdFormatProgress = '';  // Progress message during SD format (e.g. "Deleting: /somefile")
+  // Completes when the Crow reports the format finished (true = success), or
+  // false if the link drops first. Lets callers wait for the real end of the
+  // format instead of guessing with a fixed delay.
+  Completer<bool>? _sdFormatCompleter;
+  // The Crow deletes files one at a time, so a full card can take minutes.
+  static const Duration sdFormatTimeout = Duration(minutes: 15);
 
   // Scanner state
   List<DetectedSignal> detectedSignals = [];
@@ -290,6 +298,22 @@ class BleProvider extends ChangeNotifier {
     _loadTempOffsetPref();
   }
 
+  /// For unit tests: a provider that doesn't touch Bluetooth or storage.
+  @visibleForTesting
+  BleProvider.forTesting();
+
+  /// For unit tests: feed a parsed file-system message as if the Crow sent it.
+  @visibleForTesting
+  void debugFileSystemResponse(dynamic data) => _handleFileSystemResponse(data);
+
+  /// For unit tests: act as if the Bluetooth link dropped.
+  @visibleForTesting
+  void debugLinkLost() => _resetConnectionState();
+
+  /// For unit tests: the state change formatSDCard() makes before sending.
+  @visibleForTesting
+  void debugBeginFormat() => _beginSdFormat();
+
   // Completes once the startup permission requests have finished (granted or not).
   // Scan/connect wait for it, so nothing touches Bluetooth while the permission
   // dialogs are still on screen (that raced and surfaced FlutterBluePlusException).
@@ -322,6 +346,11 @@ class BleProvider extends ChangeNotifier {
     });
   }
 
+  /// Public wrapper so phone-radio detection features (BLE scanner, fox hunt,
+  /// passive alerts) can reuse the exact same proven startup-readiness logic —
+  /// permissions settled + adapter on — without a Crow connected.
+  Future<bool> ensureBluetoothReady() => _ensureBluetoothReady();
+
   /// Wait until startup permissions are settled and the Bluetooth adapter is on.
   /// Returns false (with a readable status message) if Bluetooth can't be used yet.
   Future<bool> _ensureBluetoothReady() async {
@@ -351,6 +380,11 @@ class BleProvider extends ChangeNotifier {
   String _friendlyBleError(Object e) {
     if (e is FlutterBluePlusException) {
       final what = e.description?.trim();
+      if (e.function == 'connect' && (what ?? '').toLowerCase().contains('timed out')) {
+        return "The Crow didn't answer. Check it's switched on and close to the phone, "
+            'and that no other phone or app is connected to it. If it still fails, '
+            'switch the Crow off and on again, then tap Connect.';
+      }
       return 'Bluetooth not ready (${e.function}${what != null && what.isNotEmpty ? ': $what' : ''}). '
           'Wait a moment and try again.';
     }
@@ -429,6 +463,14 @@ class BleProvider extends ChangeNotifier {
     if (await Permission.location.isDenied) {
       await Permission.location.request();
     }
+
+    // Nearby WiFi devices (Android 13+): needed for the WiFi detector (Flock,
+    // ALPR, cameras). Optional — Bluetooth and the Crow work without it.
+    try {
+      if (await Permission.nearbyWifiDevices.isDenied) {
+        await Permission.nearbyWifiDevices.request();
+      }
+    } catch (_) {/* not applicable on this Android version */}
     
     // Check if all permissions are granted
     bool allGranted = await Permission.bluetooth.isGranted &&
@@ -560,7 +602,11 @@ class BleProvider extends ChangeNotifier {
       print('Connecting to device: ${device.name} (${device.id})');
       notifyListeners();
       
-      await device.connect(timeout: const Duration(seconds: 10));
+      // A running BLE scan blocks connection setup on Android. Stop it first.
+      try {
+        if (FlutterBluePlus.isScanningNow) await FlutterBluePlus.stopScan();
+      } catch (_) {/* ignore */}
+      await device.connect(timeout: const Duration(seconds: 15));
       connectedDevice = device;
       
       // Set up connection state monitoring (cancel previous subscription on reconnect)
@@ -696,6 +742,15 @@ class BleProvider extends ChangeNotifier {
   }
 
   void _resetConnectionState() {
+    _completeTxBurst();
+    _completeTxIdle(); // a playlist waiting on the radio must not hang
+    // A format can't finish without the link: release anyone waiting on it.
+    if (_sdFormatCompleter != null && !_sdFormatCompleter!.isCompleted) {
+      isFormattingSD = false;
+      sdFormatSuccess = false;
+      sdFormatProgress = '';
+      _sdFormatCompleter!.complete(false);
+    }
     // Cancel BLE stream subscriptions to prevent leaks on reconnect
     _connectionStateSubscription?.cancel();
     _connectionStateSubscription = null;
@@ -1924,6 +1979,13 @@ class BleProvider extends ChangeNotifier {
         case 'NrfModuleStatus':
           _handleNrfModuleStatus(data['data']);
           break;
+        // ── TPMS sniffer notifications ──
+        case 'TpmsHit':
+        case 'TpmsStatus':
+          if (!_tpmsController.isClosed) {
+            _tpmsController.add({'type': type, 'data': data['data']});
+          }
+          break;
         // ── NRF24 notifications ──
         case 'NrfDeviceFound':
           final d = data['data'] as Map?;
@@ -2316,6 +2378,7 @@ class BleProvider extends ChangeNotifier {
     print('Signal sending error: $data');
     statusMessage = errorMessage;
     _log('error', 'Signal sending error', details: errorMessage);
+    _lastBurstFailed = true;
     _completeTxBurst(); // unblock the repeat loop on a real error
     if (!_suppressTxNotify) _notify('error', errorMessage);
     notifyListeners();
@@ -2323,9 +2386,25 @@ class BleProvider extends ChangeNotifier {
 
   // Completes when the current transmit burst finishes (SignalSent/Error).
   Completer<void>? _txBurstCompleter;
+  // Set when the Crow reports a send error for the current burst (e.g. the
+  // file isn't on the SD card any more). Playlists use it to report skips.
+  bool _lastBurstFailed = false;
+  final Set<String> _playlistFailed = {};
   void _completeTxBurst() {
     if (_txBurstCompleter != null && !_txBurstCompleter!.isCompleted) {
       _txBurstCompleter!.complete();
+    }
+  }
+
+  // SignalSent only means the Crow *queued* the file; the radio is still
+  // busy until the module reports Idle. Playlists wait on this so the next
+  // file isn't sent into a busy module (which the Crow rejects).
+  Completer<void>? _txIdleCompleter;
+  int _txIdleModule = -1;
+  static const Duration playlistFileTimeout = Duration(minutes: 3);
+  void _completeTxIdle() {
+    if (_txIdleCompleter != null && !_txIdleCompleter!.isCompleted) {
+      _txIdleCompleter!.complete();
     }
   }
 
@@ -2526,6 +2605,8 @@ class BleProvider extends ChangeNotifier {
               }
               
               _log('info', 'File list complete', details: 'Path: $currentPath, Files: ${fileList.length}');
+              // Remember what's in this folder so playlists can be built offline.
+              SdCatalog.syncListing(currentPath, currentPathType, List.of(fileList));
               
               // Save to cache
               if (fileList.isNotEmpty || files.isEmpty) {
@@ -2615,6 +2696,10 @@ class BleProvider extends ChangeNotifier {
             sdFormatProgress = '';
             sdFormatSuccess = responseData['success'] == true;
             _log('info', 'SD format ${sdFormatSuccess ? 'succeeded' : 'failed'}');
+            if (sdFormatSuccess) SdCatalog.clear();
+            if (_sdFormatCompleter != null && !_sdFormatCompleter!.isCompleted) {
+              _sdFormatCompleter!.complete(sdFormatSuccess);
+            }
             notifyListeners();
           }
         }
@@ -2771,8 +2856,14 @@ class BleProvider extends ChangeNotifier {
       // First chunk contains: [0x0D][pathLength:1][pathType:1][path:variable] in payload
       // Subsequent chunks contain only file data
       // Payload size = MAX_CHUNK_SIZE - PACKET_HEADER_SIZE - checksum(1)
-      const int maxChunkDataSize = FirmwareBinaryProtocol.MAX_CHUNK_SIZE - FirmwareBinaryProtocol.PACKET_HEADER_SIZE - 1;
+      const int maxChunkDataSize = FirmwareBinaryProtocol.UPLOAD_CHUNK_DATA;
       final int totalChunks = 1 + ((fileSize + maxChunkDataSize - 1) ~/ maxChunkDataSize);
+      // Refuse before sending anything: past 255 chunks the one-byte counters
+      // wrap and the Crow would keep a truncated file and report success.
+      if (fileSize > FirmwareBinaryProtocol.MAX_UPLOAD_BYTES) {
+        throw Exception('File too big for the Crow: ${(fileSize / 1024).toStringAsFixed(0)} KB '
+            '(max ${FirmwareBinaryProtocol.MAX_UPLOAD_BYTES ~/ 1024} KB per file)');
+      }
 
       _log('INFO', 'Total chunks: $totalChunks');
 
@@ -2852,6 +2943,7 @@ class BleProvider extends ChangeNotifier {
 
       try {
         final response = await uploadCompleter.future;
+        SdCatalog.addUpload(targetPath, pathType);
         timeout.cancel();
         _uploadProgress = 1.0;
         onProgress?.call(1.0);
@@ -3183,6 +3275,126 @@ class BleProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // --- Playlist transmission -------------------------------------------------
+  // Transmit a list of saved .sub files in sequence. Same self-pacing idea as
+  // startRepeatTransmit: fire one burst, wait for the firmware's burst-complete
+  // (SignalSent/Error) before the next, then an optional user gap. Supports
+  // repeating each file N times and looping the whole list. No firmware change.
+  bool _playlistRunning = false;
+  int _playlistIndex = -1; // index of the item currently transmitting (-1 = none)
+  int _playlistPass = 0; // how many full loops completed
+
+  bool get isPlaylistPlaying => _playlistRunning;
+  int get playlistIndex => _playlistIndex;
+  int get playlistPass => _playlistPass;
+
+  /// Start transmitting [items] in order. [gapMs] is the pause added between
+  /// files, [repeatEach] fires each file that many times, [loop] repeats the
+  /// whole list until [stopPlaylist] is called. Pins ONE module so bursts never
+  /// contend. Safe to call only while connected; returns immediately if a
+  /// playlist or hold-repeat is already running.
+  Future<void> startPlaylist(
+    List<PlaylistItem> items, {
+    int gapMs = 500,
+    int repeatEach = 1,
+    bool loop = false,
+    int? module,
+  }) async {
+    if (_playlistRunning || _repeatTx) return;
+    if (items.isEmpty) return;
+    _playlistRunning = true;
+    _suppressTxNotify = true; // one flow, don't toast per burst
+    _playlistPass = 0;
+    _playlistFailed.clear();
+    final useModule = module ?? 0;
+    final gap = Duration(milliseconds: gapMs < 0 ? 0 : gapMs);
+    final reps = repeatEach < 1 ? 1 : repeatEach;
+    notifyListeners();
+
+    try {
+      do {
+        for (var i = 0; i < items.length && _playlistRunning && isConnected; i++) {
+          _playlistIndex = i;
+          notifyListeners();
+          final item = items[i];
+          if (item.isPause) {
+            // An explicit pause entry: wait, interruptibly, no transmit.
+            await _interruptibleDelay(Duration(milliseconds: item.pauseMs));
+            continue;
+          }
+          for (var r = 0; r < reps && _playlistRunning && isConnected; r++) {
+            try {
+              _lastBurstFailed = false;
+              _txBurstCompleter = Completer<void>();
+              _txIdleCompleter = Completer<void>();
+              _txIdleModule = useModule;
+              await transmitFromFile(item.path,
+                  module: useModule, pathType: item.pathType, force: true);
+              var answered = true;
+              await _txBurstCompleter!.future
+                  .timeout(const Duration(seconds: 6), onTimeout: () => answered = false);
+              if (_lastBurstFailed || !answered) {
+                _playlistFailed.add(item.displayName);
+              } else {
+                // Accepted: wait until the radio has actually finished it
+                // (long RAW files can transmit for many seconds).
+                await _txIdleCompleter!.future
+                    .timeout(playlistFileTimeout, onTimeout: () {});
+              }
+              _txIdleModule = -1;
+            } catch (_) {
+              // transient failure — brief pause, then continue the list
+              _playlistFailed.add(item.displayName);
+              await Future.delayed(const Duration(milliseconds: 150));
+            }
+            if (_playlistRunning) await _interruptibleDelay(gap);
+          }
+        }
+        _playlistPass++;
+      } while (_playlistRunning && loop && isConnected);
+    } finally {
+      _finishPlaylist();
+    }
+  }
+
+  void stopPlaylist() {
+    if (!_playlistRunning) return;
+    _playlistRunning = false;
+    _completeTxBurst(); // unblock the in-flight wait
+    _completeTxIdle();
+  }
+
+  void _finishPlaylist() {
+    _playlistRunning = false;
+    _suppressTxNotify = false;
+    _playlistIndex = -1;
+    // Errors are muted during playback (one toast per burst would flood the
+    // screen), so say once at the end which files didn't play.
+    if (_playlistFailed.isNotEmpty) {
+      final names = _playlistFailed.take(3).join(', ');
+      final more = _playlistFailed.length > 3 ? ' and ${_playlistFailed.length - 3} more' : '';
+      _notify('error',
+          "${_playlistFailed.length} playlist file(s) didn't play: $names$more. "
+          'Check they are still on the SD card.');
+    }
+    try {
+      sendIdleCommand(0);
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  /// A delay that returns early if the playlist is stopped (or the link drops),
+  /// so Stop feels immediate even during a long pause entry.
+  Future<void> _interruptibleDelay(Duration d) async {
+    const step = Duration(milliseconds: 100);
+    var elapsed = Duration.zero;
+    while (elapsed < d && _playlistRunning && isConnected) {
+      final remaining = d - elapsed;
+      await Future.delayed(remaining < step ? remaining : step);
+      elapsed += step;
+    }
+  }
+
   Future<void> sendBinaryCommand(Uint8List command, {bool withoutResponse = false}) async {
     if (!isConnected || txCharacteristic == null) {
       throw Exception('Device not connected');
@@ -3389,17 +3601,39 @@ class BleProvider extends ChangeNotifier {
     if (!isConnected || txCharacteristic == null) return false;
     try {
       final cmd = FirmwareBinaryProtocol.createFormatSDCommand();
-      isFormattingSD = true;
-      sdFormatSuccess = false;
-      notifyListeners();
+      _beginSdFormat();
       await sendBinaryCommand(cmd);
       _log('warning', 'Format SD command sent');
       return true;
     } catch (e) {
       isFormattingSD = false;
+      if (_sdFormatCompleter != null && !_sdFormatCompleter!.isCompleted) {
+        _sdFormatCompleter!.complete(false);
+      }
       notifyListeners();
       _log('error', 'Failed to send format SD: $e');
       return false;
+    }
+  }
+
+  void _beginSdFormat() {
+    isFormattingSD = true;
+    sdFormatSuccess = false;
+    sdFormatProgress = '';
+    _sdFormatCompleter = Completer<bool>();
+    notifyListeners();
+  }
+
+  /// Wait until the Crow says the format is finished. Returns true on success,
+  /// false if it failed or the Crow disconnected, and null if it still hadn't
+  /// finished after [timeout] (it may still be deleting on a very full card).
+  Future<bool?> waitForSdFormat({Duration timeout = sdFormatTimeout}) async {
+    final c = _sdFormatCompleter;
+    if (c == null) return isFormattingSD ? null : sdFormatSuccess;
+    try {
+      return await c.future.timeout(timeout);
+    } on TimeoutException {
+      return null;
     }
   }
 
@@ -3705,6 +3939,9 @@ class BleProvider extends ChangeNotifier {
   /// Whether the file list response has been received (to distinguish loading vs empty)
   bool _ppFileListReceived = false;
   bool get ppFileListReceived => _ppFileListReceived;
+  // Fallback so the ProtoPirate file browser never spins forever if the
+  // firmware doesn't answer the list command (the "menu freeze").
+  Timer? _ppFileListTimeout;
 
   /// Last save result path
   String _ppLastSavePath = '';
@@ -3797,8 +4034,22 @@ class BleProvider extends ChangeNotifier {
     _log('command', 'PP ListSubFiles: $path');
     _ppFileList = [];
     _ppFileListReceived = false;
+    _startPpFileListTimeout();
     final cmd = FirmwareBinaryProtocol.createPPListSubFilesCommand(path);
     await sendBinaryCommand(cmd);
+  }
+
+  /// If no file-list response arrives in time, unblock the UI (shows "no
+  /// files") instead of a spinner that never resolves.
+  void _startPpFileListTimeout() {
+    _ppFileListTimeout?.cancel();
+    _ppFileListTimeout = Timer(const Duration(seconds: 8), () {
+      if (!_ppFileListReceived) {
+        _log('warning', 'PP file list timed out — no response from firmware');
+        _ppFileListReceived = true;
+        notifyListeners();
+      }
+    });
   }
 
   /// List saved ProtoPirate captures (/DATA/PROTOPIRATE/)
@@ -3809,6 +4060,7 @@ class BleProvider extends ChangeNotifier {
     _log('command', 'PP ListSaved');
     _ppFileList = [];
     _ppFileListReceived = false;
+    _startPpFileListTimeout();
     final cmd = FirmwareBinaryProtocol.createPPListSavedCommand();
     await sendBinaryCommand(cmd);
   }
@@ -3904,6 +4156,7 @@ class BleProvider extends ChangeNotifier {
 
   /// Handle file list notification (0xB9) — SD card file browser results
   void _handlePPFileList(Map<String, dynamic> data) {
+    _ppFileListTimeout?.cancel();
     final files = data['files'] as List<dynamic>? ?? [];
     _ppFileList = files.cast<Map<String, dynamic>>();
     _ppFileListReceived = true;
@@ -4031,6 +4284,27 @@ class BleProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ── TPMS sniffer (vehicle stalking detection) ─────────────────────────────
+  // The Crow decodes nearby TPMS sensor IDs (315/433 MHz) and streams them here.
+  // TpmsProvider consumes this stream to do cross-trip follower detection.
+  final StreamController<Map<String, dynamic>> _tpmsController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get tpmsEvents => _tpmsController.stream;
+
+  Future<void> startTpmsScan({int module = 0, int freqX100 = 31500}) async {
+    await sendBinaryCommand(FirmwareBinaryProtocol.createTpmsStartCommand(
+        module: module, freqX100: freqX100));
+  }
+
+  Future<void> stopTpmsScan() async {
+    await sendBinaryCommand(FirmwareBinaryProtocol.createTpmsStopCommand());
+  }
+
+  /// Run the Crow's TPMS decoder self-test; it emits a decoded demo sensor hit.
+  Future<void> runTpmsSelfTest() async {
+    await sendBinaryCommand(FirmwareBinaryProtocol.createTpmsSelfTestCommand());
+  }
+
   /// Send updated settings to the device (0xC1).
   /// Payload: [0xAA][cmd=0xC1][5 bytes settings data][checksum]
   Future<void> sendSettingsToDevice({
@@ -4138,6 +4412,8 @@ class BleProvider extends ChangeNotifier {
     print('Mode switch: module=$module, mode=$mode, previous=$previousMode');
     print('Current cc1101Modules state before update: ${cc1101Modules?.map((m) => 'Module ${m['id']}: ${m['mode']}').join(', ')}');
     
+    if (mode == 'Idle' && module == _txIdleModule) _completeTxIdle();
+
     // Update recording state
     if (mode == 'RecordSignal') {
       isRecording[module] = true;

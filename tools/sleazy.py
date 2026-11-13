@@ -6,6 +6,7 @@ published release are produced the same way.
 
   python tools/sleazy.py status                    show versions / branding state
   python tools/sleazy.py set-version 1.2.1 --beta  set firmware + app version together
+                                                   (--unstable for opt-in test builds)
   python tools/sleazy.py check [--tag v1.2.0-beta] [--release]
                                                    refuse to continue if anything is off
   python tools/sleazy.py icons                     app icons + favicon from branding/
@@ -53,7 +54,7 @@ ANDROID_ICON_SIZES = {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhd
 # Adaptive icon layers are 108dp; only the centre 66dp is guaranteed visible.
 ADAPTIVE_SIZES = {"mdpi": 108, "hdpi": 162, "xhdpi": 216, "xxhdpi": 324, "xxxhdpi": 432}
 
-VER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)(-beta)?$")
+VER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)(-beta|-unstable)?$")
 
 
 def die(msg: str) -> None:
@@ -105,7 +106,9 @@ def numeric(version: str) -> str:
 def cmd_set_version(args) -> None:
     if not re.fullmatch(r"\d+\.\d+\.\d+", args.version):
         die("give the version as X.Y.Z (add --beta for a beta)")
-    full = args.version + ("-beta" if args.beta else "")
+    if args.beta and args.unstable:
+        die("pick one of --beta / --unstable")
+    full = args.version + ("-beta" if args.beta else "-unstable" if args.unstable else "")
     major, minor, patch = args.version.split(".")
     s = read(CONFIG_H)
     for name, val in (("MAJOR", major), ("MINOR", minor), ("PATCH", patch)):
@@ -129,7 +132,7 @@ def cmd_check(args) -> list[str]:
 
     m = VER_RE.match(fw_str)
     if not m:
-        problems.append(f"firmware version '{fw_str}' is not X.Y.Z or X.Y.Z-beta")
+        problems.append(f"firmware version '{fw_str}' is not X.Y.Z, X.Y.Z-beta or X.Y.Z-unstable")
     elif tuple(int(x) for x in m.groups()[:3]) != fw_nums:
         problems.append(f"config.h numbers {fw_nums} don't match string '{fw_str}'")
     if app_str != fw_str:
@@ -342,6 +345,8 @@ def cmd_package(args) -> None:
         page = page.replace(key, val)
     if "{{" in page:
         die("unfilled {{placeholder}} left in web-flasher/index.html")
+    if fw_str.endswith("-unstable"):
+        page = _unstable_page(page, fw_str)
     (site / "index.html").write_text(page, encoding="utf-8")
 
     print(f"packaged {fw_str}:")
@@ -349,6 +354,119 @@ def cmd_package(args) -> None:
         print(f"  dist/release/{a.name}")
     print("  dist/site/ (web flasher)")
 
+
+
+# ── unstable flasher page ─────────────────────────────────────────────────────
+
+def _md_inline(t: str) -> str:
+    import html
+    t = html.escape(t, quote=False)
+    t = re.sub(r"`([^`]+)`", r"<code>\1</code>", t)
+    t = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", t)
+    t = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r'<a href="\2">\1</a>', t)
+    return t
+
+
+def _md_to_html(md: str) -> str:
+    """Tiny Markdown subset used by docs/RELEASE-NOTES-*.md (headings, lists,
+    tables, quotes, paragraphs). Enough for the flasher page; no dependency."""
+    out, para, items, rows = [], [], [], []
+    def flush():
+        nonlocal para, items, rows
+        if para:
+            out.append("<p>" + _md_inline(" ".join(para)) + "</p>"); para = []
+        if items:
+            out.append("<ul>" + "".join(f"<li>{_md_inline(i)}</li>" for i in items) + "</ul>"); items = []
+        if rows:
+            head, body = rows[0], [r for r in rows[2:]]
+            t = "<div class=\"tablewrap\"><table><tr>" + "".join(f"<th>{_md_inline(c)}</th>" for c in head) + "</tr>"
+            t += "".join("<tr>" + "".join(f"<td>{_md_inline(c)}</td>" for c in r) + "</tr>" for r in body)
+            out.append(t + "</table></div>"); rows = []
+    for raw in md.splitlines():
+        line = raw.rstrip()
+        if not line.strip():
+            flush(); continue
+        if line.startswith("|"):
+            if para or items: flush()
+            rows.append([c.strip() for c in line.strip("|").split("|")]); continue
+        if rows: flush()
+        m = re.match(r"^(#{1,3})\s+(.*)", line)
+        if m:
+            flush(); lvl = min(len(m.group(1)) + 1, 4)
+            out.append(f"<h{lvl}>{_md_inline(m.group(2))}</h{lvl}>"); continue
+        if line.startswith(">"):
+            if out and out[-1].startswith('<p class="quote">') and not para and not items:
+                out[-1] = out[-1][:-4] + " " + _md_inline(line.lstrip("> ")) + "</p>"
+            else:
+                flush(); out.append(f"<p class=\"quote\">{_md_inline(line.lstrip('> '))}</p>")
+            continue
+        if line.strip() == "---":
+            flush(); continue
+        m = re.match(r"^\s*-\s+(.*)", line)
+        if m:
+            if para: flush()
+            items.append(m.group(1)); continue
+        if items and raw.startswith("  "):
+            items[-1] += " " + line.strip(); continue
+        para.append(line.strip())
+    flush()
+    return "\n".join(out)
+
+
+def _unstable_page(page: str, fw_str: str) -> str:
+    """Turn the normal flasher page into the opt-in UNSTABLE page: big warning,
+    full release notes (tested vs untested), and Install/Download locked until
+    the visitor ticks the disclaimer."""
+    notes_md = ROOT / "docs" / f"RELEASE-NOTES-v{fw_str}.md"
+    if not notes_md.exists():
+        die(f"{notes_md.relative_to(ROOT)} missing — unstable builds must ship human-readable notes")
+    md = notes_md.read_text(encoding="utf-8")
+    md = re.sub(r"^# .*\n", "", md, count=1)  # page already has its own heading
+    notes = _md_to_html(md)
+    rel_url = f"https://github.com/{REPO_OWNER}/{REPO_NAME}/releases/tag/v{fw_str}"
+    warn = f"""<section class="warn">
+    <strong>⚠ UNSTABLE TEST BUILD: use at your own risk.</strong>
+    This is a test build of Sleazy Crow v2. Some features have <b>not been tested on real hardware yet</b>
+    and may not work, may crash, or may need a re-flash to recover. Read the notes below for what is tested
+    and what is not. The stable <b>v1.2.0-beta</b> stays on the <a href="../">main flasher page</a>;
+    you can go back to it at any time (Android: uninstall the unstable app first).
+    <label class="ack"><input type="checkbox" id="ack"> I understand this is an unstable test build and I'm
+    installing it at my own risk.</label>
+  </section>
+
+  <section class="notes">
+    <h2>What's in this build: what works, what's untested</h2>
+    {notes}
+    <p class="muted">Also on the <a href="{rel_url}">GitHub release page</a>.</p>
+  </section>"""
+    page, n = re.subn(r'<section class="warn">.*?</section>', warn, page, count=1, flags=re.S)
+    if n != 1:
+        die("unstable page: could not find the warning section in the flasher template")
+    page = page.replace('<div class="actions">', '<div class="actions gated">')
+    page = page.replace("<title>Sleazy Crow Flasher</title>", "<title>Sleazy Crow Flasher: UNSTABLE</title>", 1)
+    css = """  .gated { opacity: .35; pointer-events: none; filter: grayscale(1); transition: opacity .2s; }
+  .ack { display: block; margin-top: 12px; padding: 10px 12px; border: 1px dashed var(--gold);
+         border-radius: 8px; cursor: pointer; font-weight: 600; }
+  .ack input { transform: scale(1.3); margin-right: 8px; }
+  .notes h3 { color: var(--pink); margin: 18px 0 6px; font-size: 1.05rem; }
+  .notes h2 { margin-top: 0; }
+  .quote { border-left: 3px solid var(--gold); padding-left: 10px; color: #FBE3B0; }
+</style>"""
+    page = page.replace("</style>", css, 1)
+    js = """<script>
+  (function () {
+    var box = document.getElementById('ack');
+    function sync() {
+      document.querySelectorAll('.actions').forEach(function (el) {
+        el.classList.toggle('gated', !box.checked);
+      });
+    }
+    box.addEventListener('change', sync); sync();
+  })();
+</script>
+</body>"""
+    page = page.replace("</body>", js, 1)
+    return page
 
 def cmd_notes(_args) -> None:
     fw_str, _ = fw_version()
@@ -403,7 +521,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("status").set_defaults(fn=cmd_status)
-    p = sub.add_parser("set-version"); p.add_argument("version"); p.add_argument("--beta", action="store_true")
+    p = sub.add_parser("set-version"); p.add_argument("version"); p.add_argument("--beta", action="store_true"); p.add_argument("--unstable", action="store_true")
     p.set_defaults(fn=cmd_set_version)
     p = sub.add_parser("check"); p.add_argument("--tag"); p.add_argument("--release", action="store_true")
     p.set_defaults(fn=cmd_check)

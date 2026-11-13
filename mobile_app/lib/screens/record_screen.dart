@@ -9,6 +9,7 @@ import '../services/cc1101/cc1101_calculator.dart';
 import '../widgets/record_screen_widgets.dart';
 import '../widgets/file_list_widget.dart';
 import '../widgets/transmit_file_dialog.dart';
+import '../widgets/sd_sub_picker.dart';
 import '../theme/app_colors.dart';
 import 'file_viewer_screen.dart';
 
@@ -903,6 +904,20 @@ class _RecordScreenState extends State<RecordScreen> with TickerProviderStateMix
     );
   }
   
+  /// Browse the SD card for a .sub file and transmit it.
+  Future<void> _playSubFile() async {
+    final picked = await SdSubPicker.show(context,
+        single: true, title: 'Play Sub File');
+    if (!mounted || picked == null || picked.isEmpty) return;
+    final path = picked.first;
+    await TransmitFileDialog.showAndTransmit(
+      context,
+      fileName: path.substring(path.lastIndexOf('/') + 1),
+      filePath: path,
+      pathType: 5, // SD root, absolute path
+    );
+  }
+
   Widget _buildModuleTab(int moduleIndex, RecordConfig config) {
     return Consumer<BleProvider>(
       builder: (context, bleProvider, child) {
@@ -919,6 +934,22 @@ class _RecordScreenState extends State<RecordScreen> with TickerProviderStateMix
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // Pick any .sub on the SD card and transmit it, without going
+              // through the Files tab.
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.cyberPink,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: bleProvider.isConnected ? _playSubFile : null,
+                icon: const Icon(Icons.play_arrow),
+                label: const Text('Play Sub File',
+                    style: TextStyle(fontWeight: FontWeight.w600)),
+              ),
+              const SizedBox(height: 12),
               // Record/jamming settings with overlay
               Stack(
                 children: [

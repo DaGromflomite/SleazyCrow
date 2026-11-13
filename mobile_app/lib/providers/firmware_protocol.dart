@@ -40,6 +40,12 @@ class FirmwareBinaryProtocol {
   static const int MAGIC_BYTE = 0xAA;
   static const int PACKET_HEADER_SIZE = 7; // magic + type + chunk_id + chunk_num + total_chunks + data_len(2 bytes)
   static const int MAX_CHUNK_SIZE = 500; // Safe maximum: BLE notify limit is 509 bytes, so 509 - 7 (header) - 1 (checksum) - 1 (safety) = 500
+  /// File bytes carried by one upload chunk (chunk minus header and checksum).
+  static const int UPLOAD_CHUNK_DATA = MAX_CHUNK_SIZE - PACKET_HEADER_SIZE - 1;
+  /// The Crow's chunk counters are one byte, so one upload is at most 255
+  /// chunks (1 header + 254 data) = 124,968 bytes. Bigger uploads wrap the
+  /// counter and the Crow saves a cut-off file while reporting success.
+  static const int MAX_UPLOAD_BYTES = 254 * UPLOAD_CHUNK_DATA;
   
   // Packet types (matching firmware)
   static const int PACKET_TYPE_DATA = 0x01;
@@ -96,6 +102,12 @@ class FirmwareBinaryProtocol {
   static const int MSG_NRF_JAM_SET_CH   = 0x2D;
   static const int MSG_NRF_CLEAR_TARGETS = 0x2E;
   static const int MSG_NRF_STOP_ALL     = 0x2F;
+
+  // ── TPMS sniffer Commands (0x70-0x73) ───────────────────────
+  static const int MSG_TPMS_START    = 0x70;
+  static const int MSG_TPMS_STOP     = 0x71;
+  static const int MSG_TPMS_STATUS   = 0x72;
+  static const int MSG_TPMS_SELFTEST = 0x73;
 
   // ── ProtoPirate Commands (0x60) ─────────────────────────────
   static const int MSG_PROTOPIRATE = 0x60;
@@ -908,6 +920,31 @@ class FirmwareBinaryProtocol {
   /// Stop current NRF attack (0x27)
   static Uint8List createNrfAttackStopCommand() {
     return _createEnhancedCommand(MSG_NRF_ATTACK_STOP, Uint8List(0));
+  }
+
+  /// Start the TPMS sniffer (0x70). freqX100 = freq*100 MHz (31500=315 US, 43392=433.92 EU).
+  static Uint8List createTpmsStartCommand({int module = 0, int freqX100 = 31500}) {
+    final p = Uint8List(3);
+    p[0] = module & 0x01;
+    p[1] = freqX100 & 0xFF;
+    p[2] = (freqX100 >> 8) & 0xFF;
+    return _createEnhancedCommand(MSG_TPMS_START, p);
+  }
+
+  /// Stop the TPMS sniffer (0x71), freeing the CC1101.
+  static Uint8List createTpmsStopCommand() {
+    return _createEnhancedCommand(MSG_TPMS_STOP, Uint8List(0));
+  }
+
+  /// Request TPMS sniffer status (0x72).
+  static Uint8List createTpmsStatusCommand() {
+    return _createEnhancedCommand(MSG_TPMS_STATUS, Uint8List(0));
+  }
+
+  /// Run the on-device TPMS decoder self-test (0x73). The Crow replies with a
+  /// pass mask and emits the decoded Ford test vector as a demo sensor hit.
+  static Uint8List createTpmsSelfTestCommand() {
+    return _createEnhancedCommand(MSG_TPMS_SELFTEST, Uint8List(0));
   }
 
   /// Start 2.4 GHz spectrum analyzer (0x28)

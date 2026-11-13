@@ -8,6 +8,9 @@
 #include "BinaryMessages.h"
 #include "core/ble/BleAdapter.h"
 #include "SD.h"
+#include "sd_diskio.h"
+#include "ff.h"
+#include "config.h"
 #include <LittleFS.h>
 #include "Arduino.h"
 #include <cstring>  // For strrchr
@@ -783,40 +786,45 @@ public:
      * @return true if the directory and all children were deleted.
      */
     static bool removeDirectoryRecursive(fs::FS& fs, const char* path) {
-        File dir = fs.open(path);
-        if (!dir || !dir.isDirectory()) {
-            dir.close();
-            return false;
-        }
-
+        // Never keep this folder open while going deeper. The SD library only
+        // allows a few open files at once (5 by default), so holding one handle
+        // per level made deep trees (e.g. SUB Files/Gates/Bruteforcing/...)
+        // fail to delete, and the whole format reported failure. Instead: read a
+        // small batch of names, close the folder, delete them, repeat.
         bool allOk = true;
-        File child = dir.openNextFile();
-        while (child) {
-            // Copy path before close — child.path() is an internal pointer
-            // that becomes invalid after child.close().
-            char childPathBuf[256];
-            strncpy(childPathBuf, child.path(), sizeof(childPathBuf) - 1);
-            childPathBuf[sizeof(childPathBuf) - 1] = '\0';
-            bool isDir = child.isDirectory();
-            child.close();
-
-            if (isDir) {
-                if (!removeDirectoryRecursive(fs, childPathBuf)) {
-                    ESP_LOGE("FileCmd", "Failed to remove dir: %s", childPathBuf);
-                    allOk = false;
-                    // Continue deleting other entries instead of aborting
-                }
-            } else {
-                if (!fs.remove(childPathBuf)) {
-                    ESP_LOGE("FileCmd", "Failed to remove file: %s", childPathBuf);
-                    allOk = false;
-                }
+        for (;;) {
+            File dir = fs.open(path);
+            if (!dir || !dir.isDirectory()) {
+                dir.close();
+                return false;
             }
-            // Yield to prevent watchdog timeout on deep/large trees
-            vTaskDelay(1);
-            child = dir.openNextFile();
+            std::vector<std::pair<String, bool>> batch;
+            File child = dir.openNextFile();
+            while (child && batch.size() < 16) {
+                batch.emplace_back(String(child.path()), child.isDirectory());
+                child.close();
+                child = dir.openNextFile();
+            }
+            if (child) child.close();
+            dir.close();
+            if (batch.empty()) break;
+
+            size_t removed = 0;
+            for (auto& entry : batch) {
+                const char* p = entry.first.c_str();
+                bool ok = entry.second ? removeDirectoryRecursive(fs, p) : fs.remove(p);
+                if (ok) {
+                    removed++;
+                } else {
+                    ESP_LOGE("FileCmd", "Failed to remove %s: %s", entry.second ? "dir" : "file", p);
+                    allOk = false;
+                }
+                // Yield to prevent watchdog timeout on deep/large trees
+                vTaskDelay(1);
+            }
+            // Nothing in this batch could be removed: stop instead of looping forever.
+            if (removed == 0) break;
         }
-        dir.close();
 
         // Directory should now be empty — remove it
         if (!fs.rmdir(path)) {
@@ -874,6 +882,61 @@ public:
      * Payload: [0x46][0x53] ('FS') as confirmation guard — prevents
      * accidental invocation.
      */
+    /**
+     * @brief Quick format: rebuild the card's FAT filesystem in one pass with
+     *        f_mkfs (seconds), instead of deleting every file one at a time
+     *        (minutes on a card full of .sub files).
+     * @return true if the card was formatted and mounted again. false if the
+     *         quick format couldn't run; the card is then left as it was and
+     *         mounted, so the caller can fall back to deleting files.
+     *         Sets quickFormatLostCard if the card can't be mounted afterwards.
+     */
+    static inline bool quickFormatLostCard = false;
+
+    static bool quickFormatSD() {
+        quickFormatLostCard = false;
+        sendBinaryFileActionResult(8, true, 0xFF, "Quick-formatting card...");
+        vTaskDelay(pdMS_TO_TICKS(50));
+
+        extern SPIClass sdspi;
+        SD.end();  // unmount; nothing may hold files open across a format
+        uint8_t pdrv = sdcard_init(SD_SS, &sdspi, 4000000);
+        FRESULT res = FR_NOT_READY;
+        if (pdrv != 0xFF) {
+            char drv[3] = {(char)('0' + pdrv), ':', 0};
+            // A bigger work buffer means fewer, larger writes (faster).
+            UINT workLen = 16 * 1024;
+            BYTE* work = (BYTE*)malloc(workLen);
+            if (!work) {
+                workLen = FF_MAX_SS;
+                work = (BYTE*)malloc(workLen);
+            }
+            if (work) {
+                const MKFS_PARM opt = {(BYTE)FM_ANY, 0, 0, 0, 0};
+                uint32_t t0 = millis();
+                res = f_mkfs(drv, &opt, work, workLen);
+                free(work);
+                ESP_LOGW("FileCmd", "f_mkfs result %d in %lu ms", (int)res,
+                         (unsigned long)(millis() - t0));
+            } else {
+                res = FR_NOT_ENOUGH_CORE;
+            }
+            sdcard_uninit(pdrv);
+        }
+
+        bool mounted = SD.begin(SD_SS, sdspi);
+        if (!mounted) {
+            vTaskDelay(pdMS_TO_TICKS(200));
+            mounted = SD.begin(SD_SS, sdspi);
+        }
+        if (!mounted) {
+            ESP_LOGE("FileCmd", "SD card did not mount after quick format (res %d)", (int)res);
+            quickFormatLostCard = true;
+            return false;
+        }
+        return res == FR_OK;
+    }
+
     static bool handleFormatSDCard(const uint8_t* data, size_t len) {
         // Require 2-byte confirmation payload 'FS' (Format SD)
         if (len < 2 || data[0] != 0x46 || data[1] != 0x53) {
@@ -888,7 +951,17 @@ public:
         sendBinaryFileActionResult(8, true, 0xFF, "Starting format...");
         vTaskDelay(pdMS_TO_TICKS(50)); // Let BLE send the notification
 
-        // Phase 2: recursively delete every entry in SD root
+        // Phase 2a: quick format (rebuild the filesystem). Falls back to
+        // deleting every entry if it can't run.
+        bool allOk = true;
+        int deletedCount = 0;
+        if (quickFormatSD()) {
+            ESP_LOGI("FileCmd", "Quick format done");
+        } else if (quickFormatLostCard) {
+            sendBinaryFileActionResult(8, false, 2);  // card unusable: format it on a PC
+            return false;
+        } else {
+        // Phase 2b (fallback): recursively delete every entry in SD root
         File root = SD.open("/");
         if (!root || !root.isDirectory()) {
             ESP_LOGE("FileCmd", "Cannot open SD root");
@@ -896,8 +969,6 @@ public:
             return false;
         }
 
-        bool allOk = true;
-        int deletedCount = 0;
         File child = root.openNextFile();
         while (child) {
             // Copy path to local buffer before close — child.path()
@@ -933,6 +1004,7 @@ public:
         root.close();
 
         ESP_LOGI("FileCmd", "Deleted %d items from SD root", deletedCount);
+        }  // end fallback delete
 
         // Phase 3: re-create default directory structure with progress and verification
         static const char* defaultDirs[] = {

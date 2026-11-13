@@ -173,7 +173,11 @@ private:
 
         ESP_LOGI("PPCmd", "LoadSubFile: %s", path);
 
-        if (pp.loadSubFile(path)) {
+        // Run on a dedicated large-stack task: loadSubFile() opens the file
+        // through FATFS and runs every decoder, which overflows the small task
+        // that received this command (crash). The decode result still arrives
+        // asynchronously as a notification.
+        if (pp.loadSubFileAsync(path)) {
             sendSuccess();
         } else {
             sendError(9);
