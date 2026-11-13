@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sleazy Crow Flasher: UNSTABLE</title>
+<meta name="description" content="Web flasher for Sleazy Crow, a community fork of Senape3000's EvilCrowRF-V2 firmware for the Evil Crow RF V2.">
+<link rel="icon" href="favicon.png">
+<meta name="theme-color" content="#07060F">
+<style>
+  /* Sleazy Crow palette, sampled from the artwork (same values as the app's app_colors.dart).
+     Always dark: the brand is a synthwave night scene. */
+  :root {
+    color-scheme: dark;
+    --bg: #07060F; --panel: #100C1C; --panel-2: #1A1430; --text: #F3EAF7; --muted: #A897BE;
+    --line: #2C2244; --pink: #FF4FA3; --pink-press: #D0259E; --cyan: #2EE6D6; --gold: #FCBC4B;
+    --on-accent: #07060F; --code-bg: #05040C;
+    /* ESP Web Tools install dialog */
+    --mdc-theme-primary: #D0259E; --mdc-theme-on-primary: #FFFFFF;
+    --improv-primary-color: #D0259E; --improv-on-primary-color: #FFFFFF;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; color: var(--text); background: var(--bg);
+         background-image: radial-gradient(1200px 500px at 50% -10%, rgba(208, 37, 158, .18), transparent 70%),
+                           linear-gradient(180deg, #07060F 0%, #0B0817 100%);
+         background-attachment: fixed;
+         font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 20px 16px 64px; }
+  .banner { width: 100%; height: auto; border-radius: 14px; margin: 0 0 18px; display: block;
+            border: 1px solid var(--line); box-shadow: 0 0 40px rgba(255, 79, 163, .18); }
+  h1 { font-size: 1.8rem; margin: 0 0 4px; line-height: 1.25; letter-spacing: .5px;
+       text-shadow: 0 0 18px rgba(255, 79, 163, .45); }
+  h1 code { color: var(--cyan); background: none; font-size: .8em; text-shadow: 0 0 12px rgba(46, 230, 214, .5); }
+  h2 { font-size: 1.15rem; margin: 0 0 10px; color: var(--cyan); letter-spacing: .3px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  section { background: linear-gradient(180deg, var(--panel) 0%, #0D0A18 100%);
+            border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin: 0 0 16px; }
+  .warn { background: linear-gradient(180deg, #2A1C08 0%, #1C1306 100%); border-color: var(--gold); color: #FBE3B0; }
+  .warn strong { display: block; font-size: 1.05rem; margin-bottom: 4px; color: var(--gold); }
+  .warn a { color: var(--gold); }
+  ul, ol { padding-left: 1.3rem; margin: 6px 0; }
+  li { margin: 4px 0; }
+  li::marker { color: var(--pink); }
+  code, pre { font-family: ui-monospace, Consolas, monospace; font-size: .88rem; background: var(--code-bg);
+              border-radius: 5px; color: var(--cyan); }
+  code { padding: 1px 5px; }
+  pre { padding: 10px 12px; overflow-x: auto; margin: 8px 0; border: 1px solid var(--line); }
+  a { color: var(--cyan); }
+  a:hover { color: var(--pink); }
+  .btn { display: inline-block; background: var(--pink); color: var(--on-accent); border: 0; border-radius: 10px;
+         padding: 12px 22px; font-size: 1rem; font-weight: 700; text-decoration: none; cursor: pointer;
+         box-shadow: 0 0 22px rgba(255, 79, 163, .45); transition: box-shadow .15s, background .15s; }
+  .btn:hover { color: var(--on-accent); box-shadow: 0 0 32px rgba(255, 79, 163, .7); }
+  .btn:active { background: var(--pink-press); }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 12px; }
+  .muted { color: var(--muted); font-size: .92rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+  td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--gold); font-weight: 600; }
+  td code { word-break: break-all; }
+  .tablewrap { overflow-x: auto; }
+  footer.muted { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 24px; }
+  .gated { opacity: .35; pointer-events: none; filter: grayscale(1); transition: opacity .2s; }
+  .ack { display: block; margin-top: 12px; padding: 10px 12px; border: 1px dashed var(--gold);
+         border-radius: 8px; cursor: pointer; font-weight: 600; }
+  .ack input { transform: scale(1.3); margin-right: 8px; }
+  .notes h3 { color: var(--pink); margin: 18px 0 6px; font-size: 1.05rem; }
+  .notes h2 { margin-top: 0; }
+  .quote { border-left: 3px solid var(--gold); padding-left: 10px; color: #FBE3B0; }
+</style>
+</head>
+<body>
+<main>
+  <img class="banner" src="banner.png" alt="Sleazy Crow" onerror="this.remove()">
+  <h1>Sleazy Crow <code>v2.0.0-unstable</code></h1>
+  <p class="sub">Community fork of <a href="https://github.com/Senape3000/EvilCrowRF-V2">Senape3000's EvilCrowRF-V2</a> firmware for the Evil Crow RF V2, with Bluetooth stability and reliability fixes.</p>
+
+  <section class="warn">
+    <strong>⚠ UNSTABLE TEST BUILD: use at your own risk.</strong>
+    This is a test build of Sleazy Crow v2. Some features have <b>not been tested on real hardware yet</b>
+    and may not work, may crash, or may need a re-flash to recover. Read the notes below for what is tested
+    and what is not. The stable <b>v1.2.0-beta</b> stays on the <a href="../">main flasher page</a>;
+    you can go back to it at any time (Android: uninstall the unstable app first).
+    <label class="ack"><input type="checkbox" id="ack"> I understand this is an unstable test build and I'm
+    installing it at my own risk.</label>
+  </section>
+
+  <section class="notes">
+    <h2>What's in this build: what works, what's untested</h2>
+    <p class="quote">⚠️ <b>UNSTABLE TEST BUILD.</b> Use at your own risk. Some features below have <b>not</b> been tested on real hardware yet. If something misbehaves, go back to the stable <b>v1.2.0-beta</b> with the web flasher (main page) — it always stays available.</p>
+<p>Firmware <b>2.0.0-unstable</b> · App <b>2.0.0-unstable</b> (build 40) · Built from branch <code>v2-unstable</code>. Everything here is on top of the stable <b>v1.2.0-beta</b>.</p>
+<p><b>How to read this</b></p>
+<div class="tablewrap"><table><tr><th>Mark</th><th>Meaning</th></tr><tr><td>✅ <b>Works</b></td><td>Tested on a real Crow and phone</td></tr><tr><td>🧪 <b>Untested on hardware</b></td><td>Built, and passes automated tests, but not yet tried on real hardware or in the field</td></tr><tr><td>⚠️ <b>Known issue</b></td><td>Something we know is wrong or incomplete</td></tr><tr><td>➖ <b>Removed</b></td><td>Was in earlier v2 test builds, taken out</td></tr></table></div>
+<h3>1. Installing and updating</h3>
+<ul><li>✅ <b>Web flasher</b> — flash the firmware from the browser, plus new step-by-step "install the app from a computer" instructions (USB file copy or <code>adb install</code>).</li><li>🧪 <b>Unstable channel (new)</b> — unstable builds are only offered to people who opt in: <b>Settings → Updates → "Offer unstable updates"</b> (off by default, shows a warning first). Every unstable update is labelled <b>UNSTABLE</b> and asks you to confirm before it downloads or flashes. Phones on the old v1.2.0-beta app never see unstable builds.</li><li>🧪 <b>App updates itself (fixed)</b> — the "Download &amp; Install" button never worked on modern Android. It now downloads the new app safely inside Sleazy Crow, checks the file's checksum, walks you through the one-time "Install unknown apps" permission, and opens Android's installer (you confirm). Only official Sleazy Crow releases are accepted (they must be signed with the Sleazy Crow key).</li><li>🧪 <b>Automatic update checks</b> — the app looks for a newer app version on launch (at most every 12 hours, silent unless there is one), and the Firmware Update screen checks for new Crow firmware as soon as it opens.</li><li>✅ <b>Updates come only from the Sleazy Crow GitHub</b> (<code>DaGromflomite/SleazyCrow</code>), never the upstream project — checked in code and by automated tests against the real release lists of both projects.</li><li>✅ <b>Firmware update over Bluetooth (OTA)</b> — unchanged from v1.2.0-beta; the firmware side was part of the hardware command test sweep.</li><li>⚠️ <b>Coming from v1.2.0-beta:</b> flash this build with the web flasher and install the APK by hand once. Over-the-air updates work from v2 onward.</li></ul>
+<h3>2. TPMS "is a car following me?" detector (new)</h3>
+<p>The Crow listens for the tyre-pressure sensors (TPMS) every car broadcasts. Each sensor has a fixed ID, so if the same car's sensors keep showing up around you, Sleazy Crow flags it.</p>
+<ul><li>✅ <b>TPMS receiver on one radio</b> — runs on one CC1101, leaving the other radio completely free for transmit / record / ProtoPirate / brute force at the same time (confirmed on the Crow).</li><li>✅ <b>Five sensor decoders</b> — Ford, Toyota, Hyundai/VDO, Schrader and Schrader-GM (covers GM / Chevy, Opel, Saab and others). Every decoder passes the Crow's built-in self-test on real hardware.</li><li>✅ <b>Both TPMS signal types</b> — the Crow alternates FSK and OOK every 4 seconds (many GM/Chrysler sensors use OOK, which a FSK-only receiver would miss); confirmed running with no crashes or reboots.</li><li>✅ <b>App screen</b> — each sensor shows its make (by protocol), tyre pressure and temperature; a <b>sensitivity</b> setting: *Immediate* (default, flags on first sighting), seen twice in 30 min / 1 h / 2 h, or across 3 trips. Sightings are remembered for 6 hours.</li><li>🧪 <b>Picking up a real car</b> — NOT tested yet. Everything was tested with the self-test and simulated signals; it has not yet been driven near real traffic. Receiver settings follow published TPMS specs, but real-world reception is unproven.</li><li>⚠️ Very fast FSK sensors sit close to the Crow's shortest-pulse limit and may be missed.</li></ul>
+<h3>3. Sub-GHz transmit playlists (new)</h3>
+<ul><li>✅ <b>Playlists</b> — a new Playlist tab in Sub-GHz: build an ordered list of <code>.sub</code> files and pauses (250 ms – 10 s), with per-file repeat, a gap between files and loop. Drag to reorder, rename, save.</li><li>✅ <b>Built and saved on the phone</b>, so you can make playlists with no Crow connected; optional <b>Export to SD</b> (<code>/PLAYLISTS</code>) for backup.</li><li>✅ <b>Import UberGuidoZ's ready-made playlists</b> — pick any of his 30 playlists; only the files it needs are downloaded.</li><li>✅ <b>Reports files that failed to play</b> at the end instead of skipping them silently.</li><li>🧪 <b>Add files from the SD card with no Crow connected</b> — uses the phone's saved list of the card's files (kept up to date automatically). Covered by automated tests, not yet tried in the field.</li><li>⚠️ <b>The Crow can disconnect during long playlists.</b> A keep-alive / auto-resume is still to do.</li></ul>
+<h3>4. Sub-GHz, ProtoPirate and transmitting</h3>
+<ul><li>✅ <b>Play Sub File</b> button on the Record screen — pick any <code>.sub</code> on the card and transmit it directly.</li><li>✅ <b>ProtoPirate "Load .sub" now browses folders</b> (it used to list only ~50 files, so downloaded collections were invisible).</li><li>✅ <b>ProtoPirate file-load crashes fixed</b> (firmware) — large or complex files no longer crash the Crow; tested with a real Isuzu fob file (decoded correctly) and a large Tesla file that used to crash.</li><li>✅ <b>Long transmits no longer reboot the Crow</b> (firmware) — a 13-second transmit used to trip the watchdog, reboot the Crow and drop Bluetooth. Fixed and tested: recorded a live key-fob press on one radio while transmitting the long file on the other, with no reboot.</li><li>✅ <b>ProtoPirate file browser no longer freezes</b> waiting for a listing.</li><li>ℹ️ The jammer runs until you press <b>Stop Jam</b> (its timer is a cool-down, by design).</li></ul>
+<h3>5. SD card, files and downloads</h3>
+<ul><li>✅ <b>.sub downloader now uses UberGuidoZ's collection</b> — browse his Sub-GHz folders and download only what you pick (his folder layout is kept on the card).</li><li>✅ <b>Big files no longer get silently cut off</b> — uploads over ~122 KB were truncated by the Crow (an upstream bug). The app now refuses uploads it can't deliver whole and splits large RAW files into ~100 KB pieces; checked losslessly on real files up to 3.2 MB.</li><li>✅ <b>Fast SD format</b> (firmware) — rebuilds the card in one pass instead of deleting file by file (10+ minutes); works in normal use. Falls back to the slow method if needed.</li><li>✅ <b>Format waits for the Crow to finish</b> — both format buttons now wait for the Crow's "done" message, so downloads can't start on a half-wiped card.</li><li>✅ <b>Deleting deep folders fixed</b> (firmware) — very nested folders used to fail to delete.</li><li>✅ <b>Delete captured signals</b> — Record list long-press now has Delete.</li></ul>
+<h3>6. General app changes</h3>
+<ul><li>✅ <b>No Crow? Still browse everything</b> — every tab opens without a Crow; only actions that need the hardware ask you to connect.</li><li>✅ <b>Keep screen awake</b> (Settings → Connection, on by default) — stops the screen sleeping and dropping Bluetooth mid-transmit. OTA and downloads no longer switch it off afterwards.</li><li>✅ <b>Clearer connection errors</b> — a timeout no longer shows up as "Permission Error", and says what to check. Connect timeout raised from 10 s to 15 s.</li><li>✅ <b>Connecting is more reliable</b> — the app stops other scans before connecting.</li><li>✅ <b>Look and feel</b> — pink→purple Sleazy Crow styling and a faint logo instead of empty black screens.</li></ul>
+<h3>7. Removed since earlier v2 test builds</h3>
+<ul><li>➖ <b>Phone-based surveillance/tracker detection</b> (BLE / Classic Bluetooth / WiFi scanning for Flock, Axon, ALPR cameras, AirTags, skimmers, drones, fox hunt). Removed: the phone's radios can't reliably see the gear it was meant to catch (deployed Flock cameras use LTE, not WiFi or Bluetooth).</li><li>➖ <b>Crow WiFi sniffer</b> — the Crow's chip doesn't have enough memory to run WiFi alongside Bluetooth. Removing it freed a lot of memory (free RAM 15 KB → 51 KB) and flash space.</li></ul>
+<h3>8. Known issues (summary)</h3>
+<ul><li>⚠️ Crow may disconnect during long playlist playback.</li><li>🧪 TPMS has not been tested near a real moving car yet.</li><li>🧪 App self-update and the unstable channel have not yet been tried end-to-end on a phone (they need a later release to update *to*).</li></ul>
+<h3>Going back to stable</h3>
+<p>Open the web flasher's main page and flash <b>v1.2.0-beta</b>, then install <code>SleazyCrow-v1.2.0-beta.apk</code>. If the app won't install over the unstable one, uninstall Sleazy Crow first.</p>
+<p>Checksums: every file in the release has a matching <code>.md5</code>.</p>
+    <p class="muted">Also on the <a href="https://github.com/DaGromflomite/SleazyCrow/releases/tag/v2.0.0-unstable">GitHub release page</a>.</p>
+  </section>
+
+  <section>
+    <h2>1 · Install the firmware</h2>
+    <ul>
+      <li>Use <b>Chrome, Edge or Opera on a desktop/laptop</b> (Web Serial). Phones and Firefox/Safari can't flash.</li>
+      <li>Use a USB-C <b>data</b> cable, and close anything else using the Crow's serial port.</li>
+      <li>Choose <b>"Erase device"</b> when asked.</li>
+      <li>If connecting fails with "wrong boot mode": some Crows can't be put into flashing mode automatically on <b>Windows</b> (CH340 USB chip). Please report it, and try macOS, Linux or ChromeOS if you can.</li>
+    </ul>
+    <div class="actions gated">
+      <esp-web-install-button manifest="firmware/manifest.json">
+        <button slot="activate" class="btn">Install Sleazy Crow</button>
+        <span slot="unsupported">Your browser can't flash devices. Use desktop Chrome, Edge or Opera.</span>
+        <span slot="not-allowed">Flashing needs a secure (https) page.</span>
+      </esp-web-install-button>
+    </div>
+  </section>
+
+  <section>
+    <h2>2 · Install the app (Android)</h2>
+    <p>The app controls the Crow over Bluetooth. It installs as its own app ("Sleazy Crow"),
+    next to the official EvilCrow RF app, so you can keep both. (The official app also works with this firmware.)</p>
+    <div class="actions gated">
+      <a class="btn" href="https://github.com/DaGromflomite/SleazyCrow/releases/download/v2.0.0-unstable/SleazyCrow-v2.0.0-unstable.apk">Download SleazyCrow-v2.0.0-unstable.apk</a>
+    </div>
+    <ol>
+      <li>On your Android phone, tap the download button above to get <code>SleazyCrow-v2.0.0-unstable.apk</code>.</li>
+      <li>Open the downloaded file (from the notification or your Files app).</li>
+      <li>If Android warns about installing from this source, tap <b>Settings</b> and allow
+          "Install unknown apps" for your browser or Files app, then go back and install.</li>
+      <li>Open <b>Sleazy Crow</b> and allow the Bluetooth and location permissions when asked.</li>
+    </ol>
+    <h3>Prefer to install from a computer?</h3>
+    <p><b>Easiest — copy the file over USB:</b></p>
+    <ol>
+      <li>On the computer, download <code>SleazyCrow-v2.0.0-unstable.apk</code> (the button above, or the releases page).</li>
+      <li>Connect the phone by USB and set it to <b>File transfer</b> mode (swipe down and tap the USB notification to choose it).</li>
+      <li>Copy <code>SleazyCrow-v2.0.0-unstable.apk</code> onto the phone, e.g. into its <b>Download</b> folder.</li>
+      <li>On the phone, open <b>Files</b>, tap the <code>.apk</code>, allow "Install unknown apps" if asked, then install.</li>
+    </ol>
+    <p><b>For developers — <code>adb</code>:</b></p>
+    <ol>
+      <li>Install Android <b>platform-tools</b> (adb) on the computer.</li>
+      <li>On the phone, enable <b>Developer options &rarr; USB debugging</b>.</li>
+      <li>Connect by USB, accept the "Allow USB debugging" prompt, then run:
+          <code>adb install SleazyCrow-v2.0.0-unstable.apk</code></li>
+    </ol>
+    <p class="muted">All releases and checksums are on the
+    <a href="https://github.com/DaGromflomite/SleazyCrow/releases">Sleazy Crow releases page</a>.</p>
+  </section>
+
+  <section>
+    <h2>3 · Test and report</h2>
+    <ol>
+      <li>Unplug and replug the Crow after flashing.</li>
+      <li>In the app: scan → connect to <code>SleazyCrow</code>.</li>
+      <li>Stay connected <b>10 minutes or more</b>. Note whether it drops and roughly when.</li>
+      <li>Upload a few files to the SD card, then transmit one.</li>
+      <li>Try the features you normally use.</li>
+    </ol>
+    <div class="actions gated">
+      <a class="btn" id="report" href="https://github.com/DaGromflomite/SleazyCrow/issues/new" target="_blank" rel="noopener">Report results on GitHub</a>
+    </div>
+    <p class="muted">Please also send us, in your report: the chip line from the flasher or esptool log (e.g. <code>ESP32-D0WD-V3 (revision v3.1)</code>), and, if it crashes, the serial output at 115200 baud (it ends with <code>ELF file SHA256</code>). The report button above includes spaces for these.</p>
+  </section>
+
+  <section>
+    <h2>Go back to the official firmware</h2>
+    <p>Any time, open <a href="https://senape3000.github.io/EvilCrowRF-V2/web-flasher/">Senape3000's official EvilCrow RF V2 web flasher</a>, connect, and choose erase. An ESP32 can always be reflashed over USB.</p>
+  </section>
+
+  <section>
+    <h2>Manual flashing (esptool)</h2>
+    <p>Separate parts at their offsets (recommended):</p>
+    <pre>esptool --chip esp32 erase-flash
+esptool --chip esp32 --baud 921600 write-flash 0x1000 bootloader.bin 0x8000 partitions.bin 0xe000 boot_app0.bin 0x10000 firmware.bin</pre>
+    <p>Or the single merged image:</p>
+    <pre>esptool --chip esp32 --baud 921600 write-flash 0x0 sleazycrow-fw-v2.0.0-unstable-full.bin</pre>
+    <div class="tablewrap">
+    <table>
+      <tr><th>File</th><th>Offset</th><th>MD5</th></tr>
+      <tr><td><a href="firmware/bootloader.bin">bootloader.bin</a></td><td>0x1000</td><td><code>b846a71832caddd0dd2cd6981a327c43</code></td></tr>
+      <tr><td><a href="firmware/partitions.bin">partitions.bin</a></td><td>0x8000</td><td><code>cbdc2ee2c371ae973f10c7f473ae8387</code></td></tr>
+      <tr><td><a href="firmware/boot_app0.bin">boot_app0.bin</a></td><td>0xe000</td><td><code>e6327541e2dc394ca2c3b3280ac0f39f</code></td></tr>
+      <tr><td><a href="firmware/firmware.bin">firmware.bin</a></td><td>0x10000</td><td><code>f4f8935ecb8247c0a24b544f4cdfe586</code></td></tr>
+      <tr><td><a href="firmware/sleazycrow-fw-v2.0.0-unstable-full.bin">sleazycrow-fw-v2.0.0-unstable-full.bin</a></td><td>0x0</td><td><code>dd1c09e66785839605c19315b725b0ea</code></td></tr>
+    </table>
+    </div>
+    <p class="muted">Built from <a href="https://github.com/DaGromflomite/SleazyCrow">DaGromflomite/SleazyCrow</a> commit <code>local</code> with PlatformIO (Arduino core 3.2.1 / ESP-IDF 5.4.2, NimBLE-Arduino 1.4.3). DIO 40 MHz, 4 MB. Accepts all ESP32 chip revisions.</p>
+  </section>
+
+  <footer class="muted">
+    Sleazy Crow is based on <a href="https://github.com/Senape3000/EvilCrowRF-V2">EvilCrowRF-V2</a> by Senape3000 (MIT License), for the
+    <a href="https://github.com/joelsernamoreno/EvilCrowRF-V2">Evil Crow RF V2</a> hardware by Joel Serna. Not affiliated with or endorsed by either.
+    Fork maintained by DaGromflomite; problems diagnosed and fixes directed by DaGromflomite, code written with AI assistance (Claude).
+    Flashing uses <a href="https://github.com/esphome/esp-web-tools">ESP Web Tools</a> (Apache-2.0).
+  </footer>
+</main>
+
+<script>
+  // Pre-fill the GitHub issue so testers report the same fields.
+  (function () {
+    var body = [
+      "**Sleazy Crow version:** 2.0.0-unstable",
+      "",
+      "**Chip / board revision** (from the flasher or esptool log, if you saw it):",
+      "**Where you bought your Crow:**",
+      "**Computer OS + browser used to flash:**",
+      "**Phone + Android version, app used (Sleazy Crow / official):**",
+      "",
+      "- [ ] Flashing worked",
+      "- [ ] Device booted (app can see `SleazyCrow`)",
+      "- [ ] App connected",
+      "- [ ] Stayed connected 10+ minutes (if not, roughly when did it drop?)",
+      "- [ ] Uploaded files to SD card OK",
+      "- [ ] Transmitted a file OK",
+      "",
+      "**Anything odd / other features tested:**",
+      "",
+      "**Serial log** (only if something failed; 115200 baud):",
+      "```",
+      "",
+      "```"
+    ].join("\n");
+    document.getElementById("report").href = "https://github.com/DaGromflomite/SleazyCrow/issues/new"
+      + "?title=" + encodeURIComponent("[test 2.0.0-unstable] ")
+      + "&body=" + encodeURIComponent(body);
+  })();
+</script>
+<script type="module" src="esp-web-tools/install-button.js"></script>
+<script>
+  (function () {
+    var box = document.getElementById('ack');
+    function sync() {
+      document.querySelectorAll('.actions').forEach(function (el) {
+        el.classList.toggle('gated', !box.checked);
+      });
+    }
+    box.addEventListener('change', sync); sync();
+  })();
+</script>
+</body>
+</html>
