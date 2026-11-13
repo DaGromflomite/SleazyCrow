@@ -79,6 +79,36 @@ class UpdateService {
     caseSensitive: false,
   );
 
+  /// Pick the newest asset matching [pattern] across all non-draft releases
+  /// (prereleases included — Sleazy Crow ships betas as prereleases).
+  /// Version comes from the asset FILENAME, not the tag. Pure function so it
+  /// can be unit-tested against real GitHub API JSON.
+  static ReleasePick? pickLatest(List<dynamic> releases, RegExp pattern) {
+    ReleasePick? best;
+    for (final release in releases) {
+      if (release is! Map<String, dynamic> || release['draft'] == true) continue;
+      final assets = release['assets'] as List? ?? [];
+      for (final asset in assets) {
+        final name = asset['name'] as String? ?? '';
+        final match = pattern.firstMatch(name);
+        if (match == null) continue;
+        final v = match.group(1)!;
+        if (best == null || _isNewer(v, best.version)) {
+          best = ReleasePick(v, release, asset as Map<String, dynamic>,
+              _findMd5Asset(assets, name));
+        }
+      }
+    }
+    return best;
+  }
+
+  /// Patterns exposed for tests.
+  static RegExp get firmwarePattern => _fwOtaPattern;
+  static RegExp get apkPattern => _apkPattern;
+
+  /// Compare versions; true if [a] is strictly newer than [b]. Exposed for tests.
+  static bool isNewer(String a, String b) => _isNewer(a, b);
+
   /// Check for a new firmware release on GitHub.
   /// Scans ALL releases for the newest OTA binary by filename version.
   /// Returns [FirmwareUpdate] if a newer version exists, `null` otherwise.
@@ -90,30 +120,11 @@ class UpdateService {
       // Fetch structured changelog from release assets
       final changelogData = await fetchChangelog(releases);
 
-      String? bestVersion;
-      Map<String, dynamic>? bestRelease;
-      Map<String, dynamic>? bestAsset;
-      Map<String, dynamic>? bestMd5Asset;
-
-      for (final release in releases) {
-        if (release['draft'] == true) continue;
-        final assets = release['assets'] as List? ?? [];
-
-        for (final asset in assets) {
-          final name = asset['name'] as String? ?? '';
-          final match = _fwOtaPattern.firstMatch(name);
-          if (match == null) continue;
-
-          final fileVersion = match.group(1)!;
-          if (bestVersion == null || _isNewer(fileVersion, bestVersion)) {
-            bestVersion = fileVersion;
-            bestRelease = release;
-            bestAsset = asset;
-            // Look for corresponding .md5 file in same release
-            bestMd5Asset = _findMd5Asset(assets, name);
-          }
-        }
-      }
+      final pick = pickLatest(releases, _fwOtaPattern);
+      final bestVersion = pick?.version;
+      final bestRelease = pick?.release;
+      final bestAsset = pick?.asset;
+      final bestMd5Asset = pick?.md5Asset;
 
       if (bestVersion == null || !_isNewer(bestVersion, currentVersion)) {
         return null;
@@ -157,29 +168,11 @@ class UpdateService {
       // Fetch structured changelog from release assets
       final changelogData = await fetchChangelog(releases);
 
-      String? bestVersion;
-      Map<String, dynamic>? bestRelease;
-      Map<String, dynamic>? bestAsset;
-      Map<String, dynamic>? bestMd5Asset;
-
-      for (final release in releases) {
-        if (release['draft'] == true) continue;
-        final assets = release['assets'] as List? ?? [];
-
-        for (final asset in assets) {
-          final name = asset['name'] as String? ?? '';
-          final match = _apkPattern.firstMatch(name);
-          if (match == null) continue;
-
-          final fileVersion = match.group(1)!;
-          if (bestVersion == null || _isNewer(fileVersion, bestVersion)) {
-            bestVersion = fileVersion;
-            bestRelease = release;
-            bestAsset = asset;
-            bestMd5Asset = _findMd5Asset(assets, name);
-          }
-        }
-      }
+      final pick = pickLatest(releases, _apkPattern);
+      final bestVersion = pick?.version;
+      final bestRelease = pick?.release;
+      final bestAsset = pick?.asset;
+      final bestMd5Asset = pick?.md5Asset;
 
       if (bestVersion == null || !_isNewer(bestVersion, currentVersion)) {
         return null;
@@ -274,12 +267,19 @@ class UpdateService {
     }
   }
 
-  /// Download APK and save to temp directory for installation.
-  /// Returns the local file path.
+  /// Download the release APK into the app's private cache (`<cache>/updates/`,
+  /// shared with the system installer via FileProvider — see MainActivity).
+  ///
+  /// If [expectedMd5] is given (from the release's `.apk.md5` asset) the file is
+  /// verified and deleted on mismatch, so a corrupt or tampered download is
+  /// never handed to the installer. Returns the local file path.
   static Future<String> downloadApk(
     String apkUrl, {
+    String? expectedMd5,
     void Function(double progress)? onProgress,
+    Directory? targetDir, // tests only
   }) async {
+    File? file;
     try {
       final request = http.Request('GET', Uri.parse(apkUrl));
       final streamedResponse =
@@ -291,42 +291,59 @@ class UpdateService {
       }
 
       final totalBytes = streamedResponse.contentLength ?? 0;
-      // Save APK to public Downloads directory (user-accessible)
-      final downloadsDir = await _getDownloadsDirectory();
-      final file = File('${downloadsDir.path}/SleazyCrow_update.apk');
+      final dir = targetDir ?? await _updatesDirectory();
+      // Clear any previous (possibly half-downloaded) update first.
+      if (await dir.exists()) {
+        for (final old in dir.listSync()) {
+          if (old is File && old.path.endsWith('.apk')) {
+            try { old.deleteSync(); } catch (_) {}
+          }
+        }
+      } else {
+        await dir.create(recursive: true);
+      }
+      file = File('${dir.path}/SleazyCrow_update.apk');
       final sink = file.openWrite();
+      final hasher = _Md5Sink();
       int received = 0;
 
       await for (final chunk in streamedResponse.stream) {
         sink.add(chunk);
+        hasher.add(chunk);
         received += chunk.length;
         if (totalBytes > 0 && onProgress != null) {
           onProgress(received / totalBytes);
         }
       }
-
       await sink.close();
+
+      if (totalBytes > 0 && received != totalBytes) {
+        throw UpdateServiceException(
+            'APK download incomplete ($received of $totalBytes bytes)');
+      }
+      if (expectedMd5 != null && expectedMd5.isNotEmpty) {
+        final got = hasher.close();
+        if (got != expectedMd5.trim().toLowerCase()) {
+          throw UpdateServiceException(
+              'APK checksum mismatch — download rejected.\nExpected: $expectedMd5\nGot: $got');
+        }
+      }
       return file.path;
     } on UpdateServiceException {
+      try { await file?.delete(); } catch (_) {}
       rethrow;
     } catch (e) {
+      try { await file?.delete(); } catch (_) {}
       throw UpdateServiceException('APK download error: $e');
     }
   }
 
   // ── Private helpers ──────────────────────────────────────────
 
-  /// Get the public Downloads directory on Android, or temp as fallback.
-  static Future<Directory> _getDownloadsDirectory() async {
-    if (Platform.isAndroid) {
-      final downloadsPath = '/storage/emulated/0/Download';
-      final dir = Directory(downloadsPath);
-      if (await dir.exists()) {
-        return dir;
-      }
-    }
-    // Fallback: temp directory
-    return await getTemporaryDirectory();
+  /// `<app cache>/updates` — must match res/xml/update_file_paths.xml.
+  static Future<Directory> _updatesDirectory() async {
+    final cache = await getTemporaryDirectory();
+    return Directory('${cache.path}/updates');
   }
 
   /// Fetch the structured changelog from changelog.json in release assets.
@@ -472,19 +489,6 @@ class UpdateService {
     }
   }
 
-  /// Find the download URL for an asset with a given extension.
-  static String? _findAssetUrl(
-      Map<String, dynamic> release, String extension) {
-    final assets = release['assets'] as List? ?? [];
-    for (final asset in assets) {
-      final name = asset['name'] as String? ?? '';
-      if (name.endsWith(extension)) {
-        return asset['browser_download_url'] as String?;
-      }
-    }
-    return null;
-  }
-
   /// Find the corresponding .md5 asset for a given binary asset name.
   /// E.g., for "sleazycrow-fw-v1.2.0-beta-OTA.bin" → "...OTA.bin.md5"
   static Map<String, dynamic>? _findMd5Asset(
@@ -524,4 +528,32 @@ class UpdateServiceException implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// Result of [UpdateService.pickLatest].
+class ReleasePick {
+  final String version;
+  final Map<String, dynamic> release;
+  final Map<String, dynamic> asset;
+  final Map<String, dynamic>? md5Asset;
+  ReleasePick(this.version, this.release, this.asset, this.md5Asset);
+}
+
+/// Incremental MD5 over a byte stream (APKs are ~60 MB, so don't buffer them).
+class _Md5Sink {
+  final _out = _DigestCapture();
+  late final ByteConversionSink _in = md5.startChunkedConversion(_out);
+  void add(List<int> chunk) => _in.add(chunk);
+  String close() {
+    _in.close();
+    return _out.value.toString();
+  }
+}
+
+class _DigestCapture implements Sink<Digest> {
+  late Digest value;
+  @override
+  void add(Digest data) => value = data;
+  @override
+  void close() {}
 }

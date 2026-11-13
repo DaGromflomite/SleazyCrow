@@ -371,6 +371,41 @@ Whole app + firmware reviewed (not just v2), with tests and an emulator pass thr
   whether his repo ships Flipper `.txt` playlists and, if so, translate their `/ext/subghz/...` paths to the
   Crow's `SUB Files/` layout + confirm the firmware can play that format.
 
+### Over-the-air updates from OUR repo — app self-update fixed + auto-checks (2026-11-12)
+**Scope (user decision):** this ships *inside* v2 and works from v2 onward. Nothing is pushed or released.
+Crows on older firmware and phones on the old v1.2.0-beta app web-flash / sideload v2 once; after that,
+updates arrive over the air.
+
+**Update source = `DaGromflomite/SleazyCrow` GitHub releases only.** Verified in code (`UpdateService.githubOwner/githubRepo`)
+and by tests on real release JSON: our assets (`sleazycrow-fw-vX.Y.Z[-beta]-OTA.bin`, `SleazyCrow-vX.Y.Z[-beta].apk`,
+each with `.md5`) are picked; Senape's (`evilcrow-v2-fw-…`, `EvilCrowRF-v….apk`) never match, even when mixed in.
+Senape appears only in Credits and the firmware attribution string.
+
+- **Firmware OTA (Crow over BLE)** — already pulled from our releases + MD5 check + BLE transfer. New: the OTA screen
+  now checks our releases **automatically** as soon as it knows the Crow's firmware version (no button tap needed).
+- **App self-update — was broken, now fixed.** The old code launched the installer with `Process.run('am start … file://…')`
+  (apps can't run `am`; `file://` URIs are blocked since Android 7) and wrote the APK straight into `/storage/emulated/0/Download`
+  (blocked by scoped storage). Replaced with:
+  - native `sleazycrow/installer` platform channel in `MainActivity.kt`: `canInstall`, `openInstallSettings`
+    ("Install unknown apps" page for Sleazy Crow), `installApk` (system installer via a FileProvider `content://` URI);
+  - FileProvider `${applicationId}.updates` → `<cache>/updates/` (`res/xml/update_file_paths.xml`, manifest);
+  - APK downloaded into the app cache with progress, **streamed MD5 verified against the release's `.apk.md5`**,
+    size checked, file deleted on any mismatch; stale updates cleared first;
+  - flow: changelog dialog → download (progress) → verify → permission guide if needed → system installer (user confirms).
+  - Android only accepts the update if it is signed with the Sleazy Crow key. Verified: our live
+    `SleazyCrow-v1.2.0-beta.apk` and the current dev build share cert SHA-256 `9ff56c56…5207af`.
+- **Launch-time check:** the app quietly checks for a newer app release at most every 12 h (no UI unless one exists).
+- Refactor: app-update flow moved from `settings_screen.dart` to `lib/services/app_update_flow.dart`
+  (Settings button + launch check share it); `UpdateService.pickLatest()` is now one pure, tested function for both checks.
+- Files: `android/app/src/main/kotlin/com/sleazycrow/app/MainActivity.kt`, `android/app/src/main/AndroidManifest.xml`,
+  `android/app/src/main/res/xml/update_file_paths.xml`, `lib/services/update_service.dart`,
+  `lib/services/app_update_flow.dart` (new), `lib/screens/settings_screen.dart`, `lib/screens/home_screen.dart`,
+  `lib/screens/ota_screen.dart`, `test/update_service_test.dart` (new, 8 tests), `test/fixtures/*_releases.json` (new).
+- **Verified:** 40/40 tests pass; `flutter analyze` 0 errors; signed release APK builds and contains the provider,
+  `com.sleazycrow.app.updates` authority and `REQUEST_INSTALL_PACKAGES`; live release asset MD5s match their `.md5` files.
+- **NOT yet verified on a phone:** the actual download → permission → system-installer hand-off (needs a phone + a newer
+  release than the installed app to test end-to-end). Firmware BLE transfer code is unchanged by this work.
+
 ## Scope decisions (recorded)
 
 - **Removed Meshtastic / LoRa detection** — out of scope; drone detection is the only mesh/RF-beacon target kept.

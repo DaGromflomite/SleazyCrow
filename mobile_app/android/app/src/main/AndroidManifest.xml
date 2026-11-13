@@ -66,6 +66,17 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- In-app updater: shares downloaded APKs (cache/updates/) with the
+             system package installer. See MainActivity.installApk. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_file_paths" />
+        </provider>
     </application>
     
     <!-- Required to query activities that can process text, see:
