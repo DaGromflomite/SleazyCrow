@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Firmware update metadata extracted from GitHub release asset filenames.
 class FirmwareUpdate {
@@ -13,6 +14,7 @@ class FirmwareUpdate {
   final String changelog;
   final String? releaseDate;
   final List<Map<String, String>>? structuredChanges;
+  final bool unstable;
 
   FirmwareUpdate({
     required this.version,
@@ -21,6 +23,7 @@ class FirmwareUpdate {
     required this.changelog,
     this.releaseDate,
     this.structuredChanges,
+    this.unstable = false,
   });
 }
 
@@ -30,12 +33,14 @@ class AppUpdate {
   final String? apkUrl;
   final String? md5Url;
   final String changelog;
+  final bool unstable;
 
   AppUpdate({
     required this.version,
     this.apkUrl,
     this.md5Url,
     required this.changelog,
+    this.unstable = false,
   });
 }
 
@@ -68,14 +73,14 @@ class UpdateService {
   /// Matches: sleazycrow-fw-v1.2.0-OTA.bin / sleazycrow-fw-v1.2.0-beta-OTA.bin (capture X.Y.Z)
   /// Ignores: *-TEST-OTA.bin, *-full.bin
   static final RegExp _fwOtaPattern = RegExp(
-    r'sleazycrow-fw-v(\d+\.\d+\.\d+)(?:-beta)?-OTA\.bin$',
+    r'sleazycrow-fw-v(\d+\.\d+\.\d+)(?:-beta|-unstable)?-OTA\.bin$',
     caseSensitive: false,
   );
 
   /// Matches: SleazyCrow-v1.2.0.apk / SleazyCrow-v1.2.0-beta.apk (capture X.Y.Z)
   /// Ignores: *-TEST.apk
   static final RegExp _apkPattern = RegExp(
-    r'SleazyCrow-v(\d+\.\d+\.\d+)(?:-beta)?\.apk$',
+    r'SleazyCrow-v(\d+\.\d+\.\d+)(?:-beta|-unstable)?\.apk$',
     caseSensitive: false,
   );
 
@@ -83,7 +88,8 @@ class UpdateService {
   /// (prereleases included — Sleazy Crow ships betas as prereleases).
   /// Version comes from the asset FILENAME, not the tag. Pure function so it
   /// can be unit-tested against real GitHub API JSON.
-  static ReleasePick? pickLatest(List<dynamic> releases, RegExp pattern) {
+  static ReleasePick? pickLatest(List<dynamic> releases, RegExp pattern,
+      {bool includeUnstable = false}) {
     ReleasePick? best;
     for (final release in releases) {
       if (release is! Map<String, dynamic> || release['draft'] == true) continue;
@@ -92,14 +98,26 @@ class UpdateService {
         final name = asset['name'] as String? ?? '';
         final match = pattern.firstMatch(name);
         if (match == null) continue;
+        final unstable = name.toLowerCase().contains('-unstable');
+        if (unstable && !includeUnstable) continue;
         final v = match.group(1)!;
         if (best == null || _isNewer(v, best.version)) {
           best = ReleasePick(v, release, asset as Map<String, dynamic>,
-              _findMd5Asset(assets, name));
+              _findMd5Asset(assets, name), unstable: unstable);
         }
       }
     }
     return best;
+  }
+
+  /// User opt-in for unstable builds (Settings > "Offer unstable updates").
+  static Future<bool> _offerUnstable() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool('offerUnstableUpdates') ?? false;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Patterns exposed for tests.
@@ -120,7 +138,8 @@ class UpdateService {
       // Fetch structured changelog from release assets
       final changelogData = await fetchChangelog(releases);
 
-      final pick = pickLatest(releases, _fwOtaPattern);
+      final pick = pickLatest(releases, _fwOtaPattern,
+          includeUnstable: await _offerUnstable());
       final bestVersion = pick?.version;
       final bestRelease = pick?.release;
       final bestAsset = pick?.asset;
@@ -150,6 +169,7 @@ class UpdateService {
         changelog: changelogText,
         releaseDate: bestRelease?['published_at'],
         structuredChanges: structuredChanges,
+        unstable: pick?.unstable ?? false,
       );
     } on UpdateServiceException {
       rethrow;
@@ -168,7 +188,8 @@ class UpdateService {
       // Fetch structured changelog from release assets
       final changelogData = await fetchChangelog(releases);
 
-      final pick = pickLatest(releases, _apkPattern);
+      final pick = pickLatest(releases, _apkPattern,
+          includeUnstable: await _offerUnstable());
       final bestVersion = pick?.version;
       final bestRelease = pick?.release;
       final bestAsset = pick?.asset;
@@ -194,6 +215,7 @@ class UpdateService {
         apkUrl: bestAsset?['browser_download_url'] as String?,
         md5Url: bestMd5Asset?['browser_download_url'] as String?,
         changelog: changelogText,
+        unstable: pick?.unstable ?? false,
       );
     } on UpdateServiceException {
       rethrow;
@@ -536,7 +558,10 @@ class ReleasePick {
   final Map<String, dynamic> release;
   final Map<String, dynamic> asset;
   final Map<String, dynamic>? md5Asset;
-  ReleasePick(this.version, this.release, this.asset, this.md5Asset);
+  /// Asset is from an `-unstable` build (opt-in only, shown with a disclaimer).
+  final bool unstable;
+  ReleasePick(this.version, this.release, this.asset, this.md5Asset,
+      {this.unstable = false});
 }
 
 /// Incremental MD5 over a byte stream (APKs are ~60 MB, so don't buffer them).

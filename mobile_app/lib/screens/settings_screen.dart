@@ -544,6 +544,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
 
+            // --- Updates ---
+            _buildSubSectionHeader(
+                Icons.system_update_alt, 'Updates', AppColors.cyanAccent),
+            Consumer<SettingsProvider>(
+              builder: (context, settings, _) => SwitchListTile(
+                dense: true,
+                activeColor: AppColors.warning,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                title: const Text('Offer unstable updates',
+                    style:
+                        TextStyle(color: AppColors.primaryText, fontSize: 14)),
+                subtitle: const Text(
+                    'Also offer UNSTABLE test builds (app + Crow firmware) from '
+                    'the Sleazy Crow GitHub. Off = stable releases only.',
+                    style: TextStyle(
+                        color: AppColors.secondaryText, fontSize: 11)),
+                value: settings.offerUnstableUpdates,
+                onChanged: (v) async {
+                  if (v) {
+                    final ok = await showUnstableDisclaimer(context);
+                    if (!ok) return;
+                  }
+                  if (context.mounted) {
+                    context.read<SettingsProvider>().setOfferUnstableUpdates(v);
+                  }
+                },
+              ),
+            ),
+
             const SizedBox(height: 16),
           ],
         ),

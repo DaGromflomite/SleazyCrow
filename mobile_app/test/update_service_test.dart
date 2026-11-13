@@ -80,4 +80,55 @@ void main() {
       expect(UpdateService.pickLatest(rel, UpdateService.apkPattern), isNull);
     });
   });
+
+  group('unstable channel (opt-in)', () {
+    Map<String, dynamic> rel(String tag, List<String> names, {bool pre = true}) => {
+          'tag_name': tag, 'draft': false, 'prerelease': pre,
+          'assets': [
+            for (final n in names)
+              {'name': n, 'browser_download_url':
+                  'https://github.com/DaGromflomite/SleazyCrow/releases/download/$tag/$n'}
+          ],
+        };
+    final releases = [
+      rel('v2.0.0-unstable', [
+        'sleazycrow-fw-v2.0.0-unstable-OTA.bin', 'sleazycrow-fw-v2.0.0-unstable-OTA.bin.md5',
+        'SleazyCrow-v2.0.0-unstable.apk', 'SleazyCrow-v2.0.0-unstable.apk.md5',
+      ]),
+      ...load('sleazycrow_releases.json'),
+    ];
+
+    test('hidden unless the user opted in', () {
+      expect(UpdateService.pickLatest(releases, UpdateService.firmwarePattern)!.version, '1.2.0');
+      expect(UpdateService.pickLatest(releases, UpdateService.apkPattern)!.version, '1.2.0');
+    });
+
+    test('offered and flagged unstable when opted in', () {
+      final fw = UpdateService.pickLatest(releases, UpdateService.firmwarePattern,
+          includeUnstable: true)!;
+      final apk = UpdateService.pickLatest(releases, UpdateService.apkPattern,
+          includeUnstable: true)!;
+      expect(fw.version, '2.0.0');
+      expect(fw.unstable, isTrue);
+      expect(fw.md5Asset?['name'], 'sleazycrow-fw-v2.0.0-unstable-OTA.bin.md5');
+      expect(apk.version, '2.0.0');
+      expect(apk.unstable, isTrue);
+    });
+
+    test('stable picks are never flagged unstable', () {
+      final fw = UpdateService.pickLatest(load('sleazycrow_releases.json'),
+          UpdateService.firmwarePattern, includeUnstable: true)!;
+      expect(fw.unstable, isFalse);
+    });
+
+    test('the old v1.2.0-beta app cannot see unstable builds', () {
+      // Exact patterns shipped in v1.2.0-beta (lib/services/update_service.dart).
+      final oldFw = RegExp(r'sleazycrow-fw-v(\d+\.\d+\.\d+)(?:-beta)?-OTA\.bin$',
+          caseSensitive: false);
+      final oldApk = RegExp(r'SleazyCrow-v(\d+\.\d+\.\d+)(?:-beta)?\.apk$',
+          caseSensitive: false);
+      expect(oldFw.hasMatch('sleazycrow-fw-v2.0.0-unstable-OTA.bin'), isFalse);
+      expect(oldApk.hasMatch('SleazyCrow-v2.0.0-unstable.apk'), isFalse);
+    });
+  });
 }
