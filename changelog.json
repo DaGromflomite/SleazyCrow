@@ -1,35 +1,145 @@
 {
   "firmware": [
     {
-      "version": "1.2.0",
-      "date": "2026-10-31",
-      "tag": "v1.2.0-beta",
+      "version": "2.0.0",
+      "date": "2026-11-13",
+      "tag": "v2.0.0-unstable",
       "changes": [
-        { "type": "feature", "text": "Sleazy Crow: community fork of Senape3000's EvilCrowRF-V2 firmware (based on v1.1.3). Bluetooth name is now SleazyCrow." },
-        { "type": "fix", "text": "Bluetooth no longer drops ~12 s after connecting on Android: incoming commands run on their own task and stable connection parameters are requested." },
-        { "type": "fix", "text": "No boot crash when built with Arduino core 3.3.x (BLE controller memory was freed before NimBLE started)." },
-        { "type": "fix", "text": "Toolchain and NimBLE pinned so every build is identical (fixes the 'adc_oneshot.h' compile error)." },
-        { "type": "fix", "text": "File uploads: a full queue no longer drops chunks, and missing/out-of-order chunks fail with an error instead of saving a corrupted file." },
-        { "type": "fix", "text": "ProtoPirate decode results show the protocol type name instead of a number." },
-        { "type": "improvement", "text": "Boot log prints the firmware name, version and upstream project." }
+        {
+          "type": "feature",
+          "text": "[UNSTABLE] TPMS 'is a car following me?' detector: 5 tyre-sensor decoders (Ford, Toyota, Hyundai/VDO, Schrader, Schrader-GM), FSK+OOK, runs on one radio. Self-test passes on hardware; NOT yet tested near a real car."
+        },
+        {
+          "type": "fix",
+          "text": "Long transmits no longer trip the watchdog and reboot the Crow (tested on hardware)."
+        },
+        {
+          "type": "fix",
+          "text": "ProtoPirate file loading no longer crashes on large/complex .sub files (tested on hardware)."
+        },
+        {
+          "type": "improvement",
+          "text": "Fast SD format (one pass instead of deleting every file); deep-folder delete fixed."
+        },
+        {
+          "type": "improvement",
+          "text": "WiFi stack removed: much more free memory (15 KB -> 51 KB) and flash."
+        }
       ]
-    }
-  ],
-  "app": [
+    },
     {
       "version": "1.2.0",
       "date": "2026-10-31",
       "tag": "v1.2.0-beta",
       "changes": [
-        { "type": "feature", "text": "Sleazy Crow app: installs alongside the official EvilCrow RF app; updates come from the Sleazy Crow releases." },
-        { "type": "feature", "text": "Flipper Sub-GHz DB: pick which sections to copy to the SD card instead of the whole database; brute-force folders are opt-in." },
-        { "type": "feature", "text": "Optional 'format SD card first' and an explainer before the download." },
-        { "type": "fix", "text": "Large RAW .sub files are split into smaller pieces so they upload reliably (playback is identical)." },
-        { "type": "fix", "text": "Uploads no longer report false failures ('Null check operator' race)." },
-        { "type": "improvement", "text": "Uploads about 40x faster; live time-remaining estimate." },
-        { "type": "feature", "text": "Transmit button toggles continuous transmission on/off." },
-        { "type": "feature", "text": "Brute force: US/EU frequency choice and timing (te) override." },
-        { "type": "improvement", "text": "File preview loads only when requested, so opening files is instant." }
+        {
+          "type": "feature",
+          "text": "Sleazy Crow: community fork of Senape3000's EvilCrowRF-V2 firmware (based on v1.1.3). Bluetooth name is now SleazyCrow."
+        },
+        {
+          "type": "fix",
+          "text": "Bluetooth no longer drops ~12 s after connecting on Android: incoming commands run on their own task and stable connection parameters are requested."
+        },
+        {
+          "type": "fix",
+          "text": "No boot crash when built with Arduino core 3.3.x (BLE controller memory was freed before NimBLE started)."
+        },
+        {
+          "type": "fix",
+          "text": "Toolchain and NimBLE pinned so every build is identical (fixes the 'adc_oneshot.h' compile error)."
+        },
+        {
+          "type": "fix",
+          "text": "File uploads: a full queue no longer drops chunks, and missing/out-of-order chunks fail with an error instead of saving a corrupted file."
+        },
+        {
+          "type": "fix",
+          "text": "ProtoPirate decode results show the protocol type name instead of a number."
+        },
+        {
+          "type": "improvement",
+          "text": "Boot log prints the firmware name, version and upstream project."
+        }
+      ]
+    }
+  ],
+  "app": [
+    {
+      "version": "2.0.0",
+      "date": "2026-11-13",
+      "tag": "v2.0.0-unstable",
+      "changes": [
+        {
+          "type": "feature",
+          "text": "[UNSTABLE] Opt-in unstable channel (Settings > Updates) with a warning; unstable updates are always labelled and confirmed."
+        },
+        {
+          "type": "fix",
+          "text": "App self-update now works on modern Android (checksum-verified download, system installer). Not yet tested end-to-end on a phone."
+        },
+        {
+          "type": "feature",
+          "text": "TPMS screen: sensors with make, pressure, temperature; sensitivity modes."
+        },
+        {
+          "type": "feature",
+          "text": "Sub-GHz playlists (files + pauses, repeat, gap, loop, save, export to SD, UberGuidoZ playlist import)."
+        },
+        {
+          "type": "fix",
+          "text": "Uploads over ~122 KB were silently truncated; large files are now split or refused."
+        },
+        {
+          "type": "improvement",
+          "text": "Every tab browsable without a Crow; Play Sub File; ProtoPirate folder browser; clearer connect errors."
+        },
+        {
+          "type": "removal",
+          "text": "Phone-based surveillance/tracker detection removed (phone radios can't reliably see the targets)."
+        }
+      ]
+    },
+    {
+      "version": "1.2.0",
+      "date": "2026-10-31",
+      "tag": "v1.2.0-beta",
+      "changes": [
+        {
+          "type": "feature",
+          "text": "Sleazy Crow app: installs alongside the official EvilCrow RF app; updates come from the Sleazy Crow releases."
+        },
+        {
+          "type": "feature",
+          "text": "Flipper Sub-GHz DB: pick which sections to copy to the SD card instead of the whole database; brute-force folders are opt-in."
+        },
+        {
+          "type": "feature",
+          "text": "Optional 'format SD card first' and an explainer before the download."
+        },
+        {
+          "type": "fix",
+          "text": "Large RAW .sub files are split into smaller pieces so they upload reliably (playback is identical)."
+        },
+        {
+          "type": "fix",
+          "text": "Uploads no longer report false failures ('Null check operator' race)."
+        },
+        {
+          "type": "improvement",
+          "text": "Uploads about 40x faster; live time-remaining estimate."
+        },
+        {
+          "type": "feature",
+          "text": "Transmit button toggles continuous transmission on/off."
+        },
+        {
+          "type": "feature",
+          "text": "Brute force: US/EU frequency choice and timing (te) override."
+        },
+        {
+          "type": "improvement",
+          "text": "File preview loads only when requested, so opening files is instant."
+        }
       ]
     }
   ]

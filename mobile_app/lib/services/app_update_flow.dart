@@ -18,6 +18,42 @@ import 'update_service.dart';
 
 const MethodChannel _installer = MethodChannel('sleazycrow/installer');
 
+/// Plain-language disclaimer for unstable builds. Returns true only if the
+/// user explicitly accepts. Used by Settings (opt-in) and before installing
+/// any unstable app/firmware update.
+const String unstableDisclaimerText =
+    'Unstable builds are test versions of Sleazy Crow. Some features have NOT '
+    'been tested on real hardware yet and may not work, may crash, or may need '
+    'a re-flash from the web flasher to recover.\n\n'
+    'Use at your own risk. Check the release notes for what is tested and what '
+    'is not. You can switch back to stable at any time with the web flasher.';
+
+Future<bool> showUnstableDisclaimer(BuildContext context) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Row(children: [
+        Icon(Icons.warning_amber_rounded, color: AppColors.warning),
+        SizedBox(width: 8),
+        Text('Unstable build', style: TextStyle(color: AppColors.primaryText, fontSize: 16)),
+      ]),
+      content: const SingleChildScrollView(
+        child: Text(unstableDisclaimerText,
+            style: TextStyle(color: AppColors.secondaryText, fontSize: 13)),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
+        ElevatedButton(
+          onPressed: () => Navigator.of(ctx).pop(true),
+          style: ElevatedButton.styleFrom(backgroundColor: AppColors.warning),
+          child: const Text('I understand'),
+        ),
+      ],
+    ),
+  );
+  return ok == true;
+}
+
 const _kLastAutoCheck = 'app_update_last_auto_check_ms';
 const _kAutoCheckInterval = Duration(hours: 12);
 

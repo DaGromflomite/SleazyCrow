@@ -60,6 +60,11 @@ class SettingsProvider with ChangeNotifier {
   // "device disconnected"). User can turn it off to save battery.
   bool _keepScreenAwake = true;
   bool get keepScreenAwake => _keepScreenAwake;
+  // Opt-in: also offer UNSTABLE releases (`-unstable` assets) for app/firmware
+  // updates. Off by default; turning it on shows a disclaimer.
+  bool _offerUnstableUpdates = false;
+  bool get offerUnstableUpdates => _offerUnstableUpdates;
+  static const String prefOfferUnstable = 'offerUnstableUpdates';
   bool get debugMode => _debugMode;
   int get bruterDelayMs => _bruterDelayMs;
   int get bruterModule => _bruterModule;
@@ -99,6 +104,7 @@ class SettingsProvider with ChangeNotifier {
     _nrfChannel = (prefs.getInt('nrfChannel') ?? 76).clamp(0, 125);
     _nrfAutoRetransmit = (prefs.getInt('nrfAutoRetransmit') ?? 5).clamp(0, 15);
     _keepScreenAwake = prefs.getBool('keepScreenAwake') ?? true;
+    _offerUnstableUpdates = prefs.getBool(prefOfferUnstable) ?? false;
     _keepAwakeSetting = _keepScreenAwake;
     _applyWakelock();
     notifyListeners();
@@ -131,6 +137,13 @@ class SettingsProvider with ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('keepScreenAwake', value);
     _applyWakelock();
+    notifyListeners();
+  }
+
+  Future<void> setOfferUnstableUpdates(bool value) async {
+    _offerUnstableUpdates = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(prefOfferUnstable, value);
     notifyListeners();
   }
 

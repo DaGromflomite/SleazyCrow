@@ -372,7 +372,7 @@ Whole app + firmware reviewed (not just v2), with tests and an emulator pass thr
   Crow's `SUB Files/` layout + confirm the firmware can play that format.
 
 ### Over-the-air updates from OUR repo — app self-update fixed + auto-checks (2026-11-12)
-**Scope (user decision):** this ships *inside* v2 and works from v2 onward. Nothing is pushed or released.
+**Scope (user decision):** this ships *inside* v2 and works from v2 onward (later published as v2.0.0-unstable, see below).
 Crows on older firmware and phones on the old v1.2.0-beta app web-flash / sideload v2 once; after that,
 updates arrive over the air.
 
@@ -405,6 +405,25 @@ Senape appears only in Credits and the firmware attribution string.
   `com.sleazycrow.app.updates` authority and `REQUEST_INSTALL_PACKAGES`; live release asset MD5s match their `.md5` files.
 - **NOT yet verified on a phone:** the actual download → permission → system-installer hand-off (needs a phone + a newer
   release than the installed app to test end-to-end). Firmware BLE transfer code is unchanged by this work.
+
+### Unstable channel + v2.0.0-unstable test release (2026-11-13)
+User decision: publish v2 now as an **opt-in UNSTABLE** build with a disclaimer; stable v1.2.0-beta stays the default.
+- **Version 2.0.0-unstable** (firmware ints 2.0.0, app build 40). `tools/sleazy.py set-version X.Y.Z --unstable`;
+  `VER_RE` accepts `-unstable`.
+- **App opt-in:** Settings → Updates → "Offer unstable updates" (default OFF; enabling shows a disclaimer).
+  `UpdateService.pickLatest(..., includeUnstable:)` skips `-unstable` assets unless opted in; picks are flagged
+  `unstable`; the app-update dialog and OTA screen label them UNSTABLE and require "I understand" before download/flash.
+  Old v1.2.0-beta apps can't see unstable assets (their filename patterns only allow `-beta`) — covered by a test.
+- **Web flasher:** `sleazy.py package` builds an UNSTABLE page for `-unstable` versions: big warning, the full
+  human-readable release notes (`docs/RELEASE-NOTES-v2.0.0-unstable.md`, rendered to HTML — tested vs untested,
+  grouped), and Install / Download APK locked until the disclaimer box is ticked. Published at `/unstable/` on the
+  flasher site; the stable main page only gains a link.
+- **Release notes:** `docs/RELEASE-NOTES-v2.0.0-unstable.md` — every v2 addition/change grouped (install/updates,
+  TPMS, playlists, Sub-GHz/ProtoPirate, SD/files, general app, removed, known issues), each marked Works / Untested /
+  Known issue / Removed. `changelog.json` has 2.0.0 firmware + app entries.
+- **Verified:** 44/44 tests; analyze 0 errors; firmware builds (RAM 26.9 %, flash 58.1 %); **flashed to the Crow
+  (COM15, flash backed up first): boots "Sleazy Crow v2.0.0-unstable", advertises over BLE**; signed APK 2.0.0-unstable
+  (versionCode 40, cert 9ff56c56…); `sleazy.py check` passes; unstable page rendered and checked in Edge.
 
 ## Scope decisions (recorded)
 
