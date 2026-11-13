@@ -15,7 +15,10 @@
 // Beta builds bump PATCH (1.2.0-beta, 1.2.1-beta, ...) because the app compares the
 // numeric MAJOR.MINOR.PATCH only; the "-beta" label lives in the string/file names.
 #define FIRMWARE_NAME "Sleazy Crow"
-#define FIRMWARE_UPSTREAM "Senape3000/EvilCrowRF-V2"
+#define FIRMWARE_AUTHOR "DaGromflomite"                       // this fork's maintainer
+#define FIRMWARE_REPO "DaGromflomite/SleazyCrow"              // source + releases live here
+#define FIRMWARE_URL "https://github.com/DaGromflomite/SleazyCrow"
+#define FIRMWARE_UPSTREAM "Senape3000/EvilCrowRF-V2"          // original project (MIT)
 
 #define CC1101_NUM_MODULES 2
 
