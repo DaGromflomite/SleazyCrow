@@ -1,52 +1,245 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
-import 'package:archive/archive.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
+import '../providers/firmware_protocol.dart';
+import 'uber_playlists.dart';
 
-/// Entry representing a .sub file extracted from the FlipperZero SubGHz DB.
+/// Entry representing a .sub file from the source SubGHz collection.
+///
+/// During the *browse* phase an entry is a lightweight **stub** — its
+/// [relativePath] is set and [content] is empty — so the selection UI can count
+/// and filter by folder without downloading anything. Real [content] is fetched
+/// only for the files the user actually picks (see [downloadEntries]).
 class SubFileEntry {
-  /// Relative path preserving subfolder structure (e.g. "Garage/CAME/gate.sub")
+  /// Path preserving subfolder structure, relative to the source's Sub-GHz
+  /// root (e.g. "Garages/CAME/gate.sub"). This is saved verbatim under
+  /// [sdTargetFolder] on the Crow's SD so the source's folder layout is
+  /// reproduced exactly (which also keeps path-based playlists resolvable).
   final String relativePath;
 
-  /// Raw file content bytes
+  /// Raw file bytes. Empty for a catalog stub until downloaded.
   final Uint8List content;
 
-  const SubFileEntry({required this.relativePath, required this.content});
+  /// Byte size from the git tree (available for stubs; 0 if unknown).
+  final int size;
+
+  const SubFileEntry({
+    required this.relativePath,
+    required this.content,
+    this.size = 0,
+  });
+
+  bool get isStub => content.isEmpty;
 }
 
-/// Service for downloading and extracting FlipperZero SubGHz .sub files
-/// from the Zero-Sploit/FlipperZero-Subghz-DB GitHub repository.
+/// Downloads FlipperZero `.sub` files from **UberGuidoZ/Flipper** — but only the
+/// `Sub-GHz/` tree (the Crow can't use his NFC / IR / BadUSB / etc.), and only
+/// the folders the user selects.
+///
+/// Why browse-by-folder instead of a repo ZIP: `UberGuidoZ/Flipper` is a ~2 GB
+/// monorepo and GitHub only zips a *whole* repo, so the old whole-ZIP approach
+/// (used for the small Zero-Sploit DB) is impossible here. Instead we:
+///   1. one Git Trees API call lists every `.sub` under `Sub-GHz/` (paths+sizes,
+///      no content) — the "catalog";
+///   2. the user picks top-level folders;
+///   3. we fetch the picked files' bytes individually from raw.githubusercontent
+///      (which doesn't count against the 60/hr API limit).
 class FlipperSubDbService {
-  static const String _repoZipUrl =
-      'https://github.com/Zero-Sploit/FlipperZero-Subghz-DB/archive/refs/heads/main.zip';
+  // ---- Source repository (UberGuidoZ/Flipper, Sub-GHz subtree) -------------
+  static const String _owner = 'UberGuidoZ';
+  static const String _repo = 'Flipper';
+  static const String _branch = 'main';
+  static const String _subdir = 'Sub-GHz';
 
-  /// Target folder name on the device SDCard
+  static const String _treesApi =
+      'https://api.github.com/repos/$_owner/$_repo/git/trees';
+  static const String _rawBase =
+      'https://raw.githubusercontent.com/$_owner/$_repo/$_branch/$_subdir/';
+
+  /// GitHub rejects API requests with no User-Agent, so always send one.
+  static const Map<String, String> _apiHeaders = {
+    'User-Agent': 'SleazyCrow-App',
+    'Accept': 'application/vnd.github+json',
+  };
+
+  /// Target folder name on the device SDCard.
   static const String sdTargetFolder = 'SUB Files';
 
-  /// Label used for files that sit directly at the DB root with no category
-  /// folder of their own.
+  /// Label for files sitting directly at the Sub-GHz root (no category folder).
   static const String rootCategory = '(root)';
 
+  /// Uber's ready-made playlists found by the last [fetchCatalog] (text not
+  /// fetched yet; see [fetchPlaylistTexts]).
+  static List<UberPlaylist> lastPlaylists = [];
+
   // ---------------------------------------------------------------------------
-  // Category selection — lets the user pull individual sections of the DB
-  // instead of the whole thing. The full repo is tens of thousands of tiny
-  // .sub files (brute-force dumps especially), which is far too much to push
-  // over BLE in one go; see upstream issue #16. Grouping by the top-level
-  // folder lets the UI offer a checklist, and the brute-force filter removes
-  // the pathologically large enumerations at any depth.
+  // Catalog — list the Sub-GHz tree without downloading file contents.
   // ---------------------------------------------------------------------------
 
-  /// Top-level category of an entry (the first path segment), or
-  /// [rootCategory] when the file is not inside a subfolder.
+  /// Fetch the list of every `.sub` under the source's `Sub-GHz/` folder as
+  /// lightweight stubs (path + size, no content). One Trees API call.
+  ///
+  /// [onProgress] phases: "catalog".
+  static Future<List<SubFileEntry>> fetchCatalog({
+    void Function(String phase, String detail, double fraction)? onProgress,
+  }) async {
+    onProgress?.call('catalog', 'Listing folders from UberGuidoZ…', 0.0);
+
+    // 1. Resolve the Sub-GHz subtree SHA from the branch root tree.
+    final rootResp = await http
+        .get(Uri.parse('$_treesApi/$_branch'), headers: _apiHeaders)
+        .timeout(const Duration(seconds: 20));
+    if (rootResp.statusCode != 200) {
+      throw Exception('GitHub tree list failed: HTTP ${rootResp.statusCode}');
+    }
+    final rootJson = jsonDecode(rootResp.body) as Map<String, dynamic>;
+    final rootTree = (rootJson['tree'] as List?) ?? const [];
+    String? subSha;
+    String? playlistSha;
+    for (final t in rootTree) {
+      final m = t as Map<String, dynamic>;
+      if (m['type'] != 'tree') continue;
+      if (m['path'] == _subdir) subSha = m['sha'] as String?;
+      if (m['path'] == 'subplaylist') playlistSha = m['sha'] as String?;
+    }
+    if (subSha == null) {
+      throw Exception('"$_subdir" folder not found in $_owner/$_repo');
+    }
+
+    onProgress?.call('catalog', 'Reading the Sub-GHz catalog…', 0.4);
+
+    // 2. Recursively list the Sub-GHz subtree (one call; ~11k entries fits well
+    //    under the API's 100k / 7MB truncation limit).
+    final subResp = await http
+        .get(Uri.parse('$_treesApi/$subSha?recursive=1'), headers: _apiHeaders)
+        .timeout(const Duration(seconds: 40));
+    if (subResp.statusCode != 200) {
+      throw Exception('GitHub subtree read failed: HTTP ${subResp.statusCode}');
+    }
+    final subJson = jsonDecode(subResp.body) as Map<String, dynamic>;
+    final entries = <SubFileEntry>[];
+    final playlists = <UberPlaylist>[];
+    for (final t in ((subJson['tree'] as List?) ?? const [])) {
+      final m = t as Map<String, dynamic>;
+      if (m['type'] != 'blob') continue;
+      final path = m['path'] as String? ?? '';
+      if (UberPlaylists.isPlaylistPath('$_subdir/$path')) {
+        playlists.add(UberPlaylist(repoPath: '$_subdir/$path'));
+      }
+      if (!path.toLowerCase().endsWith('.sub')) continue;
+      entries.add(SubFileEntry(
+        relativePath: path,
+        content: Uint8List(0),
+        size: (m['size'] as int?) ?? 0,
+      ));
+    }
+
+    // 3. Uber's ready-made playlists (small folder; failure isn't fatal).
+    if (playlistSha != null) {
+      onProgress?.call('catalog', "Listing Uber's playlists…", 0.8);
+      try {
+        final r = await http
+            .get(Uri.parse('$_treesApi/$playlistSha?recursive=1'), headers: _apiHeaders)
+            .timeout(const Duration(seconds: 20));
+        if (r.statusCode == 200) {
+          for (final t in (((jsonDecode(r.body) as Map<String, dynamic>)['tree'] as List?) ??
+              const [])) {
+            final m = t as Map<String, dynamic>;
+            final rp = 'subplaylist/${m['path']}';
+            if (m['type'] == 'blob' && UberPlaylists.isPlaylistPath(rp)) {
+              playlists.add(UberPlaylist(repoPath: rp));
+            }
+          }
+        }
+      } catch (_) {/* no playlists offered this time */}
+    }
+    playlists.sort((a, b) =>
+        a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
+    lastPlaylists = playlists;
+
+    onProgress?.call('catalog', '${entries.length} .sub files available', 1.0);
+    return entries;
+  }
+
+  /// Fetch the text of each playlist (small files, a few at a time). Ones that
+  /// fail to download are dropped.
+  static Future<List<UberPlaylist>> fetchPlaylistTexts(List<UberPlaylist> lists) async {
+    final out = <UberPlaylist>[];
+    for (var i = 0; i < lists.length; i += 6) {
+      final batch = lists.skip(i).take(6);
+      final got = await Future.wait(batch.map((p) async {
+        try {
+          final url = 'https://raw.githubusercontent.com/$_owner/$_repo/$_branch/'
+              '${p.repoPath.split('/').map(Uri.encodeComponent).join('/')}';
+          final r = await http
+              .get(Uri.parse(url), headers: _apiHeaders)
+              .timeout(const Duration(seconds: 20));
+          if (r.statusCode == 200) return p.withText(utf8.decode(r.bodyBytes, allowMalformed: true));
+        } catch (_) {}
+        return null;
+      }));
+      out.addAll(got.whereType<UberPlaylist>());
+    }
+    return out;
+  }
+
+  /// Download the real bytes for the given [stubs] from raw.githubusercontent.
+  /// Returns fully-populated [SubFileEntry]s; files that fail to download are
+  /// skipped (not fatal). [onProgress] phase: "download".
+  static Future<List<SubFileEntry>> downloadEntries(
+    List<SubFileEntry> stubs, {
+    void Function(String phase, String detail, double fraction)? onProgress,
+  }) async {
+    final out = <SubFileEntry>[];
+    final total = stubs.length;
+    for (var i = 0; i < total; i++) {
+      final e = stubs[i];
+      onProgress?.call(
+        'download',
+        'Downloading ${i + 1}/$total: ${e.relativePath}',
+        total > 0 ? i / total : 0.0,
+      );
+      try {
+        final resp = await http
+            .get(Uri.parse(_rawUrl(e.relativePath)), headers: _apiHeaders)
+            .timeout(const Duration(seconds: 20));
+        if (resp.statusCode == 200) {
+          out.add(SubFileEntry(
+            relativePath: e.relativePath,
+            content: resp.bodyBytes,
+            size: resp.bodyBytes.length,
+          ));
+        }
+      } catch (_) {
+        // skip this file; keep going
+      }
+    }
+    onProgress?.call('download', '${out.length} files downloaded', 1.0);
+    return out;
+  }
+
+  /// raw.githubusercontent URL for a Sub-GHz-relative path, with each segment
+  /// percent-encoded (UberGuidoZ paths contain spaces and punctuation).
+  static String _rawUrl(String relativePath) {
+    final encoded =
+        relativePath.split('/').map(Uri.encodeComponent).join('/');
+    return '$_rawBase$encoded';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Category selection — top-level folder is the selectable unit.
+  // ---------------------------------------------------------------------------
+
+  /// Top-level category of an entry (its first path segment), or [rootCategory]
+  /// when the file is not inside a subfolder.
   static String categoryOf(String relativePath) {
     final slash = relativePath.indexOf('/');
     return slash > 0 ? relativePath.substring(0, slash) : rootCategory;
   }
 
-  /// Group extracted entries by their top-level category folder, returning a
-  /// map of category name -> file count, ordered alphabetically (case-insensitive).
+  /// Group entries by top-level category folder -> file count, alphabetical.
   static Map<String, int> categoryCounts(List<SubFileEntry> files) {
     final counts = <String, int>{};
     for (final f in files) {
@@ -58,9 +251,7 @@ class FlipperSubDbService {
     return Map<String, int>.fromEntries(entries);
   }
 
-  /// True if any segment of the path looks like a brute-force dump folder
-  /// (e.g. "CAME_brute_force"). These folders hold thousands of near-identical
-  /// files and are excluded by default.
+  /// True if any path segment looks like a brute-force dump folder.
   static bool isBruteForcePath(String relativePath) {
     for (final seg in relativePath.toLowerCase().split('/')) {
       if (seg.contains('brute')) return true;
@@ -68,9 +259,8 @@ class FlipperSubDbService {
     return false;
   }
 
-  /// Filter the extracted entries down to the user's selection: only files
-  /// whose top-level category is in [categories], optionally dropping any
-  /// brute-force folders.
+  /// Filter entries to the user's selection: only files whose top-level
+  /// category is in [categories], optionally dropping brute-force folders.
   static List<SubFileEntry> filterSelection(
     List<SubFileEntry> files, {
     required Set<String> categories,
@@ -84,34 +274,20 @@ class FlipperSubDbService {
   }
 
   // ---------------------------------------------------------------------------
-  // Large-file splitting — big RAW .sub sweeps (brute-force dumps can be
-  // megabytes = thousands of unacked BLE packets) time out on upload. Split
-  // them into smaller, fully valid .sub pieces so each transfers reliably and
-  // can be retried cheaply. The firmware transmits by file CONTENT (header +
-  // RAW_Data), not by filename, and the split is line-aligned and lossless, so
-  // every piece plays identically to the original and the pieces in sequence
-  // reproduce the full sweep.
+  // Large-file splitting — big RAW .sub sweeps time out over BLE. Split them
+  // into smaller, fully-valid .sub pieces. (Unchanged logic.)
   // ---------------------------------------------------------------------------
 
-  /// A RAW .sub larger than this (bytes) is split into pieces for upload.
-  static const int splitThresholdBytes = 200 * 1024;
+  // Anything over the Crow's per-file upload limit is split; pieces stay well
+  // under it (header included).
+  static const int splitThresholdBytes = FirmwareBinaryProtocol.MAX_UPLOAD_BYTES;
+  static const int splitPieceTargetBytes = 100 * 1024;
 
-  /// Target size (bytes) per split piece — small enough to be a few hundred
-  /// BLE chunks (reliable to send, cheap to retry).
-  static const int splitPieceTargetBytes = 128 * 1024;
-
-  /// Split a large RAW .sub [entry] into multiple smaller, fully valid .sub
-  /// pieces named "<base>_01.sub", "<base>_02.sub", ... Each piece repeats the
-  /// original header and carries a whole-line subset of the RAW_Data, so the
-  /// pulse timings are preserved exactly. Returns the entry unchanged when it
-  /// is small, not RAW, or cannot be usefully split.
   static List<SubFileEntry> splitIfLargeRaw(SubFileEntry entry) {
     if (entry.content.length <= splitThresholdBytes) return [entry];
 
-    // 1 byte -> 1 char so the text round-trips exactly (.sub is ASCII).
     final lines = String.fromCharCodes(entry.content).split('\n');
 
-    // Header = everything before the first RAW_Data line.
     final headerLines = <String>[];
     int firstRaw = -1;
     for (int i = 0; i < lines.length; i++) {
@@ -130,9 +306,8 @@ class FlipperSubDbService {
     if (rawLines.isEmpty) return [entry];
 
     final header = headerLines.join('\n');
-    final int headerBytes = header.length + 1; // trailing newline
+    final int headerBytes = header.length + 1;
 
-    // Group whole RAW_Data lines until each piece approaches the target size.
     final pieces = <List<String>>[];
     var current = <String>[];
     int currentBytes = headerBytes;
@@ -148,7 +323,7 @@ class FlipperSubDbService {
       currentBytes += lineBytes;
     }
     if (current.isNotEmpty) pieces.add(current);
-    if (pieces.length <= 1) return [entry]; // splitting wouldn't help
+    if (pieces.length <= 1) return [entry];
 
     final base = entry.relativePath.toLowerCase().endsWith('.sub')
         ? entry.relativePath.substring(0, entry.relativePath.length - 4)
@@ -174,132 +349,13 @@ class FlipperSubDbService {
     return out;
   }
 
-  /// Download the repository ZIP and extract all .sub files.
-  ///
-  /// Returns a list of [SubFileEntry] with relative paths and content.
-  /// [onProgress] callback receives (phase, detail, fraction):
-  ///   - phase "download": downloading ZIP from GitHub
-  ///   - phase "extract": extracting .sub files from ZIP
-  static Future<List<SubFileEntry>> downloadAndExtract({
-    void Function(String phase, String detail, double fraction)? onProgress,
-    Future<void> Function(List<int> zipBytes)? onZipDownloaded,
-  }) async {
-    // --- Phase 1: Download ZIP ---
-    onProgress?.call('download', 'Connecting to GitHub...', 0.0);
-
-    final request = http.Request('GET', Uri.parse(_repoZipUrl));
-    final streamedResponse = await request.send().timeout(
-      const Duration(seconds: 30),
-    );
-
-    if (streamedResponse.statusCode != 200) {
-      throw Exception(
-          'Failed to download repository: HTTP ${streamedResponse.statusCode}');
-    }
-
-    final totalBytes = streamedResponse.contentLength ?? 0;
-    final List<int> zipBytes = [];
-    int received = 0;
-
-    await for (final chunk in streamedResponse.stream) {
-      zipBytes.addAll(chunk);
-      received += chunk.length;
-      if (totalBytes > 0) {
-        onProgress?.call(
-          'download',
-          '${(received / 1024 / 1024).toStringAsFixed(1)} MB downloaded',
-          received / totalBytes,
-        );
-      }
-    }
-
-    onProgress?.call('download', 'Download complete', 1.0);
-
-    // Allow caller to cache the raw ZIP for later resume
-    await onZipDownloaded?.call(zipBytes);
-
-    // --- Phase 2: Extract .sub files ---
-    onProgress?.call('extract', 'Decompressing ZIP...', 0.0);
-
-    final archive = ZipDecoder().decodeBytes(zipBytes);
-    final subFiles = <SubFileEntry>[];
-
-    // The ZIP contains a root folder like "FlipperZero-Subghz-DB-main/"
-    // followed by a "subghz/" subfolder. We strip both prefixes so that
-    // relative paths start directly at the category level (e.g.,
-    // "Adjustable_Beds/RIZE .../file.sub") and map onto "SUB Files/..." on SD.
-    String? rootPrefix;
-    // Second-level prefix to strip (e.g. "subghz/")
-    const String subghzFolder = 'subghz/';
-
-    int processed = 0;
-    final total = archive.files.length;
-
-    for (final file in archive.files) {
-      processed++;
-      if (file.isFile) {
-        final name = file.name;
-
-        // Determine root prefix from first file
-        rootPrefix ??= _extractRootPrefix(name);
-
-        // Only include .sub files (skip README, LICENSE, etc.)
-        if (name.toLowerCase().endsWith('.sub')) {
-          String relativePath = name;
-          if (rootPrefix != null && relativePath.startsWith(rootPrefix)) {
-            relativePath = relativePath.substring(rootPrefix.length);
-          }
-          // Strip the "subghz/" second-level folder so paths go directly
-          // inside "SUB Files/" on the SD card.
-          if (relativePath.startsWith(subghzFolder)) {
-            relativePath = relativePath.substring(subghzFolder.length);
-          }
-          // Skip empty paths
-          if (relativePath.isNotEmpty) {
-            subFiles.add(SubFileEntry(
-              relativePath: relativePath,
-              content: Uint8List.fromList(file.content as List<int>),
-            ));
-          }
-        }
-      }
-
-      if (total > 0) {
-        onProgress?.call(
-          'extract',
-          'Extracting files... (${subFiles.length} .sub files found)',
-          processed / total,
-        );
-      }
-    }
-
-    onProgress?.call(
-      'extract',
-      '${subFiles.length} .sub files extracted',
-      1.0,
-    );
-
-    return subFiles;
-  }
-
-  /// Extract the root folder prefix from a ZIP entry path.
-  /// e.g., "FlipperZero-Subghz-DB-main/folder/file.sub" → "FlipperZero-Subghz-DB-main/"
-  static String? _extractRootPrefix(String path) {
-    final slashIndex = path.indexOf('/');
-    if (slashIndex > 0) {
-      return path.substring(0, slashIndex + 1);
-    }
-    return null;
-  }
-
   // ---------------------------------------------------------------------------
-  // Progress persistence for Pause / Resume
+  // Progress persistence for Pause / Resume (upload progress + the selection).
   // ---------------------------------------------------------------------------
 
   static const String _progressFileName = 'clone_progress.json';
-  static const String _cachedZipFileName = 'clone_cached.zip';
+  static const String _selectionFileName = 'clone_selection.json';
 
-  /// Return the app-data directory used for clone cache files.
   static Future<Directory> _cacheDir() async {
     final appDir = await getApplicationDocumentsDirectory();
     final dir = Directory('${appDir.path}/clone_cache');
@@ -307,15 +363,12 @@ class FlipperSubDbService {
     return dir;
   }
 
-  /// Check whether a resumable clone session exists.
+  /// A resumable session exists if we have saved upload progress.
   static Future<bool> hasResumableSession() async {
     final dir = await _cacheDir();
-    final progressFile = File('${dir.path}/$_progressFileName');
-    final zipFile = File('${dir.path}/$_cachedZipFileName');
-    return await progressFile.exists() && await zipFile.exists();
+    return File('${dir.path}/$_progressFileName').exists();
   }
 
-  /// Load the set of already-uploaded relative paths from the progress file.
   static Future<Set<String>> loadCompletedFiles() async {
     final dir = await _cacheDir();
     final file = File('${dir.path}/$_progressFileName');
@@ -328,82 +381,46 @@ class FlipperSubDbService {
     }
   }
 
-  /// Save the set of completed file paths (call after each successful upload).
   static Future<void> saveProgress(Set<String> completedPaths) async {
     final dir = await _cacheDir();
     final file = File('${dir.path}/$_progressFileName');
     await file.writeAsString(jsonEncode({'completed': completedPaths.toList()}));
   }
 
-  /// Cache the raw ZIP bytes so we don't have to re-download on resume.
-  static Future<void> cacheZipBytes(List<int> zipBytes) async {
+  /// Persist the folder selection so a resumed session re-downloads the same
+  /// folders before continuing the upload.
+  static Future<void> saveSelection(
+      Set<String> categories, bool includeBruteForce,
+      {Set<String> playlists = const {}}) async {
     final dir = await _cacheDir();
-    final file = File('${dir.path}/$_cachedZipFileName');
-    await file.writeAsBytes(zipBytes);
+    final file = File('${dir.path}/$_selectionFileName');
+    await file.writeAsString(jsonEncode({
+      'categories': categories.toList(),
+      'includeBruteForce': includeBruteForce,
+      'playlists': playlists.toList(),
+    }));
   }
 
-  /// Load cached ZIP bytes for resume.
-  static Future<List<int>?> loadCachedZip() async {
+  /// Load the saved selection, or null if none.
+  static Future<({Set<String> categories, bool includeBruteForce, Set<String> playlists})?>
+      loadSelection() async {
     final dir = await _cacheDir();
-    final file = File('${dir.path}/$_cachedZipFileName');
+    final file = File('${dir.path}/$_selectionFileName');
     if (!await file.exists()) return null;
-    return await file.readAsBytes();
+    try {
+      final json = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      return (
+        categories: Set<String>.from(json['categories'] as List),
+        includeBruteForce: (json['includeBruteForce'] as bool?) ?? false,
+        playlists: Set<String>.from((json['playlists'] as List?) ?? const []),
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
-  /// Delete all clone cache files (call on completion or manual reset).
   static Future<void> clearCache() async {
     final dir = await _cacheDir();
     if (await dir.exists()) await dir.delete(recursive: true);
-  }
-
-  /// Extract .sub files from already-downloaded ZIP bytes.
-  /// Same logic as [downloadAndExtract] phase 2, but without downloading.
-  static List<SubFileEntry> extractFromBytes(
-    List<int> zipBytes, {
-    void Function(String phase, String detail, double fraction)? onProgress,
-  }) {
-    onProgress?.call('extract', 'Decompressing cached ZIP...', 0.0);
-
-    final archive = ZipDecoder().decodeBytes(zipBytes);
-    final subFiles = <SubFileEntry>[];
-    String? rootPrefix;
-    const String subghzFolder = 'subghz/';
-
-    int processed = 0;
-    final total = archive.files.length;
-
-    for (final file in archive.files) {
-      processed++;
-      if (file.isFile) {
-        final name = file.name;
-        rootPrefix ??= _extractRootPrefix(name);
-
-        if (name.toLowerCase().endsWith('.sub')) {
-          String relativePath = name;
-          if (rootPrefix != null && relativePath.startsWith(rootPrefix)) {
-            relativePath = relativePath.substring(rootPrefix.length);
-          }
-          if (relativePath.startsWith(subghzFolder)) {
-            relativePath = relativePath.substring(subghzFolder.length);
-          }
-          if (relativePath.isNotEmpty) {
-            subFiles.add(SubFileEntry(
-              relativePath: relativePath,
-              content: Uint8List.fromList(file.content as List<int>),
-            ));
-          }
-        }
-      }
-      if (total > 0) {
-        onProgress?.call(
-          'extract',
-          'Extracting files... (${subFiles.length} .sub files found)',
-          processed / total,
-        );
-      }
-    }
-
-    onProgress?.call('extract', '${subFiles.length} .sub files extracted', 1.0);
-    return subFiles;
   }
 }

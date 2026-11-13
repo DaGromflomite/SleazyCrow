@@ -6,16 +6,25 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
     
     <!-- Android 12+ (API 31+) specific Bluetooth permissions -->
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" 
-                     android:usesPermissionFlags="neverForLocation"
-                     tools:targetApi="s" />
+    <!-- No "neverForLocation" flag: with it, Android filters some BLE beacons
+         out of scan results, which would hide trackers (AirTag/Tile/iBeacon)
+         from the Detect screen. Location permission is requested anyway. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
     
     <!-- Legacy Bluetooth permissions for older Android versions -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    
+
+    <!-- WiFi scanning (Flock/ALPR/camera detection over WiFi). On Android 13+
+         NEARBY_WIFI_DEVICES replaces the location requirement for scan results;
+         ACCESS_FINE_LOCATION still covers Android 10-12. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"
+                     tools:targetApi="t" />
+
     <!-- Internet permission — required for OTA update checks and firmware download -->
     <uses-permission android:name="android.permission.INTERNET" />
     
@@ -57,6 +66,17 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- In-app updater: shares downloaded APKs (cache/updates/) with the
+             system package installer. See MainActivity.installApk. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_file_paths" />
+        </provider>
     </application>
     
     <!-- Required to query activities that can process text, see:

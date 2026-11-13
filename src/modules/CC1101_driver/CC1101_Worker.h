@@ -60,7 +60,8 @@ enum class CC1101State {
     Transmitting,
     Analyzing,
     Jamming,
-    ProtoPirate   // Continuous RX managed by ProtoPirateModule's own task
+    ProtoPirate,  // Continuous RX managed by ProtoPirateModule's own task
+    Tpms          // Continuous FSK RX managed by TpmsModule's own task (315/433 MHz)
 };
 
 // DetectedSignal structure (simplified from Detector.h)
@@ -165,6 +166,17 @@ public:
     static bool startProtoPirateRX(int module, float frequency);
     static void stopProtoPirateRX(int module);
 
+    // TPMS RX async capture for tire-pressure sensors (315 MHz US / 433.92 EU).
+    // Same async-capture path as ProtoPirate. Starts in FSK; TpmsModule alternates
+    // modulation (FSK for Toyota/Ford/Hyundai, OOK for Schrader/GM) via retuneTpms.
+    // Wide RX bandwidth (232 kHz) tolerates the TPMS sensors' loose-crystal drift.
+    static bool startTpmsRX(int module, float frequency,
+                            float dataRate = 19.2f, float deviation = 30.0f,
+                            float rxBandwidth = 232.0f);
+    // Re-tune an active TPMS module between FSK and OOK without dropping capture.
+    static void retuneTpms(int module, float frequency, bool ook);
+    static void stopTpmsRX(int module);
+
 private:
     static void workerTask(void* parameter);
     static void processTask(const CC1101Task& task);
@@ -201,18 +213,46 @@ private:
     static bool transmitRaw(int module, float frequency, int modulation, float deviation, std::string& data, int repeat);
     static bool transmitData(PulsePayload& payload, int module);
     
+    /**
+     * Hold the output for one pulse of [us] microseconds.
+     *
+     * The worker runs at priority 5 and used to busy-wait every pulse, so a
+     * long RAW file (e.g. a 13 s Tesla sweep) kept a core from ever running
+     * its idle task: the task watchdog fired after 5 s and rebooted the Crow,
+     * which dropped Bluetooth mid-playlist.
+     *
+     * Long LOW gaps (the silence between repeats/frames) are now slept through
+     * with the scheduler, and only the last ~2 ms are busy-waited, so the gap
+     * still ends on time. A signal with no long gaps at all still gets a
+     * 1-tick rest every ~2 s inside a LOW pulse (stretching that one gap by
+     * up to ~1 ms) rather than a reboot.
+     */
+    static inline void holdPulse(uint32_t us, bool level, uint32_t& lastRest) {
+        const uint32_t start = micros();
+        if (!level && us >= 3000) {
+            vTaskDelay(pdMS_TO_TICKS((us - 2000) / 1000));
+            lastRest = micros();
+        } else if (!level && (uint32_t)(start - lastRest) > 2000000UL) {
+            vTaskDelay(1);
+            lastRest = micros();
+        }
+        while ((uint32_t)(micros() - start) < us) {
+        }
+    }
+
     // Template version for streaming payload (works with any type that has next())
     template<typename PayloadT>
     static bool transmitData(PayloadT& payload, int module) {
         uint32_t duration;
         bool pinState;
-        
+        uint32_t lastRest = micros();
+        const int pin = moduleCC1101State[module].getOutputPin();
+
         while (payload.next(duration, pinState)) {
-            digitalWrite(moduleCC1101State[module].getOutputPin(), pinState);
-            delayMicroseconds(duration);
-            taskYIELD();
+            digitalWrite(pin, pinState);
+            holdPulse(duration, pinState, lastRest);
         }
-        
+
         return true;
     }
     

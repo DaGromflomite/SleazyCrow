@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- In-app updater: downloaded APKs live in <cache>/updates/ and are shared
+     with the system package installer through FileProvider (authority
+     ${applicationId}.updates, see AndroidManifest.xml). -->
+<paths>
+    <cache-path name="updates" path="updates/" />
+</paths>

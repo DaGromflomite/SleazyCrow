@@ -106,6 +106,20 @@ public:
     bool loadSubFile(const char* filePath);
 
     /**
+     * @brief Load a .sub on a dedicated large-stack task and decode it.
+     *
+     * loadSubFile() opens the file through FATFS (a deep call chain) and then
+     * runs every protocol decoder — far more stack than the small tasks that
+     * receive commands (SerialCmd = 3 KB, BleInbound = 8 KB). Running it inline
+     * overflowed those stacks and crashed the device. This hands the work to a
+     * dedicated task with its own generous stack, so a file load can't blow the
+     * caller's stack regardless of whether the command came over BLE or serial.
+     * @return true if the load task was started (false if one is already
+     *         running). The decode result still arrives asynchronously.
+     */
+    bool loadSubFileAsync(const char* filePath);
+
+    /**
      * @brief Emulate (transmit) a previously decoded signal.
      *
      * Looks up the protocol by name, calls generatePulseData() and
@@ -179,6 +193,15 @@ private:
     static constexpr size_t TASK_STACK_SIZE = 4096;
     static StackType_t taskStack_[TASK_STACK_SIZE];
     static StaticTask_t taskTcb_;
+
+    // Dedicated one-shot task for loadSubFileAsync(). Its stack must cover the
+    // FATFS open chain plus every decoder, so it's large and statically owned.
+    static void loadFileTask(void* param);
+    static constexpr size_t LOAD_STACK_SIZE = 12 * 1024 / sizeof(StackType_t);
+    static StackType_t loadStack_[LOAD_STACK_SIZE];
+    static StaticTask_t loadTcb_;
+    static char loadPath_[128];
+    static volatile bool loadBusy_;
 
     static constexpr const char* TAG = "ProtoPirate";
 };

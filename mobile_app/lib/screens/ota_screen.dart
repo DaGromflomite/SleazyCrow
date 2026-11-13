@@ -12,6 +12,7 @@ import '../providers/ble_provider.dart';
 import '../providers/firmware_protocol.dart';
 import '../providers/settings_provider.dart';
 import '../services/update_service.dart';
+import '../services/app_update_flow.dart';
 import '../l10n/app_localizations.dart';
 import '../theme/app_colors.dart';
 import 'dart:math';
@@ -32,6 +33,7 @@ class _OtaScreenState extends State<OtaScreen> with TickerProviderStateMixin {
   // GitHub release info
   bool _checkingUpdate = false;
   String? _latestVersion;
+  bool _latestUnstable = false;
   String? _latestChangelog;
   String? _firmwareUrl;
   String? _firmwareMd5;
@@ -96,6 +98,8 @@ class _OtaScreenState extends State<OtaScreen> with TickerProviderStateMixin {
     final version = bleProvider.firmwareVersion;
     if (version.isNotEmpty) {
       setState(() => _currentVersion = version);
+      // Check DaGromflomite/SleazyCrow releases straight away.
+      _checkForUpdates();
     }
   }
 
@@ -132,6 +136,7 @@ class _OtaScreenState extends State<OtaScreen> with TickerProviderStateMixin {
 
       setState(() {
         _latestVersion = update.version;
+        _latestUnstable = update.unstable;
         _latestChangelog = update.changelog;
         _latestChanges = update.structuredChanges;
         _firmwareUrl = update.binUrl;
@@ -223,6 +228,8 @@ class _OtaScreenState extends State<OtaScreen> with TickerProviderStateMixin {
 
   Future<void> _startOtaTransfer() async {
     if (_firmwareBin == null) return;
+    if (_latestUnstable && !await showUnstableDisclaimer(context)) return;
+    if (!mounted) return;
 
     final bleProvider = Provider.of<BleProvider>(context, listen: false);
     if (!bleProvider.isConnected) return;
@@ -318,7 +325,7 @@ class _OtaScreenState extends State<OtaScreen> with TickerProviderStateMixin {
       } catch (_) {}
     } finally {
       // Release wake lock
-      WakelockPlus.disable();
+      SettingsProvider.releaseTemporaryWakelock();
     }
   }
 
@@ -440,7 +447,7 @@ class _OtaScreenState extends State<OtaScreen> with TickerProviderStateMixin {
         await bleProvider.sendBinaryCommand(abortCmd);
       } catch (_) {}
     } finally {
-      WakelockPlus.disable();
+      SettingsProvider.releaseTemporaryWakelock();
     }
   }
 
@@ -485,8 +492,11 @@ class _OtaScreenState extends State<OtaScreen> with TickerProviderStateMixin {
           backgroundColor: AppColors.primaryBackground,
           appBar: AppBar(
             title: Text(AppLocalizations.of(context)!.otaUpdate),
-            backgroundColor: AppColors.secondaryBackground,
-            foregroundColor: AppColors.primaryText,
+            backgroundColor: Colors.transparent,
+            foregroundColor: Colors.white,
+            flexibleSpace: const DecoratedBox(
+              decoration: BoxDecoration(gradient: AppColors.cyberGradient),
+            ),
             elevation: 0,
           ),
           body: SingleChildScrollView(
@@ -545,7 +555,15 @@ class _OtaScreenState extends State<OtaScreen> with TickerProviderStateMixin {
       child: Column(
         children: [
           if (_latestVersion != null) ...[
-            _buildInfoRow(AppLocalizations.of(context)!.latestVersion, _latestVersion!),
+            _buildInfoRow(AppLocalizations.of(context)!.latestVersion,
+                _latestUnstable ? '${_latestVersion!} (UNSTABLE)' : _latestVersion!),
+            if (_latestUnstable)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 4),
+                child: Text('Unstable test build — not fully tested on hardware. '
+                    'If it misbehaves, re-flash stable from the web flasher.',
+                    style: TextStyle(color: AppColors.warning, fontSize: 12)),
+              ),
             _updateAvailable
                 ? _buildUpdateAvailableRow()
                 : _buildInfoRow(AppLocalizations.of(context)!.updateAvailable, AppLocalizations.of(context)!.upToDate),

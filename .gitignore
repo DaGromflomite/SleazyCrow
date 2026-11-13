@@ -4,7 +4,6 @@
 .pio_core
 .idea
 .cursor
-.github
 logs/
 releases/
 personal_docs/
@@ -23,3 +22,7 @@ mobile_app/ios/Flutter/Generated.xcconfig
 mobile_app/ios/Flutter/flutter_export_environment.sh
 mobile_app/ios/Flutter/ephemeral/
 mobile_app/windows/flutter/ephemeral/
+
+# local build artifacts / captures — never push
+backups/
+serial_log.txt

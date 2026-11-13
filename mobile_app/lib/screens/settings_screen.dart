@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -11,8 +11,11 @@ import '../providers/locale_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/firmware_protocol.dart';
 import '../widgets/transmit_file_dialog.dart';
-import '../services/update_service.dart';
+import '../services/app_update_flow.dart';
 import '../services/flipper_subdb_service.dart';
+import '../services/playlist_service.dart';
+import '../services/uber_playlists.dart';
+import '../models/sub_playlist.dart';
 import '../theme/app_colors.dart';
 import 'debug_screen.dart';
 import 'files_screen.dart';
@@ -110,148 +113,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// Check for app updates on GitHub and show dialog
-  Future<void> _checkAppUpdate(BuildContext context) async {
-    try {
-      final info = await PackageInfo.fromPlatform();
-      final currentVersion = info.version;
-
-      // Show loading
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const SizedBox(
-                  width: 16, height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                ),
-                const SizedBox(width: 12),
-                Text(AppLocalizations.of(context)!.checkingForAppUpdates),
-              ],
-            ),
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
-
-      final update = await UpdateService.checkAppUpdate(currentVersion);
-
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-
-      if (update == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(AppLocalizations.of(context)!.appUpToDate(currentVersion)),
-            backgroundColor: AppColors.success,
-          ),
-        );
-        return;
-      }
-
-      // Show update available dialog
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Row(
-            children: [
-              const Icon(Icons.system_update_alt, color: AppColors.primaryAccent),
-              const SizedBox(width: 8),
-              Text(AppLocalizations.of(context)!.appUpdateAvailable,
-                  style: const TextStyle(color: AppColors.primaryText, fontSize: 16)),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(AppLocalizations.of(context)!.currentVersionLabel(currentVersion),
-                  style: const TextStyle(color: AppColors.secondaryText, fontSize: 13)),
-              Text(AppLocalizations.of(context)!.latestVersionLabel(update.version),
-                  style: const TextStyle(color: AppColors.success, fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              Text(AppLocalizations.of(context)!.changelogLabel, style: const TextStyle(color: AppColors.primaryText, fontWeight: FontWeight.w600, fontSize: 13)),
-              const SizedBox(height: 4),
-              Container(
-                constraints: const BoxConstraints(maxHeight: 150),
-                child: SingleChildScrollView(
-                  child: Text(update.changelog,
-                      style: const TextStyle(color: AppColors.secondaryText, fontSize: 12)),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: Text(AppLocalizations.of(context)!.later),
-            ),
-            if (update.apkUrl != null)
-              ElevatedButton.icon(
-                onPressed: () async {
-                  Navigator.of(ctx).pop();
-                  _downloadAndInstallApk(context, update);
-                },
-                icon: const Icon(Icons.download, size: 16),
-                label: Text(AppLocalizations.of(context)!.downloadAndInstall),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primaryAccent,
-                  foregroundColor: AppColors.primaryBackground,
-                ),
-              ),
-          ],
-        ),
-      );
-    } on UpdateServiceException catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context)!.updateCheckFailed(e.message ?? '')),
-              backgroundColor: AppColors.error),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.error),
-        );
-      }
-    }
-  }
-
-  /// Download APK and trigger install
-  Future<void> _downloadAndInstallApk(BuildContext context, AppUpdate update) async {
-    if (update.apkUrl == null) return;
-    try {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Downloading APK...'), duration: Duration(seconds: 30)),
-      );
-      final apkPath = await UpdateService.downloadApk(update.apkUrl!);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        // Open the APK for install
-        final result = await Process.run('am', ['start', '-a', 'android.intent.action.VIEW',
-            '-d', 'file://$apkPath', '-t', 'application/vnd.android.package-archive']);
-        if (result.exitCode != 0) {
-          // Fallback: try using content URI
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(AppLocalizations.of(context)!.apkSavedPleaseInstall(apkPath)),
-                duration: const Duration(seconds: 5)),
-          );
-        }
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Download failed: $e'), backgroundColor: AppColors.error),
-        );
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -281,7 +142,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   icon: const Icon(Icons.system_update_alt,
                       size: 22, color: AppColors.warning),
                   tooltip: AppLocalizations.of(context)!.checkAppUpdate,
-                  onPressed: () => _checkAppUpdate(context),
+                  onPressed: () => checkAppUpdateFlow(context),
                 ),
                 // About button
                 IconButton(
@@ -657,6 +518,60 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _buildSubSectionHeader(
                 Icons.search, AppLocalizations.of(context)!.scannerSettings, AppColors.searching),
             _buildScannerSettings(context, bleProvider),
+
+            const SizedBox(height: 8),
+            const Divider(color: AppColors.divider, indent: 16, endIndent: 16),
+
+            // --- Connection ---
+            _buildSubSectionHeader(
+                Icons.stay_current_portrait, 'Connection', AppColors.cyanAccent),
+            Consumer<SettingsProvider>(
+              builder: (context, settings, _) => SwitchListTile(
+                dense: true,
+                activeColor: AppColors.cyberPink,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                title: const Text('Keep screen awake',
+                    style:
+                        TextStyle(color: AppColors.primaryText, fontSize: 14)),
+                subtitle: const Text(
+                    'Stops the screen sleeping, which can drop the Crow\'s BLE '
+                    'link mid-transmit. On by default.',
+                    style: TextStyle(
+                        color: AppColors.secondaryText, fontSize: 11)),
+                value: settings.keepScreenAwake,
+                onChanged: (v) =>
+                    context.read<SettingsProvider>().setKeepScreenAwake(v),
+              ),
+            ),
+
+            // --- Updates ---
+            _buildSubSectionHeader(
+                Icons.system_update_alt, 'Updates', AppColors.cyanAccent),
+            Consumer<SettingsProvider>(
+              builder: (context, settings, _) => SwitchListTile(
+                dense: true,
+                activeColor: AppColors.warning,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                title: const Text('Offer unstable updates',
+                    style:
+                        TextStyle(color: AppColors.primaryText, fontSize: 14)),
+                subtitle: const Text(
+                    'Also offer UNSTABLE test builds (app + Crow firmware) from '
+                    'the Sleazy Crow GitHub. Off = stable releases only.',
+                    style: TextStyle(
+                        color: AppColors.secondaryText, fontSize: 11)),
+                value: settings.offerUnstableUpdates,
+                onChanged: (v) async {
+                  if (v) {
+                    final ok = await showUnstableDisclaimer(context);
+                    if (!ok) return;
+                  }
+                  if (context.mounted) {
+                    context.read<SettingsProvider>().setOfferUnstableUpdates(v);
+                  }
+                },
+              ),
+            ),
 
             const SizedBox(height: 16),
           ],
@@ -1633,7 +1548,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Download .sub files from Zero-Sploit repo and save to device SDCard in "SUB Files" folder',
+                        'Download .sub files from UberGuidoZ\'s Sub-GHz collection (pick by folder) and save to the SD card under "SUB Files"',
                         style: TextStyle(
                           color: AppColors.secondaryText,
                           fontSize: 11,
@@ -2195,22 +2110,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
               });
             }
             
-            // Safety timeout — only start ONCE
+            // Safety net — only start ONCE. Waits for the Crow's own "done"
+            // (a full card can take minutes), not a fixed short timer.
             if (ble.isFormattingSD && !timeoutStarted) {
               timeoutStarted = true;
-              Future.delayed(const Duration(seconds: 30), () {
-                if (ctx.mounted && !closed) {
-                  closed = true;
-                  Navigator.of(ctx).pop();
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Format timeout: No response from device.'),
-                        backgroundColor: AppColors.error,
-                        duration: Duration(seconds: 4),
-                      ),
-                    );
-                  }
+              ble.waitForSdFormat().then((result) {
+                if (result != null || !ctx.mounted || closed) return;
+                closed = true;
+                Navigator.of(ctx).pop();
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('The Crow is still formatting. Keep it connected '
+                          'and wait before using the card.'),
+                      backgroundColor: AppColors.error,
+                      duration: Duration(seconds: 6),
+                    ),
+                  );
                 }
               });
             }
@@ -2240,7 +2156,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    'Do not disconnect the device.',
+                    'Do not disconnect the device. A full card can take a few minutes.',
                     style: TextStyle(color: AppColors.secondaryText, fontSize: 12),
                     textAlign: TextAlign.center,
                   ),
@@ -3340,6 +3256,8 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
   int _totalFiles = 0;
   int _uploadedFiles = 0;
   int _failedFiles = 0;
+  int _downloadFailed = 0; // files GitHub didn't deliver
+  int _tooBigFiles = 0; // files over the Crow's per-file upload limit
   bool _isDone = false;
   bool _hasError = false;
   String _errorMessage = '';
@@ -3364,6 +3282,14 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
   // Brute-force folders are huge pre-made signal dumps (not needed for the
   // firmware's own De Bruijn brute-forcer). Off by default, but available.
   bool _includeBruteForce = false;
+  // Uber's ready-made playlists: picking one pulls exactly the files it needs
+  // (from any folder) and adds it to the Playlists screen when done.
+  List<UberPlaylist> _playlists = [];
+  Map<String, UberPlaylistMatch> _playlistMatches = {};
+  Set<String> _selectedPlaylists = {};
+  // Sub-GHz path -> path(s) it was uploaded as (big RAW files become pieces).
+  Map<String, List<String>> _landed = {};
+  String _playlistResult = '';
   // Optional, destructive: wipe the SD card (delete all + recreate default
   // folders) before uploading. Off by default, confirmed on the intro screen.
   bool _formatFirst = false;
@@ -3409,14 +3335,36 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
         _statusText = 'Formatting SD card (erasing and recreating folders)...';
         _progress = 0.0;
       });
+      // Wait for the Crow to report the format is finished. Starting the
+      // download early would race the delete and could wipe new files.
+      void showProgress() {
+        final p = widget.bleProvider.sdFormatProgress;
+        if (mounted && p.isNotEmpty) setState(() => _statusText = 'Formatting SD card: $p');
+      }
+      widget.bleProvider.addListener(showProgress);
+      bool? ok;
       try {
-        await widget.bleProvider.formatSDCard();
-        // Give the firmware a moment to delete + recreate the default folders.
-        await Future.delayed(const Duration(seconds: 3));
+        final sent = await widget.bleProvider.formatSDCard();
+        ok = sent ? await widget.bleProvider.waitForSdFormat() : false;
       } catch (_) {
-        // If formatting fails we still proceed; upload will create folders.
+        ok = false;
+      } finally {
+        widget.bleProvider.removeListener(showProgress);
       }
       if (!mounted) return;
+      if (ok != true) {
+        final msg = ok == null
+            ? 'The SD card format did not finish in time. Keep the Crow connected, '
+                'wait a minute, then try again without "Format SD card first".'
+            : 'The SD card format failed or the Crow disconnected. Nothing was downloaded.';
+        setState(() {
+          _isDone = true;
+          _hasError = true;
+          _errorMessage = msg;
+          _statusText = 'Error: $msg';
+        });
+        return;
+      }
     }
     _startCloning(resume: effectiveResume);
   }
@@ -3439,109 +3387,86 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
     _startCloning(resume: true);
   }
 
+  /// Shared progress callback → dialog state.
+  void _onPhaseProgress(String phase, String detail, double fraction) {
+    if (mounted) {
+      setState(() {
+        _phase = phase;
+        _statusText = detail;
+        _progress = fraction;
+      });
+    }
+  }
+
   Future<void> _startCloning({required bool resume}) async {
-    // Keep screen awake during the entire cloning process
     WakelockPlus.enable();
     try {
-      List<SubFileEntry> subFiles;
-
       if (resume) {
-        // ── Resume path: re-extract from cached ZIP ──
+        // ── Resume: re-list the catalog, restore the saved folder selection,
+        // re-download those folders, and continue the upload (completed files
+        // are skipped in _beginUpload). ──
         setState(() {
-          _phase = 'extract';
-          _statusText = 'Loading cached database...';
+          _phase = 'catalog';
+          _statusText = 'Resuming — loading the catalog…';
           _progress = 0.0;
         });
-
-        final cachedZip = await FlipperSubDbService.loadCachedZip();
-        if (cachedZip == null) {
-          setState(() {
-            _isDone = true;
-            _hasError = true;
-            _errorMessage = 'Cached ZIP not found. Please start a fresh clone.';
-          });
-          WakelockPlus.disable();
-          return;
-        }
-
-        // Load previously completed files
         _completedPaths = await FlipperSubDbService.loadCompletedFiles();
-
-        subFiles = FlipperSubDbService.extractFromBytes(
-          cachedZip,
-          onProgress: (phase, detail, fraction) {
-            if (mounted) {
-              setState(() {
-                _phase = phase;
-                _statusText = detail;
-                _progress = fraction;
-              });
-            }
-          },
-        );
-      } else {
-        // ── Fresh start: download and extract ──
-        _completedPaths = {};
-        await FlipperSubDbService.clearCache();
-
-        setState(() {
-          _phase = 'download';
-          _statusText = 'Downloading SubGHz database from GitHub...';
-          _progress = 0.0;
-        });
-
-        subFiles = await FlipperSubDbService.downloadAndExtract(
-          onProgress: (phase, detail, fraction) {
-            if (mounted) {
-              setState(() {
-                _phase = phase;
-                _statusText = detail;
-                _progress = fraction;
-              });
-            }
-          },
-          onZipDownloaded: (zipBytes) async {
-            // Cache the raw ZIP for potential resume
-            await FlipperSubDbService.cacheZipBytes(zipBytes);
-          },
-        );
-      }
-
-      if (subFiles.isEmpty) {
-        setState(() {
-          _isDone = true;
-          _hasError = true;
-          _errorMessage = 'No .sub files found in the repository';
-        });
-        WakelockPlus.disable();
+        final sel = await FlipperSubDbService.loadSelection();
+        final catalog =
+            await FlipperSubDbService.fetchCatalog(onProgress: _onPhaseProgress);
+        _allFiles = catalog;
+        _categoryCounts = FlipperSubDbService.categoryCounts(catalog);
+        _selectedCategories =
+            sel?.categories ?? _categoryCounts.keys.toSet();
+        _includeBruteForce = sel?.includeBruteForce ?? false;
+        _selectedPlaylists = sel?.playlists ?? {};
+        if (_selectedPlaylists.isNotEmpty) await _loadPlaylists();
+        await _downloadAndUpload(_selectedStubs());
         return;
       }
 
-      // Extraction done. Instead of pushing the whole database over BLE
-      // (impractical — tens of thousands of files, see issue #16), let the
-      // user pick which top-level sections to upload. Stash the full list and
-      // switch to the selection phase; the actual upload runs in _beginUpload
-      // once the user confirms.
-      _allFiles = subFiles;
-      _categoryCounts = FlipperSubDbService.categoryCounts(subFiles);
+      // ── Fresh: one API call lists the Sub-GHz folders (no big download),
+      // then the user picks which to pull. ──
+      _completedPaths = {};
+      await FlipperSubDbService.clearCache();
+      setState(() {
+        _phase = 'catalog';
+        _statusText = 'Listing folders from UberGuidoZ…';
+        _progress = 0.0;
+      });
+
+      final catalog =
+          await FlipperSubDbService.fetchCatalog(onProgress: _onPhaseProgress);
+      if (catalog.isEmpty) {
+        setState(() {
+          _isDone = true;
+          _hasError = true;
+          _errorMessage = 'No .sub files found under Sub-GHz.';
+        });
+        SettingsProvider.releaseTemporaryWakelock();
+        return;
+      }
+
+      _allFiles = catalog;
+      _categoryCounts = FlipperSubDbService.categoryCounts(catalog);
       _selectedCategories = _categoryCounts.keys.toSet();
-      // Don't hold the wakelock while waiting for the user to choose.
-      WakelockPlus.disable();
+      _selectedPlaylists = {};
+      await _loadPlaylists();
+      // Don't hold the wakelock while the user chooses.
+      SettingsProvider.releaseTemporaryWakelock();
       if (mounted) {
         setState(() {
           _phase = 'select';
-          _statusText = 'Choose which sections to upload.';
+          _statusText = 'Choose which folders to download.';
           _progress = 0.0;
         });
       }
       return;
     } catch (e) {
-      // On error, save progress so user can resume later
       if (_completedPaths.isNotEmpty) {
         await FlipperSubDbService.saveProgress(_completedPaths);
       }
-      // Release wakelock on error
-      WakelockPlus.disable();
+      SettingsProvider.releaseTemporaryWakelock();
       if (mounted) {
         setState(() {
           _isDone = true;
@@ -3553,24 +3478,145 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
     }
   }
 
-  /// Number of files that the current category selection would upload.
-  int get _selectedFileCount => FlipperSubDbService.filterSelection(
-        _allFiles,
-        categories: _selectedCategories,
-        excludeBruteForce: !_includeBruteForce,
-      ).length;
+  /// Download the selected (stub) entries' real content, split oversized RAW
+  /// files, then upload to the Crow. Shared by the confirm + resume paths.
+  Future<void> _downloadAndUpload(List<SubFileEntry> selectedStubs) async {
+    if (selectedStubs.isEmpty) {
+      SettingsProvider.releaseTemporaryWakelock();
+      if (mounted) {
+        setState(() {
+          _isDone = true;
+          _statusText = 'Nothing selected to download.';
+        });
+      }
+      return;
+    }
+    WakelockPlus.enable();
+    setState(() {
+      _phase = 'download';
+      _statusText = 'Downloading selected files…';
+      _progress = 0.0;
+    });
+    final downloaded = await FlipperSubDbService.downloadEntries(
+      selectedStubs,
+      onProgress: _onPhaseProgress,
+    );
+    if (downloaded.isEmpty) {
+      SettingsProvider.releaseTemporaryWakelock();
+      if (mounted) {
+        setState(() {
+          _isDone = true;
+          _hasError = true;
+          _errorMessage = 'Downloads failed — check your internet connection.';
+        });
+      }
+      return;
+    }
+    _downloadFailed = selectedStubs.length - downloaded.length;
+    // Split any oversized RAW .sub into smaller, reliably-transferable pieces.
+    // Anything still over the Crow's per-file limit can't be sent whole: skip
+    // it and say so, rather than letting it fail one by one.
+    final fits = <SubFileEntry>[];
+    _landed = {};
+    _tooBigFiles = 0;
+    for (final d in downloaded) {
+      final pieces = FlipperSubDbService.splitIfLargeRaw(d);
+      final ok = pieces
+          .where((f) => f.content.length <= FirmwareBinaryProtocol.MAX_UPLOAD_BYTES)
+          .toList();
+      _tooBigFiles += pieces.length - ok.length;
+      fits.addAll(ok);
+      _landed[d.relativePath] = [for (final f in ok) f.relativePath];
+    }
+    await _beginUpload(fits);
+  }
 
-  /// Confirm the category selection and start uploading the chosen files.
-  void _confirmSelection() {
-    final selected = FlipperSubDbService.filterSelection(
+  /// Fetch Uber's playlists and match each against the catalog. Not fatal.
+  Future<void> _loadPlaylists() async {
+    if (FlipperSubDbService.lastPlaylists.isEmpty) return;
+    if (mounted) {
+      setState(() => _statusText = "Reading Uber's playlists...");
+    }
+    final lists =
+        await FlipperSubDbService.fetchPlaylistTexts(FlipperSubDbService.lastPlaylists);
+    final index = UberPlaylists.indexCatalog(_allFiles.map((f) => f.relativePath));
+    final matches = <String, UberPlaylistMatch>{};
+    final usable = <UberPlaylist>[];
+    for (final p in lists) {
+      final m = UberPlaylists.match(p.text, index);
+      if (m.files.isEmpty) continue;
+      matches[p.repoPath] = m;
+      usable.add(p);
+    }
+    _playlists = usable;
+    _playlistMatches = matches;
+    _selectedPlaylists = _selectedPlaylists.where(matches.containsKey).toSet();
+  }
+
+  /// Folder selection plus every file the chosen playlists need.
+  List<SubFileEntry> _selectedStubs() {
+    final picked = FlipperSubDbService.filterSelection(
       _allFiles,
       categories: _selectedCategories,
       excludeBruteForce: !_includeBruteForce,
     );
+    if (_selectedPlaylists.isEmpty) return picked;
+    final have = {for (final f in picked) f.relativePath};
+    final byPath = {for (final f in _allFiles) f.relativePath: f};
+    for (final id in _selectedPlaylists) {
+      for (final rel in _playlistMatches[id]?.files ?? const <String>[]) {
+        if (have.add(rel)) {
+          final stub = byPath[rel];
+          if (stub != null) picked.add(stub);
+        }
+      }
+    }
+    return picked;
+  }
+
+  /// Add the chosen Uber playlists to the Playlists screen, pointing at the
+  /// files that actually made it onto the card.
+  Future<void> _importPlaylists() async {
+    if (_selectedPlaylists.isEmpty) return;
+    final onCard = <String, List<String>>{};
+    _landed.forEach((orig, pieces) {
+      final ok = pieces.where(_completedPaths.contains).toList();
+      if (ok.isNotEmpty && ok.length == pieces.length) onCard[orig] = ok;
+    });
+    final made = <SubPlaylist>[];
+    var skipped = 0;
+    for (final p in _playlists.where((p) => _selectedPlaylists.contains(p.repoPath))) {
+      final r = UberPlaylists.build(p, _playlistMatches[p.repoPath]!, onCard);
+      skipped += r.skipped;
+      if (r.playlist.items.isNotEmpty) made.add(r.playlist);
+    }
+    if (made.isEmpty) {
+      _playlistResult = "No playlists added: their files didn't reach the card.";
+      return;
+    }
+    try {
+      final all = await PlaylistService.load();
+      await PlaylistService.saveAll(UberPlaylists.merge(all, made));
+      _playlistResult = 'Added ${made.length} playlist${made.length == 1 ? '' : 's'} '
+          'to Playlists'
+          '${skipped > 0 ? ' ($skipped listed file${skipped == 1 ? '' : 's'} missing, left out)' : ''}.';
+    } catch (e) {
+      _playlistResult = "Couldn't save the playlists: $e";
+    }
+  }
+
+  /// Number of files that the current category selection would upload.
+  int get _selectedFileCount => _selectedStubs().length;
+
+  /// Confirm the folder selection: persist it (for resume), download the chosen
+  /// folders' files, then upload them to the Crow.
+  Future<void> _confirmSelection() async {
+    final selected = _selectedStubs();
     if (selected.isEmpty) return;
-    // Split any oversized RAW .sub into smaller, reliably-transferable pieces.
-    final expanded = FlipperSubDbService.expandForUpload(selected);
-    _beginUpload(expanded);
+    await FlipperSubDbService.saveSelection(
+        _selectedCategories, _includeBruteForce,
+        playlists: _selectedPlaylists);
+    await _downloadAndUpload(selected);
   }
 
   /// Upload the chosen [files] to the SD card. Runs after the user confirms
@@ -3641,7 +3687,7 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
                   'Paused – $_uploadedFiles / $_totalFiles files uploaded. You can close and resume later.';
             });
           }
-          WakelockPlus.disable();
+          SettingsProvider.releaseTemporaryWakelock();
           return;
         }
 
@@ -3688,7 +3734,9 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
         }
       }
 
-      // All selected files processed – clean up cache
+      // All selected files processed – add any chosen Uber playlists, then
+      // clean up the cache.
+      await _importPlaylists();
       await FlipperSubDbService.clearCache();
 
       if (mounted) {
@@ -3696,20 +3744,26 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
           _isDone = true;
           _uploadedFiles = _totalFiles;
           _progress = 1.0;
-          _statusText = _failedFiles > 0
-              ? 'Completed with $_failedFiles errors'
-              : 'All $_totalFiles files uploaded successfully!';
+          final problems = <String>[
+            if (_failedFiles > 0) '$_failedFiles failed to upload',
+            if (_downloadFailed > 0) "$_downloadFailed couldn't be downloaded",
+            if (_tooBigFiles > 0) '$_tooBigFiles too big for the Crow (skipped)',
+          ];
+          _statusText = (problems.isEmpty
+                  ? 'All $_totalFiles files uploaded successfully!'
+                  : 'Finished: ${_totalFiles - _failedFiles} uploaded; ${problems.join(', ')}.') +
+              (_playlistResult.isEmpty ? '' : '\n$_playlistResult');
         });
       }
       // Release wakelock after successful completion
-      WakelockPlus.disable();
+      SettingsProvider.releaseTemporaryWakelock();
     } catch (e) {
       // On error, save progress so user can resume later
       if (_completedPaths.isNotEmpty) {
         await FlipperSubDbService.saveProgress(_completedPaths);
       }
       // Release wakelock on error
-      WakelockPlus.disable();
+      SettingsProvider.releaseTemporaryWakelock();
       if (mounted) {
         setState(() {
           _isDone = true;
@@ -3796,9 +3850,9 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
                     fontSize: 13)),
             const SizedBox(height: 6),
             _introStep('1.',
-                'The SubGHz database is downloaded to your phone\'s storage (a one-time download of a few tens of MB).'),
+                'UberGuidoZ\'s Sub-GHz folders are listed (one quick fetch — no large download).'),
             _introStep('2.',
-                'You choose which sections to send to the Crow\'s SD card.'),
+                'You pick which folders to pull; only those download, then transfer to the Crow\'s SD card (his folder layout is kept intact).'),
             _introStep('3.',
                 'The selected files transfer over Bluetooth, which is slow — keep each batch small (recommended under $_recommendedMaxFiles files). You can run more batches afterward.'),
             const SizedBox(height: 10),
@@ -3886,8 +3940,8 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'The full database is too large to push over BLE in one go. '
-              'Pick only the sections you want.',
+              'Pick the folders you want — only those download from UberGuidoZ, '
+              'then transfer to the Crow over Bluetooth.',
               style: TextStyle(color: AppColors.secondaryText, fontSize: 12),
             ),
             const SizedBox(height: 4),
@@ -3905,6 +3959,57 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
               value: _includeBruteForce,
               onChanged: (v) => setState(() => _includeBruteForce = v),
             ),
+            if (_playlists.isNotEmpty)
+              Theme(
+                data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.queue_music, color: Colors.orange),
+                  title: Text(
+                    "Uber's playlists"
+                    '${_selectedPlaylists.isEmpty ? '' : ' (${_selectedPlaylists.length} picked)'}',
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                  subtitle: Text(
+                    'Downloads just the files each one needs and adds it to Playlists.',
+                    style: TextStyle(color: AppColors.secondaryText, fontSize: 11),
+                  ),
+                  children: [
+                    SizedBox(
+                      height: 200,
+                      child: ListView(
+                        children: [
+                          for (final p in _playlists)
+                            CheckboxListTile(
+                              contentPadding: EdgeInsets.zero,
+                              dense: true,
+                              controlAffinity: ListTileControlAffinity.leading,
+                              activeColor: Colors.orange,
+                              value: _selectedPlaylists.contains(p.repoPath),
+                              title: Text(
+                                p.displayName.substring(UberPlaylists.namePrefix.length),
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              secondary: Text(
+                                '${_playlistMatches[p.repoPath]?.files.length ?? 0}',
+                                style: TextStyle(
+                                    color: AppColors.secondaryText, fontSize: 11),
+                              ),
+                              onChanged: (v) => setState(() {
+                                if (v == true) {
+                                  _selectedPlaylists.add(p.repoPath);
+                                } else {
+                                  _selectedPlaylists.remove(p.repoPath);
+                                }
+                              }),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             Row(
               children: [
                 TextButton(
@@ -4091,11 +4196,13 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
                 Text(
                   _phase == 'format'
                       ? 'Preparing: Formatting SD card'
-                      : _phase == 'download'
-                          ? 'Phase 1/3: Downloading'
-                          : _phase == 'extract'
-                              ? 'Phase 2/3: Extracting'
-                              : 'Phase 3/3: Uploading to SDCard',
+                      : _phase == 'catalog'
+                          ? 'Listing folders…'
+                          : _phase == 'download'
+                              ? 'Downloading selected files'
+                              : _phase == 'upload'
+                                  ? 'Uploading to SD card'
+                                  : 'Working…',
                   style: TextStyle(
                     color: AppColors.primaryAccent,
                     fontWeight: FontWeight.w600,

@@ -260,15 +260,18 @@ bool BruterModule::startAttackAsync(uint8_t menuChoice) {
         return false;
     }
     resumeFromCode = 0; // Fresh attack
-    // Use static allocation, pinned to Core 1 (app core, RF time-sensitive)
-    attackTaskHandle = xTaskCreateStatic(
+    // Static allocation, pinned to Core 1 (APP core). Keeps the long De Bruijn
+    // / brute-force busy-wait off Core 0, where BT and the watchdog's watched
+    // IDLE0 run — so a multi-second sweep can't reboot the Crow or drop BLE.
+    attackTaskHandle = xTaskCreateStaticPinnedToCore(
         attackTaskFunc,
         "bruter_atk",
         BRUTER_TASK_STACK_WORDS,
         (void*)(uintptr_t)menuChoice,
         2,  // Priority 2 (above normal, below CC1101Worker at 5)
         bruterTaskStack,
-        &bruterTaskTCB
+        &bruterTaskTCB,
+        1  // APP_CPU
     );
     return (attackTaskHandle != nullptr);
 }
@@ -304,15 +307,17 @@ bool BruterModule::resumeAttackAsync() {
         reinterpret_cast<const uint8_t*>(&resumeMsg),
         sizeof(BinaryBruterResumed));
 
-    // Launch the task with the saved menu choice
-    attackTaskHandle = xTaskCreateStatic(
+    // Launch the task with the saved menu choice (pinned to Core 1, APP core —
+    // see the fresh-attack path for why).
+    attackTaskHandle = xTaskCreateStaticPinnedToCore(
         attackTaskFunc,
         "bruter_atk",
         BRUTER_TASK_STACK_WORDS,
         (void*)(uintptr_t)saved.menuId,
         2,
         bruterTaskStack,
-        &bruterTaskTCB
+        &bruterTaskTCB,
+        1  // APP_CPU
     );
     return (attackTaskHandle != nullptr);
 }

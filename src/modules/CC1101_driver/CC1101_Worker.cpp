@@ -177,14 +177,18 @@ void CC1101Worker::start() {
     static StackType_t workerStack[6144 / sizeof(StackType_t)];
     static StaticTask_t workerBuffer;
     
-    workerTaskHandle = xTaskCreateStatic(
+    // Pinned to Core 1 (APP core). BT/WiFi and the task watchdog's watched
+    // IDLE0 live on Core 0, so a long RF busy-wait here starves only the
+    // unwatched IDLE1 — it can't reboot the Crow or drop the BLE link.
+    workerTaskHandle = xTaskCreateStaticPinnedToCore(
         workerTask,
         "CC1101Worker",
         6144 / sizeof(StackType_t),
         nullptr,
         5,  // Priority 3 (high priority for time-sensitive RF operations, increased for jamming stability)
         workerStack,
-        &workerBuffer
+        &workerBuffer,
+        1  // APP_CPU
     );
     
     if (workerTaskHandle == nullptr) {
@@ -502,6 +506,69 @@ void CC1101Worker::stopProtoPirateRX(int module) {
 
     ESP_LOGI(TAG, "ProtoPirate RX stopped on module %d", module);
     sendModeNotification(module, CC1101State::Idle);
+}
+
+bool CC1101Worker::startTpmsRX(int module, float frequency, float dataRate,
+                               float deviation, float rxBandwidth) {
+    if (module < 0 || module >= CC1101_NUM_MODULES) return false;
+    if (moduleStates[module] != CC1101State::Idle) {
+        ESP_LOGW(TAG, "Module %d not idle (state=%d), cannot start TPMS RX",
+                 module, (int)moduleStates[module]);
+        return false;
+    }
+
+    handleGoIdle(module);
+
+    // Configure CC1101 for 2-FSK RX — typical TPMS (Schrader/Toyota/Ford) on
+    // 315 MHz (US) or 433.92 MHz (EU), Manchester over FSK, ~19.2 kbps.
+    moduleCC1101State[module].setReceiveConfig(
+        frequency,
+        false,              // keep DC filter (FSK)
+        MODULATION_2_FSK,
+        rxBandwidth,        // ~135 kHz covers TPMS deviation + drift
+        deviation,          // ~38 kHz
+        dataRate            // ~19.2 kbps
+    ).initConfig();
+
+    clearReceivedSamples(module);
+    addModuleReceiver(module);
+
+    sendModeNotification(module, CC1101State::Tpms);
+    moduleStates[module] = CC1101State::Tpms;
+
+    ESP_LOGI(TAG, "TPMS RX started on module %d, freq=%.2f MHz, drate=%.1f dev=%.1f bw=%.0f",
+             module, frequency, dataRate, deviation, rxBandwidth);
+    return true;
+}
+
+void CC1101Worker::stopTpmsRX(int module) {
+    if (module < 0 || module >= CC1101_NUM_MODULES) return;
+    if (moduleStates[module] != CC1101State::Tpms) return;
+
+    removeModuleReceiver(module);
+    moduleCC1101State[module].setSidle();
+    moduleCC1101State[module].unlock();
+    clearReceivedSamples(module);
+    moduleStates[module] = CC1101State::Idle;
+
+    ESP_LOGI(TAG, "TPMS RX stopped on module %d", module);
+    sendModeNotification(module, CC1101State::Idle);
+}
+
+void CC1101Worker::retuneTpms(int module, float frequency, bool ook) {
+    if (module < 0 || module >= CC1101_NUM_MODULES) return;
+    if (moduleStates[module] != CC1101State::Tpms) return;
+    // Reconfigure the CC1101 in place; the GDO ISR stays attached (capture
+    // continues). OOK for Schrader-family (~120us symbols, GM/Opel/BMW),
+    // FSK for Toyota/Ford/Hyundai (~52us). Wide BW tolerates crystal drift.
+    if (ook) {
+        moduleCC1101State[module].setReceiveConfig(
+            frequency, false, MODULATION_ASK_OOK, 232.0f, 0.0f, 8.0f).initConfig();
+    } else {
+        moduleCC1101State[module].setReceiveConfig(
+            frequency, false, MODULATION_2_FSK, 232.0f, 30.0f, 19.2f).initConfig();
+    }
+    clearReceivedSamples(module);
 }
 
 void CC1101Worker::handleTransmit(int module, const std::string& filename, int repeat, int pathType) {
@@ -1105,10 +1172,11 @@ bool CC1101Worker::transmitRawData(const std::vector<int> &rawData, int module)
         return false;
     }
 
+    uint32_t lastRest = micros();
     for (const auto &rawValue : rawData) {
         if (rawValue != 0) {
             digitalWrite(moduleCC1101State[module].getOutputPin(), (rawValue > 0));
-            delayMicroseconds(abs(rawValue));
+            holdPulse((uint32_t)abs(rawValue), rawValue > 0, lastRest);
         }
     }
 
@@ -1120,10 +1188,10 @@ bool CC1101Worker::transmitData(PulsePayload &payload, int module)
     uint32_t duration;
     bool pinState;
 
+    uint32_t lastRest = micros();
     while (payload.next(duration, pinState)) {
         digitalWrite(moduleCC1101State[module].getOutputPin(), pinState);
-        delayMicroseconds(duration);
-        taskYIELD();
+        holdPulse(duration, pinState, lastRest);
     }
 
     return true;

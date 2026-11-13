@@ -36,6 +36,9 @@ enum BinaryMessageType {
   nrfJamStatus(0xD5),       // Jammer status update
   nrfJamModeConfig(0xD6),   // Per-mode config response/update
   nrfJamModeInfo(0xD7),     // Mode info (name, description, channels)
+  // TPMS sniffer notifications (0xD8-0xD9)
+  tpmsHit(0xD8),            // One decoded TPMS sensor (32-bit ID fingerprint)
+  tpmsStatus(0xD9),         // TPMS sniffer status (active, freq, seen, packets)
   // OTA notifications (0xE0-0xE2)
   otaProgress(0xE0),        // OTA write progress
   otaComplete(0xE1),        // OTA finished successfully
@@ -1078,6 +1081,41 @@ class BinaryMessageParser {
               'present': data[1] != 0,
               'initialized': data[2] != 0,
               'activeState': data[3],
+            },
+          };
+
+        // ── TPMS sniffer notifications ─────────────────────────
+
+        case BinaryMessageType.tpmsHit:
+          // [0xD8][sensorId:4LE][pressure_kpa:2LE][temp_c:i8][rssi:i8][protocol:1][flags:1]
+          if (data.length < 11) return null;
+          final sid = data[1] | (data[2] << 8) | (data[3] << 16) | (data[4] << 24);
+          final pk = data[5] | (data[6] << 8);
+          final tRaw = data[7];
+          final rRaw = data[8];
+          return {
+            'type': 'TpmsHit',
+            'data': {
+              'sensorId': sid & 0xFFFFFFFF,
+              'pressureKpa': pk == 0xFFFF ? null : pk,
+              'temperatureC': tRaw == 0x80 ? null : (tRaw > 127 ? tRaw - 256 : tRaw),
+              'rssi': rRaw > 127 ? rRaw - 256 : rRaw,
+              'protocol': data[9],
+              'crcOk': (data[10] & 0x01) != 0,
+            },
+          };
+
+        case BinaryMessageType.tpmsStatus:
+          // [0xD9][active:1][module:1][freqx100:2LE][seen:2LE][packets:2LE][reserved:1]
+          if (data.length < 9) return null;
+          return {
+            'type': 'TpmsStatus',
+            'data': {
+              'active': data[1] != 0,
+              'module': data[2],
+              'freqMHz': (data[3] | (data[4] << 8)) / 100.0,
+              'seen': data[5] | (data[6] << 8),
+              'packets': data[7] | (data[8] << 8),
             },
           };
 
