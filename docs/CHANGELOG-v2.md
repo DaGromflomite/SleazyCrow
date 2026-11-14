@@ -211,6 +211,17 @@ All of this stays local/unflashed to any daily device until verified.
 Self-test artifacts: `env:esp32dev-selftest` (`-DSELFTEST_ON_BOOT=1`), `src/modules/selftest/SelfTest.{h,cpp}`,
 hook in `main.cpp` after `CC1101Worker::init()` / before `start()`. Bench Crow was restored to `esp32dev`.
 
+**All-paths audit (2026-11-13):** verified `transmitSub` was the *only* transmit path that streamed pulses
+per-pulse from SD. Every other path already builds the full pulse list in RAM before keying it out, so none
+had the stretch and none needed the change:
+- `transmitRaw` (string→vector), `transmitRawData` (vector), `transmitBinary` (bits→vector),
+  `transmitData(PulsePayload&)` — all RAM-sourced, tight.
+- bruter `sendPulse` — RAM-generated codes, separate subsystem.
+- jamming — continuous carrier, not pulse replay.
+- ProtoPirate `loadSubFile` — uses `StreamingSubFileParser` to *decode* (feed decoders), never drives the TX
+  pin, so per-pulse latency is irrelevant.
+No code change made to those paths (don't churn working code). The fix lives where the bug was.
+
 **New app feature — drill-down folder picker for the Sub-GHz downloader.**
 - The downloader's "Choose Sections" dialog now **browses the Sub-GHz tree level by level**
   (breadcrumb + folders, tick to grab a whole subtree, arrow to go deeper) instead of only offering
