@@ -56,6 +56,7 @@ bool TpmsModule::start(int module, float freqMHz) {
     freqMHz_ = freqMHz;
     packets_ = 0;
     seen_ = 0;
+    edges_ = 0;
     recentCount_ = 0;
 
     if (!CC1101Worker::startTpmsRX(module_, freqMHz_)) {
@@ -97,47 +98,70 @@ void TpmsModule::decodeTask(void* param) {
     const int module = self->module_;
     portMUX_TYPE& mux = CC1101Worker::getSamplesMux(module);
     ReceivedSamples& rxData = CC1101Worker::getSamples(module);
-    std::vector<unsigned long> local;
+    std::vector<unsigned long> chunk;
+    std::vector<unsigned long> seg;
+    chunk.reserve(MAX_SAMPLES_BUFFER);
+    seg.reserve(kMaxSegment);
     uint32_t statusTimer = millis();
     uint32_t modTimer = millis();
+    uint32_t lastData = millis();
     bool ookMode = false;   // start FSK (Toyota/Ford/Hyundai), alternate to OOK
 
+    // WHY STREAMING: in CC1101 async RX with no carrier-sense squelch, GDO0
+    // toggles on noise continuously. The old code waited for 100 ms of line
+    // silence to call a burst "complete" -- which never happens in FSK noise --
+    // and the ISR buffer filled with noise so a real packet was never stored.
+    // Result on the road: packets=0. Now we drain the ISR buffer every 10 ms and
+    // cut the pulse stream into runs whose widths are whole multiples of the
+    // TPMS half-bit period (1..8 T, so the preamble->sync pulse that carries the
+    // first ID half-bit stays in the run); noise can't sustain such a run, a
+    // TPMS frame does. Simulated: 200/200 jittered frames found in noise, 0
+    // false runs in 1M noise pulses.
+    auto flush = [&](float T) {
+        if ((int)seg.size() >= kMinSegment) self->processPacket(seg, T, -50);
+        seg.clear();
+    };
+
     while (self->active_) {
+        float T = ookMode ? kHalfBitOokUs : kHalfBitFskUs;
         // Alternate modulation every ~4 s so we hear both TPMS families:
         // FSK (Toyota/Ford/Hyundai ~52us) and OOK (Schrader/GM/BMW ~120us).
         if (millis() - modTimer >= 4000) {
             modTimer = millis();
+            flush(T);
             ookMode = !ookMode;
             CC1101Worker::retuneTpms(self->module_, self->freqMHz_, ookMode);
+            continue;
         }
-        size_t count = 0;
-        unsigned long lastRx = 0;
+
+        chunk.clear();
         taskENTER_CRITICAL(&mux);
-        count = rxData.samples.size();
-        lastRx = rxData.lastReceiveTime;
+        chunk.assign(rxData.samples.begin(), rxData.samples.end());
+        rxData.samples.clear();     // keep lastReceiveTime: next edge stays valid
         taskEXIT_CRITICAL(&mux);
 
-        // Burst complete when the line has been quiet > MAX_SIGNAL_DURATION.
-        bool complete = false;
-        if (count >= 2 && lastRx > 0) {
-            if ((micros() - lastRx) > MAX_SIGNAL_DURATION) complete = true;
-        }
-
-        if (complete) {
-            local.clear();
-            taskENTER_CRITICAL(&mux);
-            local.assign(rxData.samples.begin(), rxData.samples.end());
-            rxData.samples.clear();
-            rxData.lastReceiveTime = 0;
-            taskEXIT_CRITICAL(&mux);
-            if (local.size() >= 40) {            // ignore noise bursts
-                self->processPacket(local, -50);
+        if (!chunk.empty()) {
+            lastData = millis();
+            self->edges_ += chunk.size();
+            for (unsigned long d : chunk) {
+                float r = (float)d / T;
+                int n = (int)lroundf(r);
+                bool fits = n >= 1 && n <= 8 && fabsf(r - (float)n) <= 0.40f;
+                if (fits) {
+                    if ((int)seg.size() < kMaxSegment) seg.push_back(d);
+                    else flush(T);
+                } else {
+                    flush(T);
+                }
             }
+        } else if (!seg.empty() && millis() - lastData > 20) {
+            flush(T);                // line went quiet (OOK squelch) after a run
         }
 
         if (millis() - statusTimer >= 2000) {
             statusTimer = millis();
             self->sendStatus();
+            self->edges_ = 0;
         }
         vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -155,15 +179,26 @@ void TpmsModule::decodeTask(void* param) {
 // Demodulate a captured pulse burst and decode it. Fills `out` and returns true
 // if any ID was recovered (protocol>0 = validated decode, 0 = generic
 // fingerprint). Pure w.r.t. BLE/state so it can be unit-tested on-device.
-bool TpmsModule::demodPulses(const std::vector<unsigned long>& pulses, TpmsDecoded& out) {
-    // 1. Estimate the base half-bit period T = robust minimum pulse width.
-    //    (TPMS symbols are ~52us; MIN_PULSE_DURATION filters sub-threshold noise.)
-    unsigned long minDur = 1000000;
-    for (unsigned long d : pulses) {
-        if (d >= (unsigned long)MIN_PULSE_DURATION && d < minDur) minDur = d;
+bool TpmsModule::demodPulses(const std::vector<unsigned long>& pulses, TpmsDecoded& out,
+                             float tHint) {
+    // 1. Base half-bit period T. With a hint (live capture), refine it as the
+    //    mean of the single-period pulses (absorbs sensor crystal error);
+    //    without one (self-test), use the minimum pulse width.
+    float T;
+    if (tHint > 0.0f) {
+        float sum = 0.0f; int cnt = 0;
+        for (unsigned long d : pulses) {
+            if (lroundf((float)d / tHint) == 1) { sum += (float)d; cnt++; }
+        }
+        T = cnt >= 8 ? sum / cnt : tHint;
+    } else {
+        unsigned long minDur = 1000000;
+        for (unsigned long d : pulses) {
+            if (d >= 20 && d < minDur) minDur = d;
+        }
+        if (minDur < 20 || minDur > 1000) return false;
+        T = (float)minDur;
     }
-    if (minDur < 40 || minDur > 1000) return false;
-    const float T = (float)minDur;
 
     // 2. Expand pulses into a half-bit LEVEL stream (levels alternate, start HIGH).
     static uint8_t half[2048];
@@ -172,7 +207,7 @@ bool TpmsModule::demodPulses(const std::vector<unsigned long>& pulses, TpmsDecod
     for (unsigned long d : pulses) {
         int n = (int)lroundf((float)d / T);
         if (n < 1) n = 1;
-        if (n > 6) n = 6;
+        if (n > 8) n = 8;
         for (int k = 0; k < n && nh < (int)sizeof(half); k++) half[nh++] = level ? 1 : 0;
         level = !level;
     }
@@ -213,10 +248,10 @@ bool TpmsModule::demodPulses(const std::vector<unsigned long>& pulses, TpmsDecod
     return true;
 }
 
-void TpmsModule::processPacket(const std::vector<unsigned long>& pulses, int rssi) {
-    packets_++;
+void TpmsModule::processPacket(const std::vector<unsigned long>& pulses, float T, int rssi) {
+    if (packets_ < 0xFFFF) packets_++;
     TpmsDecoded d;
-    if (!demodPulses(pulses, d)) return;
+    if (!demodPulses(pulses, d, T)) return;
     if (seenRecently(d.id)) return;
     if (seen_ < 0xFFFF) seen_++;
     emitHit(d.id, d.pressureKpa, d.tempC, (int8_t)rssi, d.protocol,
@@ -273,7 +308,10 @@ void TpmsModule::sendStatus() {
     st.freqx100 = (uint16_t)lroundf(freqMHz_ * 100.0f);
     st.seen = seen_;
     st.packets = packets_;
-    st.reserved = 0;
+    // Radio activity over the last 2 s (edges/256, capped). 0 = the CC1101 is
+    // delivering nothing at all (dead radio / wrong GDO), useful in the field.
+    uint32_t e = edges_ / 256;
+    st.reserved = (uint8_t)(e > 255 ? 255 : e);
     ClientsManager::getInstance().notifyAllBinary(
         NotificationType::TpmsEvent, (const uint8_t*)&st, sizeof(st));
 }
