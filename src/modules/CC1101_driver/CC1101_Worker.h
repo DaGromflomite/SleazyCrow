@@ -333,6 +333,12 @@ private:
     
     // Recording ISR data structures (moved from Recorder)
     static portMUX_TYPE samplesMuxes[CC1101_NUM_MODULES];
+public:
+    // Per-module ISR pulse floor (us). Default MIN_PULSE_DURATION; TPMS lowers it
+    // because its 52us FSK symbols jitter below 50us and a dropped pulse breaks
+    // the level alternation the Manchester demod relies on.
+    static volatile uint16_t minPulseUs[CC1101_NUM_MODULES];
+private:
     static ReceivedSamples receivedSamples[CC1101_NUM_MODULES];
 };
 

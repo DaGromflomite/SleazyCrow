@@ -60,6 +60,7 @@ extern ModuleCc1101 moduleCC1101State[CC1101_NUM_MODULES];
 // Recording ISR data structures (moved from Recorder.cpp)
 portMUX_TYPE CC1101Worker::samplesMuxes[CC1101_NUM_MODULES];
 ReceivedSamples CC1101Worker::receivedSamples[CC1101_NUM_MODULES];
+volatile uint16_t CC1101Worker::minPulseUs[CC1101_NUM_MODULES] = {MIN_PULSE_DURATION, MIN_PULSE_DURATION};
 
 void CC1101Worker::init(SignalDetectedCallback detectedCb, SignalRecordedCallback recordedCb) {
     signalDetectedCallback = detectedCb;
@@ -117,7 +118,7 @@ void IRAM_ATTR CC1101Worker::receiveSample(int module)
         return;
     }
 
-    if (duration >= MIN_PULSE_DURATION && data.samples.size() < MAX_SAMPLES_BUFFER) {
+    if (duration >= minPulseUs[module] && data.samples.size() < MAX_SAMPLES_BUFFER) {
         try {
             data.samples.push_back(duration);
         } catch (...) {
@@ -530,6 +531,7 @@ bool CC1101Worker::startTpmsRX(int module, float frequency, float dataRate,
         dataRate            // ~19.2 kbps
     ).initConfig();
 
+    minPulseUs[module] = 12;   // keep jittery 52us TPMS symbols (see header)
     clearReceivedSamples(module);
     addModuleReceiver(module);
 
@@ -546,6 +548,7 @@ void CC1101Worker::stopTpmsRX(int module) {
     if (moduleStates[module] != CC1101State::Tpms) return;
 
     removeModuleReceiver(module);
+    minPulseUs[module] = MIN_PULSE_DURATION;
     moduleCC1101State[module].setSidle();
     moduleCC1101State[module].unlock();
     clearReceivedSamples(module);

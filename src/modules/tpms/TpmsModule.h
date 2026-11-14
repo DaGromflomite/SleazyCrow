@@ -44,7 +44,8 @@ public:
 
     // Demodulate + decode a pulse burst (pure). protocol>0 = validated decode,
     // 0 = generic fingerprint. Exposed for the on-device demod self-test.
-    static bool demodPulses(const std::vector<unsigned long>& pulses, TpmsDecoded& out);
+    static bool demodPulses(const std::vector<unsigned long>& pulses, TpmsDecoded& out,
+                            float tHint = 0.0f);
 
     // On-device roundtrip test of the FULL demod->decode chain: Manchester-encode
     // the known Ford vector into a synthetic pulse train and confirm it decodes
@@ -55,7 +56,13 @@ private:
     TpmsModule() = default;
 
     static void decodeTask(void* param);
-    void processPacket(const std::vector<unsigned long>& pulses, int rssi);
+    void processPacket(const std::vector<unsigned long>& pulses, float T, int rssi);
+
+    // Streaming segmenter tuning (see decodeTask).
+    static constexpr float kHalfBitFskUs = 52.0f;   // Ford/Toyota/Hyundai-VDO
+    static constexpr float kHalfBitOokUs = 120.0f;  // Schrader family
+    static constexpr int   kMinSegment = 48;        // pulses; a TPMS frame is ~90+
+    static constexpr int   kMaxSegment = 600;
     void emitHit(uint32_t sensorId, uint16_t pressureKpa, int8_t tempC,
                  int8_t rssi, uint8_t protocol, uint8_t flags);
 
@@ -64,7 +71,8 @@ private:
     float         freqMHz_ = 315.0f;
     TaskHandle_t  taskHandle_ = nullptr;
 
-    uint16_t packets_ = 0;   // raw bursts captured (reception confidence)
+    uint16_t packets_ = 0;   // TPMS-shaped pulse runs heard (reception confidence)
+    volatile uint32_t edges_ = 0;  // raw ISR edges in the current 2 s window
     uint16_t seen_ = 0;      // unique sensor IDs this session
     // Small de-dup set of recently reported IDs so one chatty sensor doesn't
     // flood BLE (the app keeps the long-term history).

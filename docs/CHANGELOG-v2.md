@@ -499,6 +499,22 @@ Senape appears only in Credits and the firmware attribution string.
 - **NOT yet verified on a phone:** the actual download → permission → system-installer hand-off (needs a phone + a newer
   release than the installed app to test end-to-end). Firmware BLE transfer code is unchanged by this work.
 
+### TPMS reception fix — road test heard nothing (2026-11-14)
+First real road test (1 hr on I-90) picked up **zero** sensors. Code review found that capture could never deliver a packet:
+- **Burst detector waited for 100 ms of silence.** In CC1101 async RX with no squelch, GDO0 toggles on noise non-stop,
+  so a burst was never "complete" and the ISR buffer filled with noise first. **Replaced with a streaming segmenter:**
+  the ISR buffer is drained every 10 ms and the pulse stream is cut into runs whose widths are whole multiples (1–8×)
+  of the TPMS half-bit (52 µs FSK / 120 µs OOK, ±40 %). Runs of ≥48 pulses go to the decoder; the half-bit is refined
+  per run from the single-period pulses (absorbs sensor crystal error).
+- **ISR pulse floor 50 µs dropped jittery 52 µs symbols**, breaking the level alternation the Manchester demod relies
+  on. Per-module floor `CC1101Worker::minPulseUs[]`: 12 µs while TPMS runs, restored to `MIN_PULSE_DURATION` on stop
+  (other modes unchanged).
+- Status `reserved` byte now = radio edges/256 over the last 2 s (0 = radio delivering nothing). `packets` now counts
+  TPMS-shaped runs.
+- **Verified:** Python simulation of the same segmenter+demod: 200/200 jittered Ford frames found buried in noise at
+  both 52 and 120 µs, 0 false runs in 1M noise pulses. Firmware builds (RAM 27.0 %, flash 58.3 %).
+  **NOT yet verified on the Crow or a car.**
+
 ### Unstable channel + v2.0.0-unstable test release (2026-11-13)
 User decision: publish v2 now as an **opt-in UNSTABLE** build with a disclaimer; stable v1.2.0-beta stays the default.
 - **Version 2.0.0-unstable** (firmware ints 2.0.0, app build 40). `tools/sleazy.py set-version X.Y.Z --unstable`;
