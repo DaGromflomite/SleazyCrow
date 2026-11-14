@@ -3278,7 +3278,12 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
   // push instead of the whole repo (upstream issue #16).
   List<SubFileEntry> _allFiles = [];
   Map<String, int> _categoryCounts = {};
+  // Selected folder prefixes (any depth): a top-level name like "TouchTunes"
+  // grabs its whole subtree; a deeper path like "TouchTunes/raw" grabs just
+  // that folder. Backward compatible with older top-level-only saved sets.
   Set<String> _selectedCategories = {};
+  // Current folder shown in the drill-down browser ('' = Sub-GHz root).
+  String _browsePath = '';
   // Brute-force folders are huge pre-made signal dumps (not needed for the
   // firmware's own De Bruijn brute-forcer). Off by default, but available.
   bool _includeBruteForce = false;
@@ -3450,6 +3455,7 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
       _allFiles = catalog;
       _categoryCounts = FlipperSubDbService.categoryCounts(catalog);
       _selectedCategories = _categoryCounts.keys.toSet();
+      _browsePath = '';
       _selectedPlaylists = {};
       await _loadPlaylists();
       // Don't hold the wakelock while the user chooses.
@@ -3917,12 +3923,169 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
     );
   }
 
-  /// Dialog that lets the user pick which top-level sections of the SubGHz DB
-  /// to upload, with a switch to include or skip the brute-force folders.
+  /// True if [path] is already fully included — either picked directly or
+  /// covered by a selected ancestor folder.
+  bool _isCovered(String path) => _selectedCategories
+      .any((s) => s == path || path.startsWith('$s/'));
+
+  /// The selected ancestor that implicitly includes [path] (null if [path]
+  /// itself is the selected one, or nothing covers it). When set, the row is
+  /// shown ticked-but-locked: you clear it by unticking the ancestor.
+  String? _coveringAncestor(String path) {
+    for (final s in _selectedCategories) {
+      if (s != path && path.startsWith('$s/')) return s;
+    }
+    return null;
+  }
+
+  /// Tri-state for a folder checkbox: true = whole folder in, null = some of
+  /// its descendants in, false = none.
+  bool? _folderTristate(String path) {
+    if (_isCovered(path)) return true;
+    if (_selectedCategories.any((s) => s.startsWith('$path/'))) return null;
+    return false;
+  }
+
+  /// Toggle a folder's selection, keeping the set minimal and non-overlapping:
+  /// picking a folder drops any now-redundant descendant picks; unticking it
+  /// removes it and anything beneath it.
+  void _toggleFolder(String path) {
+    setState(() {
+      if (_isCovered(path)) {
+        _selectedCategories.remove(path);
+        _selectedCategories.removeWhere((s) => s.startsWith('$path/'));
+      } else {
+        _selectedCategories.removeWhere((s) => s.startsWith('$path/'));
+        _selectedCategories.add(path);
+      }
+    });
+  }
+
+  /// Breadcrumb trail for the folder browser, each segment tappable to jump.
+  Widget _buildBreadcrumb() {
+    final segs = _browsePath.isEmpty ? <String>[] : _browsePath.split('/');
+    final crumbs = <Widget>[
+      InkWell(
+        onTap: () => setState(() => _browsePath = ''),
+        child: const Padding(
+          padding: EdgeInsets.symmetric(vertical: 4),
+          child: Icon(Icons.home, size: 16, color: Colors.orange),
+        ),
+      ),
+    ];
+    var acc = '';
+    for (var i = 0; i < segs.length; i++) {
+      acc = acc.isEmpty ? segs[i] : '$acc/${segs[i]}';
+      final target = acc;
+      crumbs.add(const Icon(Icons.chevron_right, size: 14));
+      crumbs.add(InkWell(
+        onTap: () => setState(() => _browsePath = target),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+          child: Text(segs[i],
+              style: TextStyle(
+                  fontSize: 12,
+                  color: i == segs.length - 1
+                      ? AppColors.primaryText
+                      : Colors.orange)),
+        ),
+      ));
+    }
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(children: crumbs),
+    );
+  }
+
+  /// The drill-down list of folders for the current [_browsePath]: tick a
+  /// folder to include its whole subtree, tap the arrow to go deeper.
+  Widget _buildFolderBrowser() {
+    final browse = FlipperSubDbService.browseFolder(_allFiles, _browsePath);
+    var folders = browse.folders;
+    if (!_includeBruteForce) {
+      folders = folders
+          .where((n) => !FlipperSubDbService.isBruteForcePath(n.path))
+          .toList();
+    }
+
+    final rows = <Widget>[];
+
+    // Files sitting directly at the Sub-GHz root get their own pick.
+    if (_browsePath.isEmpty && browse.filesHere > 0) {
+      rows.add(_folderRow(
+        label: 'Files at top level',
+        path: FlipperSubDbService.rootCategory,
+        count: browse.filesHere,
+        canDrill: false,
+      ));
+    }
+
+    for (final n in folders) {
+      rows.add(_folderRow(
+        label: n.name,
+        path: n.path,
+        count: n.fileCount,
+        canDrill: n.hasChildren,
+      ));
+    }
+
+    if (rows.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Text('No subfolders here.',
+            style: TextStyle(color: AppColors.secondaryText, fontSize: 12)),
+      );
+    }
+
+    return ListView(shrinkWrap: true, children: rows);
+  }
+
+  /// One folder/pick row: tri-state checkbox (whole / partial / none), the
+  /// recursive file count, and an optional drill-in arrow.
+  Widget _folderRow({
+    required String label,
+    required String path,
+    required int count,
+    required bool canDrill,
+  }) {
+    final ancestor = _coveringAncestor(path);
+    final lockedByAncestor = ancestor != null;
+    return CheckboxListTile(
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      controlAffinity: ListTileControlAffinity.leading,
+      activeColor: Colors.orange,
+      tristate: true,
+      value: lockedByAncestor ? true : _folderTristate(path),
+      title: Text(label, style: const TextStyle(fontSize: 13)),
+      subtitle: lockedByAncestor
+          ? Text('included via "$ancestor"',
+              style: TextStyle(color: AppColors.secondaryText, fontSize: 10))
+          : null,
+      secondary: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('$count',
+              style: TextStyle(color: AppColors.secondaryText, fontSize: 11)),
+          if (canDrill)
+            IconButton(
+              icon: const Icon(Icons.chevron_right),
+              iconSize: 20,
+              visualDensity: VisualDensity.compact,
+              tooltip: 'Open $label',
+              onPressed: () => setState(() => _browsePath = path),
+            ),
+        ],
+      ),
+      onChanged: lockedByAncestor ? null : (_) => _toggleFolder(path),
+    );
+  }
+
+  /// Dialog that lets the user drill into the SubGHz DB and pick folders at any
+  /// depth to upload, with a switch to include or skip the brute-force folders.
   Widget _buildSelectionDialog(BuildContext context) {
     final selectedCount = _selectedFileCount;
     final totalCount = _allFiles.length;
-    final categories = _categoryCounts.keys.toList();
     return AlertDialog(
       title: Row(
         children: [
@@ -4024,37 +4187,9 @@ class _SubGhzCloneDialogState extends State<_SubGhzCloneDialog> {
                 ),
               ],
             ),
+            _buildBreadcrumb(),
             const Divider(height: 1),
-            Flexible(
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: categories.length,
-                itemBuilder: (ctx, i) {
-                  final cat = categories[i];
-                  final count = _categoryCounts[cat] ?? 0;
-                  return CheckboxListTile(
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                    controlAffinity: ListTileControlAffinity.leading,
-                    activeColor: Colors.orange,
-                    value: _selectedCategories.contains(cat),
-                    title: Text(cat, style: const TextStyle(fontSize: 13)),
-                    secondary: Text(
-                      '$count',
-                      style: TextStyle(
-                          color: AppColors.secondaryText, fontSize: 11),
-                    ),
-                    onChanged: (v) => setState(() {
-                      if (v == true) {
-                        _selectedCategories.add(cat);
-                      } else {
-                        _selectedCategories.remove(cat);
-                      }
-                    }),
-                  );
-                },
-              ),
-            ),
+            Flexible(child: _buildFolderBrowser()),
             const Divider(height: 1),
             const SizedBox(height: 8),
             Text(

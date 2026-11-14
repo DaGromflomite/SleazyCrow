@@ -34,6 +34,31 @@ class SubFileEntry {
   bool get isStub => content.isEmpty;
 }
 
+/// One row in the folder browser: a subfolder sitting directly inside the
+/// folder currently being browsed.
+class SubFolderNode {
+  /// Last path segment — what the UI shows (e.g. "raw").
+  final String name;
+
+  /// Full path from the Sub-GHz root — the token stored in a selection
+  /// (e.g. "TouchTunes/raw").
+  final String path;
+
+  /// Number of `.sub` files anywhere beneath this folder (recursive).
+  final int fileCount;
+
+  /// True if this folder has at least one subfolder of its own, so the UI can
+  /// offer to drill deeper into it.
+  final bool hasChildren;
+
+  const SubFolderNode({
+    required this.name,
+    required this.path,
+    required this.fileCount,
+    required this.hasChildren,
+  });
+}
+
 /// Downloads FlipperZero `.sub` files from **UberGuidoZ/Flipper** — but only the
 /// `Sub-GHz/` tree (the Crow can't use his NFC / IR / BadUSB / etc.), and only
 /// the folders the user selects.
@@ -259,18 +284,100 @@ class FlipperSubDbService {
     return false;
   }
 
-  /// Filter entries to the user's selection: only files whose top-level
-  /// category is in [categories], optionally dropping brute-force folders.
+  /// The folder a file lives in, relative to the Sub-GHz root: every path
+  /// segment except the filename, or [rootCategory] when the file sits at the
+  /// root with no folder. e.g. "TouchTunes/raw/Vup.sub" -> "TouchTunes/raw".
+  static String folderOf(String relativePath) {
+    final i = relativePath.lastIndexOf('/');
+    return i <= 0 ? rootCategory : relativePath.substring(0, i);
+  }
+
+  /// True when a selected folder [sel] covers a file whose folder is
+  /// [fileFolder]. A folder covers itself and everything beneath it, so
+  /// selecting "TouchTunes" pulls "TouchTunes/raw/Vup.sub" too, while selecting
+  /// "TouchTunes/raw" pulls only that subfolder. [rootCategory] covers only the
+  /// files that sit directly at the Sub-GHz root.
+  static bool folderCovers(String sel, String fileFolder) {
+    if (sel == rootCategory) return fileFolder == rootCategory;
+    return fileFolder == sel || fileFolder.startsWith('$sel/');
+  }
+
+  /// Filter entries to the user's selection: only files covered by one of the
+  /// selected folder prefixes in [categories] (any depth — a top-level name
+  /// grabs its whole subtree, a deeper path grabs just that folder),
+  /// optionally dropping brute-force folders.
   static List<SubFileEntry> filterSelection(
     List<SubFileEntry> files, {
     required Set<String> categories,
     required bool excludeBruteForce,
   }) {
     return files.where((f) {
-      if (!categories.contains(categoryOf(f.relativePath))) return false;
+      final folder = folderOf(f.relativePath);
+      if (!categories.any((sel) => folderCovers(sel, folder))) return false;
       if (excludeBruteForce && isBruteForcePath(f.relativePath)) return false;
       return true;
     }).toList();
+  }
+
+  /// List the immediate contents of [parent] for the folder browser
+  /// (`''` = the Sub-GHz root). Returns the subfolders sitting directly inside
+  /// [parent] — each with a recursive `.sub` count and whether it has deeper
+  /// subfolders — plus [filesHere]: how many `.sub` files sit directly in
+  /// [parent] with no further subfolder. Folders are sorted alphabetically.
+  static ({List<SubFolderNode> folders, int filesHere}) browseFolder(
+    List<SubFileEntry> files,
+    String parent,
+  ) {
+    final parentSegs = parent.isEmpty ? const <String>[] : parent.split('/');
+    final counts = <String, int>{};
+    final deeper = <String, bool>{};
+    int filesHere = 0;
+
+    for (final f in files) {
+      final segs = f.relativePath.split('/');
+      if (segs.length <= 1) {
+        // File at the Sub-GHz root (no folder).
+        if (parent.isEmpty) filesHere++;
+        continue;
+      }
+      final folderSegs = segs.sublist(0, segs.length - 1);
+      if (folderSegs.length < parentSegs.length) continue;
+      bool under = true;
+      for (var i = 0; i < parentSegs.length; i++) {
+        if (folderSegs[i] != parentSegs[i]) {
+          under = false;
+          break;
+        }
+      }
+      if (!under) continue;
+
+      if (folderSegs.length == parentSegs.length) {
+        // File sits directly in the browsed folder.
+        filesHere++;
+      } else {
+        final childName = folderSegs[parentSegs.length];
+        final childPath = parent.isEmpty ? childName : '$parent/$childName';
+        counts[childPath] = (counts[childPath] ?? 0) + 1;
+        if (folderSegs.length > parentSegs.length + 1) {
+          deeper[childPath] = true;
+        } else {
+          deeper[childPath] ??= false;
+        }
+      }
+    }
+
+    final folders = counts.keys.map((path) {
+      final name = path.contains('/') ? path.substring(path.lastIndexOf('/') + 1) : path;
+      return SubFolderNode(
+        name: name,
+        path: path,
+        fileCount: counts[path] ?? 0,
+        hasChildren: deeper[path] ?? false,
+      );
+    }).toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+    return (folders: folders, filesHere: filesHere);
   }
 
   // ---------------------------------------------------------------------------

@@ -32,10 +32,12 @@
 #include "modules/CC1101_driver/CC1101_Module.h"
 #include "BinaryMessages.h"
 #include "modules/CC1101_driver/CC1101_Worker.h"
+#include "modules/selftest/SelfTest.h"
 #include "modules/nrf/NrfModule.h"
 #include "modules/nrf/MouseJack.h"
 #include "modules/nrf/NrfJammer.h"
 #include "driver/gpio.h"
+#include "mbedtls/sha256.h"  // SD .sub integrity dump (serial command 0x07)
 
 #if BATTERY_MODULE_ENABLED
 #include "modules/battery/BatteryModule.h"
@@ -384,6 +386,67 @@ void taskProcessor(void* pvParameters)
     }
 }
 
+// ─── SD .sub integrity dump (diagnostic, read-only) ──────────────────────────
+// Triggered by raw serial command 0x07 (a byte the app never sends, so this is
+// dormant in normal use). Walks the SD card and prints the SHA-256 + size of
+// every .sub file over serial, framed by HASHDUMP_BEGIN/END. A host tool then
+// hashes the matching repo files and compares. Read-only: opens files for read,
+// never writes, never touches the radio or transmit path.
+static void hashOneSubFile(File& f) {
+    mbedtls_sha256_context ctx;
+    mbedtls_sha256_init(&ctx);
+    mbedtls_sha256_starts(&ctx, 0);  // 0 = SHA-256 (not 224)
+    static uint8_t buf[512];
+    size_t total = 0;
+    while (f.available()) {
+        int n = f.read(buf, sizeof(buf));
+        if (n <= 0) break;
+        mbedtls_sha256_update(&ctx, buf, (size_t)n);
+        total += (size_t)n;
+    }
+    uint8_t out[32];
+    mbedtls_sha256_finish(&ctx, out);
+    mbedtls_sha256_free(&ctx);
+    char hex[65];
+    for (int i = 0; i < 32; i++) sprintf(hex + i * 2, "%02x", out[i]);
+    hex[64] = '\0';
+    Serial.printf("HASH\t%s\t%u\t%s\n", f.path(), (unsigned)total, hex);
+}
+
+static void hashSubFilesRecursive(const char* dirPath) {
+    File dir = SD.open(dirPath);
+    if (!dir) { Serial.printf("ERR\topen\t%s\n", dirPath); return; }
+    if (!dir.isDirectory()) { dir.close(); return; }
+    File entry = dir.openNextFile();
+    while (entry) {
+        if (entry.isDirectory()) {
+            hashSubFilesRecursive(entry.path());
+        } else {
+            const char* nm = entry.name();
+            size_t L = nm ? strlen(nm) : 0;
+            if (L >= 4 && strcasecmp(nm + L - 4, ".sub") == 0) {
+                hashOneSubFile(entry);
+            }
+        }
+        entry.close();
+        entry = dir.openNextFile();
+        vTaskDelay(1);  // yield so the dump can't trip the task watchdog
+    }
+    dir.close();
+}
+
+static void dumpSdSubHashes() {
+    Serial.println("HASHDUMP_BEGIN");
+    const char* root = "/SUB Files";  // FlipperSubDbService.sdTargetFolder
+    if (SD.exists(root)) {
+        hashSubFilesRecursive(root);
+    } else {
+        Serial.printf("NOTE\tno '%s' dir; scanning entire card\n", root);
+        hashSubFilesRecursive("/");
+    }
+    Serial.println("HASHDUMP_END");
+}
+
 // Serial command processing task - reads binary commands from Serial and processes them
 void serialCommandTask(void* pvParameters) {
     static uint8_t buffer[512]; // Buffer for incoming data
@@ -487,6 +550,10 @@ void serialCommandTask(void* pvParameters) {
                     }
                 } else if (command == 0x01) {
                     Serial.write((uint8_t)0xF2); // MSG_COMMAND_SUCCESS (ping)
+                } else if (command == 0x07) {
+                    // Diagnostic: SHA-256 every .sub on SD, print over serial (read-only)
+                    consumed = 1;
+                    dumpSdSubHashes();
                 }
 #if SDR_MODULE_ENABLED
                 // SDR text command mode: printable ASCII
@@ -604,7 +671,8 @@ void setup()
     esp_log_level_set("*", ESP_LOG_INFO);
     // Confirm serial is working
     Serial.printf("Serial started at %d bps\n", serialBaud);
-    Serial.printf("%s v%s (fork of %s)\n", FIRMWARE_NAME, FIRMWARE_VERSION_STRING, FIRMWARE_UPSTREAM);
+    Serial.printf("%s v%s by %s\n", FIRMWARE_NAME, FIRMWARE_VERSION_STRING, FIRMWARE_AUTHOR);
+    Serial.printf("  %s  (fork of %s)\n", FIRMWARE_URL, FIRMWARE_UPSTREAM);
 
     // Ensure GPIO ISR service is available for detachInterrupt usage
     static bool isrServiceReady = false;
@@ -670,6 +738,14 @@ void setup()
 
     // Initialize CC1101Worker (includes recording functionality moved from Recorder)
     CC1101Worker::init(cc1101WorkerSignalDetectedHandler, signalRecordedHandler);
+
+#if defined(SELFTEST_ON_BOOT) && SELFTEST_ON_BOOT
+    // Bench diagnostic only (esp32dev-selftest env). Runs AFTER CC1101Worker::init()
+    // (so the capture ISR's mutexes/buffers exist) but BEFORE its task starts, so it
+    // owns the radios single-threaded, then halts. Never in the release build.
+    SelfTest::run();
+#endif
+
     CC1101Worker::start();
     ESP_LOGI(TAG, "CC1101Worker initialized and started");
 
