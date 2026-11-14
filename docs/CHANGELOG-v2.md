@@ -142,6 +142,99 @@ but it won't read/parse/decode files — a real functional break inherited from 
 (app parse path vs firmware decode module) until a live `adb logcat` repro with the Crow connected.
 May need a firmware fix/rebuild. Deferred per user's time. Pinned.
 
+## TouchTunes replay investigation + deep-folder picker (2026-11-13)
+
+Reported: TouchTunes `.sub` files (UberGuidoZ `Sub-GHz/TouchTunes/…`) that work from a Flipper do
+**nothing** when replayed from the Crow. Suspected corrupt downloads or antenna tuning.
+
+**Ruled out — it is not the download path or file corruption.**
+- The app saves each `.sub` to SD **verbatim** (`resp.bodyBytes`, no re-encode/line-ending rewrite);
+  the only transform (`splitIfLargeRaw`) triggers only above `MAX_UPLOAD_BYTES` (124968 B) and
+  TouchTunes raw files are a few KB — never split.
+- Confirmed `TouchTunes/raw/Vup.sub` is `433920000` / `FuriHalSubGhzPresetOok650Async` / `Protocol: RAW`.
+  Firmware `RawProtocol::parse` + `StreamingPulsePayload` rebuild pulses by the **sign of each number** —
+  identical to Flipper. The decode is faithful.
+
+**Leading Crow-side TX suspects (need on-hardware confirmation):**
+1. Auto-selected module/antenna port — file replay auto-picks the first idle CC1101 (module 0).
+   (User reports both ports have identical stock antennas, which weakens this.)
+2. **Per-board frequency offset not applied on the file-TX path** — `BRUTER_CC1101_FREQ_OFFSET 0.052`
+   is used by the bruter path but `setTxWithPreset`→`setMHZ(433.92)` applies no trim.
+3. `holdPulse` quantizes long LOW gaps to the 1 ms FreeRTOS tick (`CC1101_Worker.h`) — minor jitter.
+**Dual-radio self-test — BUILT & RUN on hardware (COM15, 2026-11-13).**
+New bench build `env:esp32dev-selftest` (`-DSELFTEST_ON_BOOT=1`) → `src/modules/selftest/SelfTest.{h,cpp}`,
+hooked in `main.cpp setup()` after radio init / before the worker+BLE start, prints over serial then halts.
+Flashed to the bench Crow, captured, then the release build (`esp32dev`) was reflashed to restore it.
+Results:
+- **T1 radio liveness:** both modules program 433.92 MHz and read it back at 433.9198 — SPI + synth OK.
+- **T2 pulse-timing fidelity:** 40-pulse pattern (incl. the long LOW gaps that hit `holdPulse`'s
+  `vTaskDelay` path), expected 134591 µs, measured 134653 µs = **+0.05%**. **Timing is faithful —
+  rules out the `holdPulse` suspect (#3).**
+- **T3 TX→RX keying:** module-0 carrier vs floor on module 1 = **+54 dB @315, +60 dB @433.92,
+  +42 dB @868**. **The TX chain radiates and keys OOK cleanly — the transmit hardware is healthy,
+  not dead.**
+- **T4 relative frequency:** peak at 433.920, **+0 kHz between the two radios** — but this cannot see a
+  *shared* absolute error (both crystals off by the same amount reads as 0). The config's own
+  `BRUTER_CC1101_FREQ_OFFSET = 52 kHz` (prior SDR-measured trim) is the evidence that the absolute
+  error is real.
+- **T5 PA response:** inconclusive — the two radios sit ~2 cm apart so module 1 saturates at ~-13 dBm
+  regardless of PA. Not a failure.
+
+**Interim conclusion (superseded below):** TX timing/keying/chain all good; suspected absolute crystal offset.
+
+### ROOT CAUSE FOUND — SD-streaming TX stretches every pulse (2026-11-13)
+
+Added **T7 (file→antenna fidelity)** to the self-test: write a TouchTunes-shaped `.sub` to SD, replay it
+through the **real** parse+stream+TX path (`StreamingSubFileParser` + `StreamingPulsePayload`) on radio 0,
+capture the RF on radio 1 with an edge-timing ISR, compare to the file. Captured the frames + both
+inter-frame gaps (RF structurally present) but a **16–18% TX overrun** and only 46% per-pulse match.
+
+A/B isolation nailed it:
+- **[A] `StreamingPulsePayload.next()` = ~228 µs PER PULSE** of overhead (measured iterating it with no TX).
+- **[B] the identical pattern replayed from an in-RAM array = +0.1%** (tight, faithful).
+- Streaming TX of the same file = **+16.3%**.
+
+**Mechanism:** the transmit loop is `while (payload.next(dur,lvl)) { digitalWrite(pin,lvl); holdPulse(dur); }`.
+`next()` does on-demand SD/String work costing ~228 µs, during which **the pin holds the previous level** —
+so **every pulse is lengthened by ~228 µs.** For a TouchTunes capture (pulses ~100–900 µs) that is a 25–230%
+per-pulse distortion: the waveform is garbled and the jukebox's receiver can't decode it. A Flipper (and the
+Crow's own in-RAM TX path) clock pulses out with no such gap, which is exactly why the same file works there.
+The RAM-saving streaming path (added for multi-MB RAW sweeps) silently broke timing for normal `.sub` files.
+**Frequency/crystal offset was a red herring** — plausible but not the cause.
+
+**Fix (designed, not yet built):** pre-load the pulse list into a RAM vector and transmit via the existing
+in-RAM `transmitData(PulsePayload&)` path (proven +0.1%) when it fits — with a heap/size guard that falls
+back to streaming only for giant files that won't fit (free heap ≈112 KB; a max 122 KB RAW file's pulses
+exceed that, so the guard matters). Bench-verifiable with the same T7 (expect the real path to drop to ~+0.1%).
+All of this stays local/unflashed to any daily device until verified.
+
+Self-test artifacts: `env:esp32dev-selftest` (`-DSELFTEST_ON_BOOT=1`), `src/modules/selftest/SelfTest.{h,cpp}`,
+hook in `main.cpp` after `CC1101Worker::init()` / before `start()`. Bench Crow was restored to `esp32dev`.
+
+**All-paths audit (2026-11-13):** verified `transmitSub` was the *only* transmit path that streamed pulses
+per-pulse from SD. Every other path already builds the full pulse list in RAM before keying it out, so none
+had the stretch and none needed the change:
+- `transmitRaw` (string→vector), `transmitRawData` (vector), `transmitBinary` (bits→vector),
+  `transmitData(PulsePayload&)` — all RAM-sourced, tight.
+- bruter `sendPulse` — RAM-generated codes, separate subsystem.
+- jamming — continuous carrier, not pulse replay.
+- ProtoPirate `loadSubFile` — uses `StreamingSubFileParser` to *decode* (feed decoders), never drives the TX
+  pin, so per-pulse latency is irrelevant.
+No code change made to those paths (don't churn working code). The fix lives where the bug was.
+
+**New app feature — drill-down folder picker for the Sub-GHz downloader.**
+- The downloader's "Choose Sections" dialog now **browses the Sub-GHz tree level by level**
+  (breadcrumb + folders, tick to grab a whole subtree, arrow to go deeper) instead of only offering
+  top-level folders. You can pull just `TouchTunes/raw`, or a single `pin/<code>`, etc.
+- Selection model is now **folder prefixes at any depth**, kept minimal/non-overlapping, and is
+  **backward compatible** — an old top-level-only saved selection still resolves (a name is a prefix
+  of its whole subtree). Tri-state checkboxes show whole/partial/none; a folder covered by a selected
+  ancestor shows ticked-and-locked.
+- Files: `lib/services/flipper_subdb_service.dart` (`folderOf`, `folderCovers`, `browseFolder`,
+  `SubFolderNode`, prefix-based `filterSelection`), `lib/screens/settings_screen.dart` (browser UI).
+- Tests: `test/folder_selection_test.dart` — 17 cases (browse counts/depth, prefix coverage, brute-force
+  exclusion, no double-count, legacy top-level selections). All pass; `flutter analyze` clean (info lints only).
+
 ## Hardware test round 3 — UberGuidoZ playlists, ProtoPirate import, TX reboot fix (2026-11-08)
 
 Session on real hardware (Pixel 8 Pro + Crow on USB/BLE). **Firmware 1.2.5-dev, app 2.0.0-dev.**

@@ -136,6 +136,15 @@ public:
     static void init(SignalDetectedCallback detectedCb, SignalRecordedCallback recordedCb);
     static void start();
     static QueueHandle_t getQueue() { return taskQueue; }
+
+#if defined(SELFTEST_ON_BOOT) && SELFTEST_ON_BOOT
+    // Bench self-test only: run the real (private) file-transmit path directly,
+    // without the task queue, so the fix can be verified end-to-end.
+    static std::string transmitSubForSelfTest(const std::string& filename, int module,
+                                              int repeat, int pathType) {
+        return transmitSub(filename, module, repeat, pathType);
+    }
+#endif
     
     // Helper functions to send commands
     static bool startDetect(int module, int minRssi, bool isBackground);
