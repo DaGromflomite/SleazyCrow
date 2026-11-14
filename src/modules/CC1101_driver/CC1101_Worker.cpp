@@ -1141,23 +1141,71 @@ std::string CC1101Worker::transmitSub(const std::string& filename, int module, i
     
     delay(10);
     
-    // ULTRA-OPTIMIZED: Use StreamingPulsePayload (reads from file on-demand!)
-    // RAM usage: ~100 bytes instead of ~2KB for vector!
-    ESP_LOGD(TAG, "Initializing streaming transmission (repeat: %d)", repeat);
-    
-    StreamingPulsePayload streamingPayload;
-    if (!streamingPayload.init(fullPath.c_str(), repeat)) {
-        std::string msg = "Failed to initialize streaming payload: " + fullPath;
-        ESP_LOGE(TAG, "%s", msg.c_str());
-        return msg;
+    // PULSE-TIMING FIX: StreamingPulsePayload::next() costs ~228 us/pulse (SD +
+    // String parse), and the TX loop holds the output pin at the *previous*
+    // level during that time — so every pulse is emitted ~228 us too long.
+    // Bench-measured: streaming TX +16% vs the file, in-RAM replay +0.1%. For
+    // short-pulse OOK (e.g. TouchTunes, ~100-900 us pulses) the streaming stretch
+    // garbles the waveform so a receiver can't decode it. So: pre-load the pulses
+    // into RAM and transmit with tight timing. Only fall back to streaming for
+    // files too large to hold in heap (multi-MB RAW sweeps), where per-pulse
+    // stretch matters far less and RAM can't hold them anyway.
+    ESP_LOGD(TAG, "Preparing transmission (repeat: %d)", repeat);
+
+    // Budget the preload from free heap: 8 bytes/pulse, keep a safe margin, and
+    // reserve once up front with ~2x headroom so no large realloc happens near
+    // the limit. Files that exceed the cap fall back to streaming.
+    const size_t PRELOAD_MIN_FREE_HEAP = 20000;  // leave >=20KB free for TX + system
+    const size_t PRELOAD_MAX_PULSES = 10000;     // hard ceiling (~80KB)
+    size_t freeHeap = ESP.getFreeHeap();
+    size_t preloadCap = 0;
+    if (freeHeap > PRELOAD_MIN_FREE_HEAP) {
+        preloadCap = (freeHeap - PRELOAD_MIN_FREE_HEAP) / 16;  // /16 => 2x headroom at 8B/pulse
+        if (preloadCap > PRELOAD_MAX_PULSES) preloadCap = PRELOAD_MAX_PULSES;
     }
-    
-    // Transmit directly from file
-    ESP_LOGD(TAG, "Starting streaming transmission...");
-    bool signalTransmitted = transmitData(streamingPayload, module);
+
+    std::vector<std::pair<uint32_t, bool>> pulses;
+    bool preloadOverflow = (preloadCap == 0);
+    if (!preloadOverflow) {
+        pulses.reserve(preloadCap);
+        StreamingSubFileParser pulseLoader;
+        pulseLoader.streamRawData(fullPath.c_str(), [&](uint32_t dur, bool lvl) {
+            if (preloadOverflow) return;
+            if (pulses.size() >= preloadCap) { preloadOverflow = true; return; }
+            pulses.push_back(std::make_pair(dur, lvl));
+        });
+    }
+
+    bool signalTransmitted;
+#if defined(SELFTEST_ON_BOOT) && SELFTEST_ON_BOOT
+    uint32_t __emitStart = micros();
+#endif
+    if (!preloadOverflow && !pulses.empty()) {
+        // Faithful in-RAM transmission (no per-pulse SD/parse latency).
+        ESP_LOGI(TAG, "In-RAM transmission: %u pulses, faithful timing", (unsigned)pulses.size());
+        PulsePayload payload(pulses, (uint32_t)repeat);
+        signalTransmitted = transmitData(payload, module);
+    } else {
+        // File too large for RAM (or empty preload): stream from SD as before.
+        ESP_LOGW(TAG, "Streaming TX fallback (%s)",
+                 preloadOverflow ? "file exceeds RAM budget" : "no pulses preloaded");
+        StreamingPulsePayload streamingPayload;
+        if (!streamingPayload.init(fullPath.c_str(), repeat)) {
+            std::string msg = "Failed to initialize streaming payload: " + fullPath;
+            ESP_LOGE(TAG, "%s", msg.c_str());
+            return msg;
+        }
+        signalTransmitted = transmitData(streamingPayload, module);
+        streamingPayload.close();
+    }
+#if defined(SELFTEST_ON_BOOT) && SELFTEST_ON_BOOT
+    Serial.printf("   [FIX] transmitSub emit time: %u us  (path: %s, %u pulses)\n",
+                  (unsigned)(micros() - __emitStart),
+                  (!preloadOverflow && !pulses.empty()) ? "IN-RAM" : "STREAM",
+                  (unsigned)pulses.size());
+#endif
     ESP_LOGD(TAG, "Transmission result: %s", signalTransmitted ? "SUCCESS" : "FAILED");
-    
-    streamingPayload.close();
+
     moduleCC1101State[module].restoreConfig().setSidle();
     ESP_LOGI(TAG, "Transmission %s for %s", signalTransmitted ? "SUCCESS" : "FAILED", fullPath.c_str());
     if (!signalTransmitted) {

@@ -32,6 +32,7 @@
 #include "modules/CC1101_driver/CC1101_Module.h"
 #include "BinaryMessages.h"
 #include "modules/CC1101_driver/CC1101_Worker.h"
+#include "modules/selftest/SelfTest.h"
 #include "modules/nrf/NrfModule.h"
 #include "modules/nrf/MouseJack.h"
 #include "modules/nrf/NrfJammer.h"
@@ -671,6 +672,14 @@ void setup()
 
     // Initialize CC1101Worker (includes recording functionality moved from Recorder)
     CC1101Worker::init(cc1101WorkerSignalDetectedHandler, signalRecordedHandler);
+
+#if defined(SELFTEST_ON_BOOT) && SELFTEST_ON_BOOT
+    // Bench diagnostic only (esp32dev-selftest env). Runs AFTER CC1101Worker::init()
+    // (so the capture ISR's mutexes/buffers exist) but BEFORE its task starts, so it
+    // owns the radios single-threaded, then halts. Never in the release build.
+    SelfTest::run();
+#endif
+
     CC1101Worker::start();
     ESP_LOGI(TAG, "CC1101Worker initialized and started");
 
