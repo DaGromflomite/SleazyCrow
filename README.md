@@ -22,8 +22,19 @@ See [`changelog.json`](changelog.json) for the full list. Highlights:
 
 - Bluetooth no longer drops ~12 s after connecting on Android.
 - No boot crash on newer Arduino cores; toolchain pinned so every build is identical.
-- File uploads can no longer silently save a corrupted file.
-- App: pick which Flipper Sub-GHz DB sections to copy, much faster and more reliable uploads, transmit toggle, brute-force frequency/timing options.
+- **Sub-GHz `.sub` replay now transmits with faithful pulse timing.** Before, each
+  pulse was held too long while the next one was read from the SD card, which
+  stretched and garbled short-pulse signals — TouchTunes, for example, worked from
+  a Flipper but did nothing from the Crow. Now the signal is loaded into RAM first
+  and clocked out tightly. Verified over the air against a Flipper Zero: the Crow's
+  transmission decodes bit-for-bit identical to the source file, with pulse widths
+  within ~1%.
+- File uploads can no longer silently save a corrupted file. (Every TouchTunes file
+  copied to the SD card was also checked byte-for-byte against the source repo — all
+  8,167 matched exactly.)
+- App: drill into **any** Flipper Sub-GHz DB subfolder, not just the top-level
+  categories, so you copy exactly the folders you want; much faster and more reliable
+  uploads; transmit toggle; brute-force frequency/timing options.
 
 Feature documentation for the device itself is in Senape3000's original README: [`docs/UPSTREAM_README.md`](docs/UPSTREAM_README.md).
 
