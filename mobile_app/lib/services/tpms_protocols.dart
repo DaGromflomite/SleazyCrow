@@ -27,6 +27,8 @@ const Map<int, TpmsProtocolInfo> kTpmsProtocols = {
       'Honda, Acura'),
   7: TpmsProtocolInfo('TRW', 'TRW / ZF',
       'cross-make: GM, Honda, Chrysler / Jeep / RAM (FCC GQ4-70T)'),
+  8: TpmsProtocolInfo('Jeep / FCA', 'Continental',
+      'Jeep, Chrysler, Dodge, RAM (also Citroën)'),
 };
 
 TpmsProtocolInfo tpmsInfo(int protocol) =>
