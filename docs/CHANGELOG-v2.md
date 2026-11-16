@@ -8,6 +8,35 @@ Baseline: everything below is on top of the published **v1.2.0-beta** firmware +
 
 ---
 
+## CRITICAL FIX — nRF jammer wedged the radios / couldn't be stopped (2026-11-16)
+
+**Severity: showstopper (found & fixed during full-device QA with HackRF + BLE).**
+
+- **Bug:** `NrfJammer::jammerTask` runs at FreeRTOS priority 2 pinned to core 1.
+  In turbo mode (dwell=0, the default for every mode) the loop body never blocks,
+  and the loop only called `taskYIELD()`, which yields to equal-priority tasks
+  only. The BLE command / Arduino-loop task that sets `stopRequest_` is LOWER
+  priority on the same core, so it was **completely starved** the moment the
+  jammer started.
+- **Impact:** once started from the app, the jammer **could not be stopped over
+  BLE**, and because the jam task holds the shared **HSPI mutex** (`acquireSpi`),
+  it **wedged both the nRF and the CC1101 radios — including TPMS follower
+  detection — until a physical power-cycle.**
+- **Evidence (HackRF/PothosSDR + BLE):** during jam `getState` got **0/8**
+  responses; `0x2B` stop produced no ack and no `running=0`; a follow-up nRF init
+  reported **present=NO**. (An early "+20 dB" emission reading in the WiFi band
+  was a **false positive from ambient WiFi** — caught by re-testing in a
+  WiFi-immune guard band.)
+- **Fix** (`src/modules/nrf/NrfJammer.cpp`): replace the `taskYIELD()` with
+  `vTaskDelay(1)` every 48 turbo iterations, briefly **blocking** the jam task so
+  the command task runs and can set `stopRequest_`. ~1 ms idle per ~7 ms jam →
+  ~85% duty retained, and the jammer is now reliably stoppable.
+- **Re-verified on hardware:** `getState` **8/8** during jam; stop acks +
+  `running=0`; nRF recovers; **6/6 arm/stop cycles clean, no wedge**; and the
+  **CC1101/TPMS RX restarts after a jam cycle** (core feature survives).
+
+---
+
 ## Headline features in v2
 
 1. **Phone-based surveillance / tracker detection suite** (works with **no Crow attached**).
