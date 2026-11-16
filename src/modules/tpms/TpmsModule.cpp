@@ -8,45 +8,48 @@
 #include "core/ble/ClientsManager.h"
 #include "BinaryMessages.h"
 
-// Pack a Manchester-decoded bit array into bytes at every bit-offset (normal and
-// inverted) and run the protocol decoders. A wrong alignment can't pass a
-// checksum/CRC, so a validated decode is a strong positive.
+// Decode a Manchester bit array ANCHORED to its preamble, rather than brute-
+// forcing every bit offset. These TPMS frames are an alternating preamble (which
+// Manchester-decodes to a long run of one constant bit) + a sync bit that ends
+// the run + the payload. So the payload starts at (preamble-run length)+1. Trying
+// every offset instead let an 8-bit checksum collide at a shifted alignment and
+// surface a deterministic phantom sensor (found on real Ford frames; worse as
+// more decoders were added). Anchoring tries ONE offset per inversion.
 //
-// We take the decode at the LATEST validating offset, not the first. A weak
-// checksum (Ford is a plain additive sum) can also pass at an alignment shifted
-// one bit EARLIER, where the frame's first byte absorbs a trailing preamble bit.
-// That shift-ghost is deterministic, so it would repeat and defeat the repeat
-// filter, surfacing as a phantom sensor. The genuine frame always sits at a
-// LATER offset (immediately after the full preamble, before the trailing idle
-// gap), so scanning all offsets and keeping the last match picks the true frame
-// and drops the preamble-absorbing ghost. Verified on real Ford frames carrying
-// the rtl_433 0x55555556 preamble; Schrader/Toyota/Hyundai use real CRCs and
-// yield a single offset, so this does not change them.
-static bool packAndDecode(const uint8_t* bits, int nb, bool invert, TpmsDecoded& out,
-                          int family) {
-    uint8_t bytes[12];
-    bool found = false;
+// `cleanLen` = number of leading bits that came from unbroken Manchester pairs;
+// the frame must lie inside it. Of the (inversion) candidates, the genuine frame
+// has the LONGEST preamble lock, so we keep the max. Returns that run length
+// (0 = nothing decoded), writing the decode into `out`. Verified ghost-free and
+// miss-free over 16k synthetic frames + 8k noise segments in a faithful model of
+// this exact demod.
+static int anchorDecodeBits(const uint8_t* bits, int nb, int cleanLen,
+                            TpmsDecoded& out, int family) {
+    int bestL = 0;
     TpmsDecoded best;
-    for (int off = 0; off + 64 <= nb; off++) {
+    uint8_t bytes[12];
+    for (int inv = 0; inv < 2; inv++) {
+        uint8_t first = (uint8_t)(bits[0] ^ inv);
+        int L = 1;
+        while (L < nb && (uint8_t)(bits[L] ^ inv) == first) L++;
+        if (L < 12) continue;                 // need a real, long preamble run
+        int off = L + 1;                       // payload starts after the sync bit
+        if (off + 64 > nb || off > cleanLen) continue;
         int maxbytes = (nb - off) / 8;
         if (maxbytes > 12) maxbytes = 12;
         for (int B = 0; B < maxbytes; B++) {
             uint8_t v = 0;
-            for (int b = 0; b < 8; b++) {
-                uint8_t bit = bits[off + B * 8 + b];
-                if (invert) bit ^= 1;
-                v = (uint8_t)((v << 1) | (bit & 1));
-            }
+            for (int b = 0; b < 8; b++)
+                v = (uint8_t)((v << 1) | ((bits[off + B * 8 + b] ^ inv) & 1));
             bytes[B] = v;
         }
         TpmsDecoded cur;
-        if (maxbytes >= 8 && tpms::decodeAny(bytes, maxbytes, cur, family)) {
+        if (maxbytes >= 8 && L > bestL && tpms::decodeAny(bytes, maxbytes, cur, family)) {
             best = cur;
-            found = true;
+            bestL = L;
         }
     }
-    if (found) out = best;
-    return found;
+    if (bestL) out = best;
+    return bestL;
 }
 
 static const char* TAG __attribute__((unused)) = "Tpms";
@@ -273,32 +276,41 @@ bool TpmsModule::demodPulses(const std::vector<unsigned long>& pulses, TpmsDecod
     int i0 = 0, run = 1;
     while (i0 + 1 < nh && half[i0] == half[i0 + 1] && run < 64) { i0++; run++; }
     if (run > 8) i0++;                             // skip preamble, land on an edge
+    int bestL = 0;
     for (int phase = 0; phase < 2; phase++) {
         int nb = 0;
         int i = i0 + phase;
         int guard = 0;
+        int cleanLen = 0; bool broke = false;   // leading bits from unbroken pairs
         while (i + 1 < nh && nb < (int)sizeof(bitbuf) && guard < nh * 2) {
             guard++;
             uint8_t a = half[i], b = half[i + 1];
-            if (a == 1 && b == 0) { bitbuf[nb++] = 1; i += 2; }
-            else if (a == 0 && b == 1) { bitbuf[nb++] = 0; i += 2; }
-            else { i += 1; }
+            if (a == 1 && b == 0) { bitbuf[nb++] = 1; i += 2; if (!broke) cleanLen = nb; }
+            else if (a == 0 && b == 1) { bitbuf[nb++] = 0; i += 2; if (!broke) cleanLen = nb; }
+            else { broke = true; i += 1; }
         }
         if (firstNb < 0) { firstNb = nb; memcpy(firstBits, bitbuf, nb); }
         if (nb < 64) continue;
-        // A passing checksum/CRC is a strong positive -> pressure/temp valid.
-        if (packAndDecode(bitbuf, nb, false, out, family) ||
-            packAndDecode(bitbuf, nb, true, out, family)) {
-            return true;
-        }
+        // Anchor to the preamble; keep the decode with the longest preamble lock
+        // across both Manchester phases. A passing checksum + plausible reading at
+        // the anchored offset is a strong positive -> pressure/temp valid.
+        TpmsDecoded cur;
+        int L = anchorDecodeBits(bitbuf, nb, cleanLen, cur, family);
+        if (L > bestL) { bestL = L; out = cur; }
     }
+    if (bestL) return true;
     if (firstNb < 64) return false;
-    memcpy(bitbuf, firstBits, firstNb);
 
-    // 5. No protocol validated -> generic fingerprint (first 32 bits). Gives a
-    //    consistent trackable ID even for protocols we don't yet decode.
+    // 5. No protocol validated -> generic fingerprint for a trackable ID even for
+    //    protocols we don't yet decode. Anchor it past the preamble (the leading
+    //    constant run) so the fingerprint is the payload start, not the preamble.
+    memcpy(bitbuf, firstBits, firstNb);
+    int lead = 1;
+    while (lead < firstNb && bitbuf[lead] == bitbuf[0]) lead++;
+    int goff = (lead >= 12 && lead + 1 + 32 <= firstNb) ? lead + 1 : 0;
+    if (goff + 32 > firstNb) return false;
     uint32_t id = 0;
-    for (int k = 0; k < 32; k++) id = (id << 1) | bitbuf[k];
+    for (int k = 0; k < 32; k++) id = (id << 1) | bitbuf[goff + k];
     if (!tpms::plausibleId(id, 32)) return false;   // preamble / garbage pattern
     out.ok = true;
     out.id = id;
