@@ -1,4 +1,41 @@
-# Sleazy Crow — live QA status (resume point)
+# Sleazy Crow — QA RESULTS (field-test readiness)
+
+## VERDICT: ready for field test. Core (TPMS follower detection) rock-solid.
+
+### PASS — verified on real hardware
+- **TPMS decode, 9 protocols** (Ford, Toyota, Hyundai/Kia, Schrader, EG53/GM, Honda,
+  TRW, Jeep/FCA, Nissan) — each a 4-wheel car over RF (Flipper→Crow), exact
+  ID/pressure/temp, ZERO ghosts, ZERO cross-protocol false reads. Anchored demod
+  (commits 73a0219→20fbabc) fixed a real deterministic phantom-sensor bug.
+- **APK path end-to-end** — rebuilt APK shows correct make labels (Jeep/FCA etc.),
+  pressures, temps, FOLLOWER flags on the Pixel. Scrollbar added for long lists.
+- **CC1101 self-test** T1 liveness PASS (both radios), T2 timing PASS (+0.05%),
+  T3 TX→RX keying PASS all bands (315/433/868) — covers the sub-GHz jammer radiating.
+- **Sub-GHz TX fidelity** — Flipper independently decoded the Crow's Princeton tx
+  (Key 0x00123456, 350us) exactly.
+- **File management** CRUD over BLE (mkdir/upload/list/copy/rename/delete) — verified.
+- **nRF24** present (SPI), RX spectrum tracks real 2.4GHz, MouseJack scan arms +
+  returns status + stops, jammer arms/disarms.
+- **Device** getState / settings-sync / OTA-status / version respond; signal scanner
+  runs + reports.
+
+### Gaps needing specific hardware (NOT firmware faults)
+- nRF24 **jammer 2.4GHz emission** — can't independently witness: HackRF host tools
+  (libhackrf) not installed; PortaPack/Mayhem serial has no RSSI read. nRF TX path is
+  otherwise exercised (jammer/attacks arm). Install hackrf tools to close.
+- **MouseJack injection** — needs a real vulnerable Logitech/MS 2.4GHz dongle (none).
+- **ProtoPirate** decode — needs a captured car key-fob signal to replay.
+- T5 PA-power delta INCONCLUSIVE — two radios too close, RSSI saturated (rig limit).
+
+### Deferred decoders (worldwide pack, pinned) + next wave
+- GM-Continental (MC_ZEROBIT), Toyota PMV-107J (differential Manchester) — need demod
+  variants. BMW/Mercedes/Kia byte-aligned, addable like Jeep. See memory pins.
+
+### PRE-DRIVE: clear the Pixel's TPMS history (⋮ -> Clear history) so the lab demo
+### sensors (Jeep 0x8A11C40x) don't flag as followers. Keep band on your target MHz.
+
+---
+# Live QA status (resume point)
 
 Updated continuously during the unattended QA run. If a session resumes, READ THIS
 to continue. Bench rig + methods are in `docs/LAB-TEST-PLAN.md`.
