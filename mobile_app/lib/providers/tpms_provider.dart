@@ -92,6 +92,14 @@ class TpmsProvider extends ChangeNotifier {
   int packets = 0;
   int seen = 0;
   double freqMHz = 315.0;
+  /// Radio activity from the last status frame (raw edges/256 per 2 s).
+  /// null = firmware too old to report it; 0 = the radio is hearing nothing.
+  int? activity;
+  /// Highest activity reading this session (shows the radio was alive).
+  int peakActivity = 0;
+  /// Frequency the user picked (x100): 31500 (US) or 43392 (EU / some newer cars).
+  int selectedFreqX100 = 31500;
+  static const String _prefsFreq = 'tpms_freq_x100';
 
   final Map<int, TpmsSensor> _session = {}; // ids this session
   // Persistent: sensorId -> sorted list of session-start epoch millis it appeared in.
@@ -162,11 +170,31 @@ class TpmsProvider extends ChangeNotifier {
     return f;
   }
 
-  Future<void> start({int freqX100 = 31500}) async {
+  Future<void> setFrequency(int freqX100) async {
+    if (freqX100 == selectedFreqX100) return;
+    selectedFreqX100 = freqX100;
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_prefsFreq, freqX100);
+    } catch (_) {/* ignore */}
+    if (scanning) {
+      // Retune: restart the scan on the new band.
+      try {
+        await ble.stopTpmsScan();
+      } catch (_) {/* ignore */}
+      await start();
+    }
+  }
+
+  Future<void> start({int? freqX100}) async {
     if (!ble.isConnected) return;
+    freqX100 ??= selectedFreqX100;
     _session.clear();
     packets = 0;
     seen = 0;
+    activity = null;
+    peakActivity = 0;
     _sessionStart = DateTime.now();
     freqMHz = freqX100 / 100.0;
     scanning = true;
@@ -191,6 +219,11 @@ class TpmsProvider extends ChangeNotifier {
       seen = (d['seen'] ?? seen) is int ? d['seen'] as int : seen;
       final f = d['freqMHz'];
       if (f is num) freqMHz = f.toDouble();
+      final a = d['activity'];
+      if (a is int) {
+        activity = a;
+        if (a > peakActivity) peakActivity = a;
+      }
       notifyListeners();
     } else if (type == 'TpmsHit') {
       final id = d['sensorId'] as int?;
@@ -279,6 +312,8 @@ class TpmsProvider extends ChangeNotifier {
       if (si != null && si >= 0 && si < TpmsSensitivity.values.length) {
         sensitivity = TpmsSensitivity.values[si];
       }
+      final fq = prefs.getInt(_prefsFreq);
+      if (fq == 31500 || fq == 43392) selectedFreqX100 = fq!;
       _history
         ..clear()
         ..addAll(_decodeMap(prefs.getString(_prefsKey)));

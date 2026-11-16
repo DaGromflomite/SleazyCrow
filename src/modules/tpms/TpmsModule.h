@@ -78,6 +78,18 @@ private:
     // flood BLE (the app keeps the long-term history).
     static constexpr int kRecentMax = 48;
     uint32_t recentIds_[kRecentMax] = {0};
+    // Unconfirmed generic (no-CRC) fingerprints awaiting a repeat.
+    static constexpr int kPendingMax = 16;
+    uint32_t pendingIds_[kPendingMax] = {0};
+    uint32_t pendingAt_[kPendingMax] = {0};
+    int pendingNext_ = 0;
+    // Confirmed generic IDs held ~1 s in case a validated frame shows they
+    // were a corrupted repeat of a decoded sensor.
+    static constexpr int kHeldMax = 8;
+    uint32_t heldIds_[kHeldMax] = {0};
+    uint32_t heldAt_[kHeldMax] = {0};
+    uint32_t lastValidatedAt_ = 0;
+    void releaseHeld();
     int      recentCount_ = 0;
 
     bool seenRecently(uint32_t id);

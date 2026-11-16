@@ -515,6 +515,27 @@ First real road test (1 hr on I-90) picked up **zero** sensors. Code review foun
   both 52 and 120 µs, 0 false runs in 1M noise pulses. Firmware builds (RAM 27.0 %, flash 58.3 %).
   **NOT yet verified on the Crow or a car.**
 
+### TPMS over-the-air verification + decoder fixes (2026-11-15)
+First real RF test: the Crow's **radio 1 transmits a synthetic TPMS frame** (uploaded `.sub`) while **radio 0 runs the
+TPMS scanner**. Pulse widths were dumped over serial (`-DTPMS_PULSE_DEBUG` build flag, off by default) and replayed
+through a Python copy of the decoder.
+- **Reception proven:** the 2026-11-14 segmenter catches real bursts (OOK and FSK, 110–118 pulses per frame).
+- **Fix — last bit lost:** the half-bit after the final pulse merges into the idle line, so a frame ending in a `1` lost
+  its last bit (Ford checksum byte always failed). Demod now appends that trailing half-bit.
+- **Fix — wrong Manchester phase:** the decoder now tries both half-bit phases (a burst's first frame sometimes locked
+  to the wrong one). FSK frames decoded: 0/20 → 17/20 on the captured data.
+- **Fix — fake sensors:** a corrupted frame fell back to a random "generic fingerprint" ID → a fake sensor (and a
+  false follower alert in *immediate* mode). Generic (no-CRC) IDs now need the identical ID twice within 15 s, and are
+  held 1 s and dropped if a CRC-validated frame arrives in the same burst.
+- **App:** TPMS screen gets a **315 / 433.92 MHz band switch** (remembered; retunes live) and a **radio-activity line**
+  (activity / peak / decoded packets; red warning if the radio delivers nothing), so a 0-hit drive can be diagnosed.
+- **Verified OTA on the Crow:** Ford FSK 315 → `0xABCDEF01` proto Ford ✔; Schrader OOK 315 → `0x0AB1C2D3` proto
+  Schrader ✔; Schrader OOK 433.92 ✔. Self-test 0x9F pass; no crash; GetState fine after.
+- **Note (upstream bug, test-only impact):** the built-in `FuriHalSubGhzPreset2FSKDev238Async`/`Dev476Async` register
+  tables are identical copies with GFSK @ ~3.8 kbaud and no DEVIATN entry, so .sub files using them don't transmit
+  the FSK they name. The OTA test used a Custom 2-FSK 19.2 kbaud preset instead. Not fixed yet.
+- **Still open:** a real car (only synthetic frames so far); Toyota differential-Manchester decode.
+
 ### Unstable channel + v2.0.0-unstable test release (2026-11-13)
 User decision: publish v2 now as an **opt-in UNSTABLE** build with a disclaimer; stable v1.2.0-beta stays the default.
 - **Version 2.0.0-unstable** (firmware ints 2.0.0, app build 40). `tools/sleazy.py set-version X.Y.Z --unstable`;
