@@ -146,6 +146,38 @@ inline bool decodeSchraderEG53(const uint8_t* b, int n, TpmsDecoded& out) {
     return true;
 }
 
+// ── Honda / Acura (rtl_433 tpms_honda): FSK Manchester, 8 bytes ────────────
+// CRC-8/SMBUS poly 0x07 init 0x00 over b0..b6 == b7. ID = b2..b5 big-endian.
+// Pressure = b0 * 0.2 PSI. Temp = b1 - 50 C. (proto 6)
+inline bool decodeHonda(const uint8_t* b, int n, TpmsDecoded& out) {
+    if (n < 8) return false;
+    if (crc8(b, 7, 0x07, 0x00) != b[7]) return false;
+    out.id = ((uint32_t)b[2] << 24) | ((uint32_t)b[3] << 16) |
+             ((uint32_t)b[4] << 8) | (uint32_t)b[5];
+    if (out.id == 0 || out.id == 0xFFFFFFFFu) return false;
+    out.pressureKpa = psiToKpa(b[0] * 0.2f);
+    out.tempC = (int8_t)((int)b[1] - 50);
+    out.protocol = 6;
+    out.ok = true;
+    return true;
+}
+
+// ── TRW (rtl_433 tpms_trw, FCC GQ4-70T): OOK or FSK Manchester, 10 bytes ────
+// CRC-8/SMBUS poly 0x07 init 0x00 over b0..b8 == b9. ID = b1..b4 big-endian.
+// Pressure = b6 * 0.4 PSI. Temp = b7 - 50 C. (proto 7) cross-make: GM, Honda, FCA.
+inline bool decodeTRW(const uint8_t* b, int n, TpmsDecoded& out) {
+    if (n < 10) return false;
+    if (crc8(b, 9, 0x07, 0x00) != b[9]) return false;
+    out.id = ((uint32_t)b[1] << 24) | ((uint32_t)b[2] << 16) |
+             ((uint32_t)b[3] << 8) | (uint32_t)b[4];
+    if (out.id == 0 || out.id == 0xFFFFFFFFu) return false;
+    out.pressureKpa = psiToKpa(b[6] * 0.4f);
+    out.tempC = (int8_t)((int)b[7] - 50);
+    out.protocol = 7;
+    out.ok = true;
+    return true;
+}
+
 // Try every known protocol on a payload byte buffer. Returns true on first hit.
 // CRC/checksum validation makes a false match at a wrong alignment near-impossible.
 // Reject IDs that are just a short repeating bit pattern (0x55555555,
@@ -176,20 +208,45 @@ inline int idBits(uint8_t protocol) {
     return protocol == 4 ? 28 : protocol == 5 ? 24 : 32;
 }
 
+// A real tyre reading is bounded: pressure 0..900 kPa (0..130 PSI, passenger +
+// light-truck), temperature -50..100 C. 0xFFFF / -128 are the "unknown" sentinels
+// and are allowed. A wrong-protocol cross-match at a valid alignment usually
+// decodes to an out-of-range reading, so this rejects it where the checksum alone
+// cannot (verified against a faithful demod model: it removes the residual
+// cross-protocol ghosts that the weak 8-bit checksums let through).
+inline bool plausibleReading(uint16_t kpa, int8_t tempC) {
+    if (kpa != 0xFFFF && kpa > 900) return false;
+    if (tempC != -128 && (tempC < -50 || tempC > 100)) return false;
+    return true;
+}
+
 // family: 0 = any (self-test), 1 = FSK only (Ford/Toyota/Hyundai-VDO),
 // 2 = OOK only (Schrader family). Only trying the decoders that match the
 // modulation being received halves the odds of a garbled frame passing some
 // protocol's 8-bit checksum by chance (seen OTA: an FSK frame "passed" GM EG53).
 inline bool decodeAny(const uint8_t* b, int n, TpmsDecoded& out, int family = 0) {
+    // Each decode must pass its checksum AND have a non-periodic ID AND a
+    // physically plausible pressure/temperature.
+    #define TPMS_ACCEPT (plausibleId(out.id, idBits(out.protocol)) && \
+                         plausibleReading(out.pressureKpa, out.tempC))
     if (family != 2) {
-        if (decodeFord(b, n, out) && plausibleId(out.id, idBits(out.protocol))) return true;
-        if (decodeToyota(b, n, out) && plausibleId(out.id, idBits(out.protocol))) return true;
-        if (decodeHyundaiVDO(b, n, out) && plausibleId(out.id, idBits(out.protocol))) return true;
+        if (decodeFord(b, n, out) && TPMS_ACCEPT) return true;
+        if (decodeToyota(b, n, out) && TPMS_ACCEPT) return true;
+        if (decodeHyundaiVDO(b, n, out) && TPMS_ACCEPT) return true;
     }
     if (family != 1) {
-        if (decodeSchraderEG53(b, n, out) && plausibleId(out.id, idBits(out.protocol))) return true;
-        if (decodeSchrader(b, n, out) && plausibleId(out.id, idBits(out.protocol))) return true;
+        if (decodeSchraderEG53(b, n, out) && TPMS_ACCEPT) return true;
+        if (decodeSchrader(b, n, out) && TPMS_ACCEPT) return true;
     }
+    // TRW is transmitted as OOK and FSK, so try it in either modulation family
+    // (its 10-byte CRC-8 makes a chance match near-impossible).
+    if (decodeTRW(b, n, out) && TPMS_ACCEPT) return true;
+    // NOTE: Honda (decodeHonda, proto 6) is intentionally NOT dispatched here.
+    // Its CRC-8/SMBUS init 0x00 is weak enough to cross-match other protocols'
+    // frames at a valid alignment (proven in the faithful demod model). rtl_433
+    // anchors Honda on a dedicated 23-bit marker; until that marker search exists
+    // in the demod front-end, enabling Honda re-introduces cross-protocol ghosts.
+    #undef TPMS_ACCEPT
     return false;
 }
 
@@ -197,7 +254,8 @@ inline bool decodeAny(const uint8_t* b, int n, TpmsDecoded& out, int family = 0)
 // Ford uses rtl_433's documented INDEPENDENTLY verifiable additive checksum;
 // the others are built to spec with a self-consistent CRC/checksum (confirms
 // field extraction + the CRC implementation). Returns a bitmask:
-// bit0 Ford, bit1 Toyota, bit2 Hyundai-VDO, bit3 Schrader, bit4 Schrader-EG53.
+// bit0 Ford, bit1 Toyota, bit2 Hyundai-VDO, bit3 Schrader, bit4 Schrader-EG53,
+// bit5 Honda, bit6 TRW.
 inline uint8_t selfTest() {
     uint8_t result = 0;
     TpmsDecoded d;
@@ -239,6 +297,22 @@ inline uint8_t selfTest() {
         d = TpmsDecoded();
         if (decodeSchraderEG53(v, 10, d) && d.id == 0x123456u &&
             d.pressureKpa == 220 && d.tempC == 20) result |= 0x10;
+    }
+    // Honda: b0=125 -> 25 PSI, b1=70 -> 20 C, ID=b2..b5=0x12345678.
+    {
+        uint8_t v[8] = {125, 70, 0x12, 0x34, 0x56, 0x78, 0x00, 0x00};
+        v[7] = crc8(v, 7, 0x07, 0x00);
+        d = TpmsDecoded();
+        if (decodeHonda(v, 8, d) && d.id == 0x12345678u &&
+            d.tempC == 20 && d.pressureKpa == psiToKpa(25.0f)) result |= 0x20;
+    }
+    // TRW: ID=b1..b4=0x12345678, b6=60 -> 24 PSI, b7=70 -> 20 C.
+    {
+        uint8_t v[10] = {0x00, 0x12, 0x34, 0x56, 0x78, 0x00, 60, 70, 0x00, 0x00};
+        v[9] = crc8(v, 9, 0x07, 0x00);
+        d = TpmsDecoded();
+        if (decodeTRW(v, 10, d) && d.id == 0x12345678u &&
+            d.tempC == 20 && d.pressureKpa == psiToKpa(24.0f)) result |= 0x40;
     }
     return result;
 }

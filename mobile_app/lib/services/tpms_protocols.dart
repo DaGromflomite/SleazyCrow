@@ -23,6 +23,10 @@ const Map<int, TpmsProtocolInfo> kTpmsProtocols = {
       'Schrader', 'Schrader', 'many Schrader-equipped vehicles (FCC MRXGG4)'),
   5: TpmsProtocolInfo('Schrader (GM)', 'Schrader',
       'GM / Chevy (2006–2025), Opel / Saab / Vauxhall'),
+  6: TpmsProtocolInfo('Honda', 'Continental / Pacific',
+      'Honda, Acura'),
+  7: TpmsProtocolInfo('TRW', 'TRW / ZF',
+      'cross-make: GM, Honda, Chrysler / Jeep / RAM (FCC GQ4-70T)'),
 };
 
 TpmsProtocolInfo tpmsInfo(int protocol) =>
