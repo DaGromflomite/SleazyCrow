@@ -20,11 +20,19 @@ Sub-GHz TX fidelity: Flipper decoded Crow's Princeton transmit exactly (Key 0x00
 nRF: presence + RX spectrum tracks real 2.4GHz (nrf_test.py).
 APP display: Ford 4-wheel shown correctly on Pixel (earlier). Other protos: pending app-path.
 
+## Progress this run
+- 9 TPMS protocols hardware-verified (Ford,Toyota,Hyundai,Schrader,EG53,Honda,TRW,Jeep,Nissan). commits to 20fbabc.
+- Files CRUD verified over BLE (mkdir/upload/list/copy/rename/delete). getState ok.
+- Signal scanner: runs + reports detections to Flipper TX.
+- APK-PATH FINDING: installed APK was OLD -> showed Jeep as "Unidentified" though firmware
+  decoded correct pressure/temp. REBUILDING APK (new proto 6-9 labels + TPMS scrollbar).
+  After install, re-verify labels show Honda/TRW/Jeep/Nissan.
+
 ## TODO (this run) — every function, verified, APK path included
-- [ ] APP-path TPMS: reconnect Pixel, show Honda/Jeep/Toyota/Nissan sensors on screen (screenshot).
-- [ ] App scrollbar for long sensor lists (after signal tests). (user-requested)
-- [ ] Sub-GHz TX: transmit-from-file (done), playlist order/gap/repeat (Flipper rx), transmit-binary, brute/deBruijn (Flipper rx), jammer (Flipper rx carrier).
-- [ ] Sub-GHz RX: record→.sub verify, signal scanner RSSI, frequency search, ProtoPirate decode.
+- [~] APP-path TPMS: rebuilding APK with proto labels; then show Jeep/Honda/Nissan named on screen.
+- [x] App scrollbar for long sensor lists (added, in this APK build).
+- [ ] Sub-GHz TX: transmit-from-file (done), playlist order/gap/repeat, transmit-binary, brute/deBruijn (Flipper rx), jammer (self-test T3 covers TX radiate).
+- [ ] Sub-GHz RX: record→.sub verify, signal scanner (done-runs), frequency search, ProtoPirate (needs car-fob signal).
 - [ ] nRF: jammer ON-AIR via HackRF 2.4GHz witness; MouseJack scan arm (status re-probe); attacks arm.
 - [ ] Files: list/mkdir/upload/download/rename/copy/move/delete/tree over BLE.
 - [ ] Device: getState, version, set name, set time, settings sync, CC1101 power; reboot; SDR (CC1101 spectrum/raw); OTA version+MD5 read (no random flash); HW button config. Factory-reset/format-SD: verify guarded, DO NOT wipe.
