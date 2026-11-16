@@ -198,6 +198,30 @@ inline bool decodeJeep(const uint8_t* b, int n, TpmsDecoded& out) {
     return true;
 }
 
+// ── Nissan / Infiniti (rtl_433 tpms_nissan): FSK Manchester, 37-bit payload ──
+// Located by a dedicated 36-bit preamble (0xF5 55 55 55 E0) in the demod, NOT
+// the generic path — its checksum is only 2 bits. 24-bit ID; pressure only (no
+// temp in this format). psi = raw/4 - 3. (proto 9)
+inline bool decodeNissan(const uint8_t* b, int n, TpmsDecoded& out) {
+    if (n < 5) return false;
+    uint8_t chk = 0;
+    for (int i = 0; i < 4; i++) {
+        chk += b[i] >> 7; chk += b[i] >> 5; chk += b[i] >> 3; chk += b[i] >> 1;
+        chk += (uint8_t)(b[i] << 1);
+    }
+    chk += b[4] >> 7; chk += b[4] >> 5; chk += b[4] >> 3;
+    if ((uint8_t)(~chk & 0x03) != 0) return false;
+    out.id = ((uint32_t)(b[0] & 0x1F) << 19) | ((uint32_t)b[1] << 11) |
+             ((uint32_t)b[2] << 3) | (uint32_t)(b[3] >> 5);     // 24-bit
+    if (out.id == 0) return false;
+    uint16_t pr = (uint16_t)(((b[3] & 0x1F) << 3) | (b[4] >> 5));
+    out.pressureKpa = psiToKpa(pr / 4.0f - 3.0f);
+    out.tempC = -128;   // no temperature field in this protocol
+    out.protocol = 9;
+    out.ok = true;
+    return true;
+}
+
 // Try every known protocol on a payload byte buffer. Returns true on first hit.
 // CRC/checksum validation makes a false match at a wrong alignment near-impossible.
 // Reject IDs that are just a short repeating bit pattern (0x55555555,
@@ -225,7 +249,7 @@ inline bool plausibleId(uint32_t id, int bits) {
 }
 
 inline int idBits(uint8_t protocol) {
-    return protocol == 4 ? 28 : protocol == 5 ? 24 : 32;
+    return protocol == 4 ? 28 : (protocol == 5 || protocol == 9) ? 24 : 32;
 }
 
 // A real tyre reading is bounded: pressure 0..900 kPa (0..130 PSI, passenger +
