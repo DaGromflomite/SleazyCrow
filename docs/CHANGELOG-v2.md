@@ -533,6 +533,15 @@ through a Python copy of the decoder.
   frames pass now and then (OTA: a wrong Schrader ID with a valid CRC; an FSK frame "passing" GM EG53). Now **every**
   ID — validated or generic — must repeat within 15 s, and decoders only run on their own modulation (FSK frames →
   Ford/Toyota/Hyundai, OOK → Schrader/GM).
+- **Fix — degenerate IDs (round 3):** replaying every OTA capture showed weak checksums (Ford additive sum) "validating"
+  preamble/garbage IDs like `0x55555555`, `0x000003FF`, `0x80000000` — and garbage repeats identically, so the repeat
+  rule can't stop it. `tpms::plausibleId()` now rejects IDs that are periodic (period 1–4, ≤1 stray bit) or one run
+  ≥ 2/3 of the ID width, for every protocol and the generic fingerprint. False-reject on random real IDs: 3 per
+  million (32-bit), 24/M (28-bit), 169/M (24-bit).
+- **Phone end-to-end verified (Pixel, 2026-11-16):** app connects, TPMS scan at 315 shows `Radio: activity ~153`,
+  0 false packets; demo sensor shows `0x12345678 · Ford · 31.0 psi · 15°C · FOLLOWER`. History cleared after.
+  Note: if the PC (bleak) was just connected, Windows holds the BLE link and the phone gets GATT 147/0x3E until the
+  Crow is reset — not a field issue.
 - **FOC:** TPMS FSK now writes FOCCFG explicitly (`TPMS_FOCCFG`, default 0x16 = library default). FOC off (0x14) lost
   433 MHz FSK completely; 0x1D no better.
 - **Verified OTA on the final build:** Ford FSK 315 → exactly one hit `0xABCDEF01` Ford (20/20 frames decode);
