@@ -1,6 +1,7 @@
 #include "modules/tpms/TpmsModule.h"
 
 #include <math.h>
+#include <string.h>
 #include "esp_log.h"
 #include "modules/CC1101_driver/CC1101_Worker.h"
 #include "modules/tpms/TpmsDecoders.h"
@@ -58,6 +59,10 @@ bool TpmsModule::start(int module, float freqMHz) {
     seen_ = 0;
     edges_ = 0;
     recentCount_ = 0;
+    memset(pendingIds_, 0, sizeof(pendingIds_));
+    pendingNext_ = 0;
+    memset(heldIds_, 0, sizeof(heldIds_));
+    lastValidatedAt_ = 0;
 
     if (!CC1101Worker::startTpmsRX(module_, freqMHz_)) {
         ESP_LOGE(TAG, "startTpmsRX failed on module %d", module_);
@@ -105,6 +110,10 @@ void TpmsModule::decodeTask(void* param) {
     uint32_t statusTimer = millis();
     uint32_t modTimer = millis();
     uint32_t lastData = millis();
+#ifdef TPMS_PULSE_DEBUG
+    uint32_t dbgHist[24] = {0};
+    int dbgMaxRun = 0;
+#endif
     bool ookMode = false;   // start FSK (Toyota/Ford/Hyundai), alternate to OOK
 
     // WHY STREAMING: in CC1101 async RX with no carrier-sense squelch, GDO0
@@ -144,6 +153,10 @@ void TpmsModule::decodeTask(void* param) {
             lastData = millis();
             self->edges_ += chunk.size();
             for (unsigned long d : chunk) {
+#ifdef TPMS_PULSE_DEBUG
+                { int bk = d / 13; if (bk > 23) bk = 23; dbgHist[bk]++; }
+                if ((int)seg.size() + 1 > dbgMaxRun) dbgMaxRun = seg.size() + 1;
+#endif
                 float r = (float)d / T;
                 int n = (int)lroundf(r);
                 bool fits = n >= 1 && n <= 8 && fabsf(r - (float)n) <= 0.40f;
@@ -158,8 +171,16 @@ void TpmsModule::decodeTask(void* param) {
             flush(T);                // line went quiet (OOK squelch) after a run
         }
 
+        self->releaseHeld();
+
         if (millis() - statusTimer >= 2000) {
             statusTimer = millis();
+#ifdef TPMS_PULSE_DEBUG
+            Serial.printf("TPMSDBG %s maxrun=%d hist13us:", ookMode ? "OOK" : "FSK", dbgMaxRun);
+            for (int k = 0; k < 24; k++) { Serial.printf(" %lu", (unsigned long)dbgHist[k]); dbgHist[k] = 0; }
+            Serial.println();
+            dbgMaxRun = 0;
+#endif
             self->sendStatus();
             self->edges_ = 0;
         }
@@ -211,29 +232,45 @@ bool TpmsModule::demodPulses(const std::vector<unsigned long>& pulses, TpmsDecod
         for (int k = 0; k < n && nh < (int)sizeof(half); k++) half[nh++] = level ? 1 : 0;
         level = !level;
     }
+    // The pulse after the last one in the segment is the idle line, which is
+    // never a whole multiple of T, so the segmenter cut it off. If the frame's
+    // final bit ended on a transition, its second half-bit is lost with it.
+    // Restore one half-bit of the next level (found OTA: Ford checksum byte
+    // was always missing its last bit).
+    if (nh < (int)sizeof(half)) half[nh++] = level ? 1 : 0;
     if (nh < 128) return false;
 
-    // 3. Manchester-decode half-bit pairs into a bit array (realign on violation).
+    // 3. Manchester-decode half-bit pairs into a bit array (realign on
+    //    violation), then 4. try the real protocol decoders at every bit
+    //    alignment (normal + inverted). Both half-bit phases are tried: on air
+    //    the first frame of a burst sometimes locks to the wrong phase and a
+    //    preamble of equal-width pulses never forces a violation to resync.
     static uint8_t bitbuf[256];
-    int nb = 0;
-    int i = 0, run = 1;
-    while (i + 1 < nh && half[i] == half[i + 1] && run < 64) { i++; run++; }
-    if (run > 8) i++;                              // skip preamble, land on an edge
-    int guard = 0;
-    while (i + 1 < nh && nb < (int)sizeof(bitbuf) && guard < nh * 2) {
-        guard++;
-        uint8_t a = half[i], b = half[i + 1];
-        if (a == 1 && b == 0) { bitbuf[nb++] = 1; i += 2; }
-        else if (a == 0 && b == 1) { bitbuf[nb++] = 0; i += 2; }
-        else { i += 1; }
+    static uint8_t firstBits[256];
+    int firstNb = -1;
+    int i0 = 0, run = 1;
+    while (i0 + 1 < nh && half[i0] == half[i0 + 1] && run < 64) { i0++; run++; }
+    if (run > 8) i0++;                             // skip preamble, land on an edge
+    for (int phase = 0; phase < 2; phase++) {
+        int nb = 0;
+        int i = i0 + phase;
+        int guard = 0;
+        while (i + 1 < nh && nb < (int)sizeof(bitbuf) && guard < nh * 2) {
+            guard++;
+            uint8_t a = half[i], b = half[i + 1];
+            if (a == 1 && b == 0) { bitbuf[nb++] = 1; i += 2; }
+            else if (a == 0 && b == 1) { bitbuf[nb++] = 0; i += 2; }
+            else { i += 1; }
+        }
+        if (firstNb < 0) { firstNb = nb; memcpy(firstBits, bitbuf, nb); }
+        if (nb < 64) continue;
+        // A passing checksum/CRC is a strong positive -> pressure/temp valid.
+        if (packAndDecode(bitbuf, nb, false, out) || packAndDecode(bitbuf, nb, true, out)) {
+            return true;
+        }
     }
-    if (nb < 64) return false;
-
-    // 4. Try the real protocol decoders at every alignment (normal + inverted).
-    //    A passing checksum/CRC is a strong positive -> pressure/temp valid.
-    if (packAndDecode(bitbuf, nb, false, out) || packAndDecode(bitbuf, nb, true, out)) {
-        return true;
-    }
+    if (firstNb < 64) return false;
+    memcpy(bitbuf, firstBits, firstNb);
 
     // 5. No protocol validated -> generic fingerprint (first 32 bits). Gives a
     //    consistent trackable ID even for protocols we don't yet decode.
@@ -250,12 +287,63 @@ bool TpmsModule::demodPulses(const std::vector<unsigned long>& pulses, TpmsDecod
 
 void TpmsModule::processPacket(const std::vector<unsigned long>& pulses, float T, int rssi) {
     if (packets_ < 0xFFFF) packets_++;
+#ifdef TPMS_PULSE_DEBUG
+    Serial.printf("TPMSSEG T=%.0f n=%u:", T, (unsigned)pulses.size());
+    for (unsigned long d : pulses) Serial.printf(" %lu", d);
+    Serial.println();
+#endif
     TpmsDecoded d;
     if (!demodPulses(pulses, d, T)) return;
+    if (d.protocol == 0) {
+        // Unvalidated (no CRC) fingerprint: a corrupted frame yields a random
+        // ID, which would show up as a fake sensor. Real sensors send several
+        // identical repeats per transmission, so only report a generic ID once
+        // the exact same bits were seen twice within 15 s.
+        uint32_t now = millis();
+        bool confirmed = false;
+        for (int k = 0; k < kPendingMax; k++) {
+            if (pendingIds_[k] == d.id && now - pendingAt_[k] < 15000) {
+                confirmed = true;
+                break;
+            }
+        }
+        if (!confirmed) {
+            pendingIds_[pendingNext_] = d.id;
+            pendingAt_[pendingNext_] = now;
+            pendingNext_ = (pendingNext_ + 1) % kPendingMax;
+            return;
+        }
+        // Confirmed, but hold it ~1 s: if a CRC-validated frame arrives in the
+        // same burst, this was just a corrupted repeat of that sensor (a
+        // garbled first frame repeats identically every burst -- seen OTA).
+        for (int k = 0; k < kHeldMax; k++) {
+            if (heldIds_[k] == d.id) return;          // already held
+        }
+        for (int k = 0; k < kHeldMax; k++) {
+            if (heldIds_[k] == 0) { heldIds_[k] = d.id; heldAt_[k] = now; break; }
+        }
+        return;
+    }
+    lastValidatedAt_ = millis();
     if (seenRecently(d.id)) return;
     if (seen_ < 0xFFFF) seen_++;
     emitHit(d.id, d.pressureKpa, d.tempC, (int8_t)rssi, d.protocol,
             d.protocol ? 1 : 0);
+}
+
+void TpmsModule::releaseHeld() {
+    uint32_t now = millis();
+    for (int k = 0; k < kHeldMax; k++) {
+        if (heldIds_[k] == 0 || now - heldAt_[k] < 1000) continue;
+        uint32_t id = heldIds_[k];
+        uint32_t t = heldAt_[k];
+        heldIds_[k] = 0;
+        uint32_t dv = lastValidatedAt_ > t ? lastValidatedAt_ - t : t - lastValidatedAt_;
+        if (lastValidatedAt_ != 0 && dv < 1000) continue;  // part of a validated burst
+        if (seenRecently(id)) continue;
+        if (seen_ < 0xFFFF) seen_++;
+        emitHit(id, 0xFFFF, -128, -50, 0, 0);
+    }
 }
 
 bool TpmsModule::demodSelfTest() {

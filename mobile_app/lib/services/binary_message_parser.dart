@@ -1116,6 +1116,8 @@ class BinaryMessageParser {
               'freqMHz': (data[3] | (data[4] << 8)) / 100.0,
               'seen': data[5] | (data[6] << 8),
               'packets': data[7] | (data[8] << 8),
+              // Radio activity: raw edges/256 over the last 2 s (0 = radio silent).
+              if (data.length > 9) 'activity': data[9],
             },
           };
 

@@ -26,6 +26,8 @@ class TpmsScreen extends StatelessWidget {
           children: [
             _header(context, tpms, connected),
             _sensitivityBar(context, tpms),
+            _bandBar(tpms),
+            if (tpms.scanning) _radioBar(tpms),
             if (followers.isNotEmpty) _followerBanner(followers.length),
             if (!connected) _notice(
                 'Connect to the Crow first — TPMS reception uses its CC1101 radio.'),
@@ -148,6 +150,70 @@ class TpmsScreen extends StatelessWidget {
           ],
         ),
       );
+
+  /// 315 MHz (most US cars) vs 433.92 MHz (EU + many newer US cars, e.g. some
+  /// FCA/Hyundai/Kia/Tesla). Switching while scanning retunes immediately.
+  Widget _bandBar(TpmsProvider tpms) => Container(
+        width: double.infinity,
+        color: AppColors.secondaryBackground,
+        padding: const EdgeInsets.fromLTRB(16, 0, 10, 8),
+        child: Row(children: [
+          const Icon(Icons.settings_input_antenna,
+              size: 15, color: AppColors.secondaryText),
+          const SizedBox(width: 8),
+          const Text('Band:',
+              style: TextStyle(color: AppColors.secondaryText, fontSize: 12)),
+          const Spacer(),
+          SegmentedButton<int>(
+            showSelectedIcon: false,
+            style: SegmentedButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              selectedBackgroundColor: AppColors.cyanAccent,
+              selectedForegroundColor: Colors.black,
+              foregroundColor: AppColors.cyanAccent,
+              textStyle:
+                  const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+            ),
+            segments: const [
+              ButtonSegment(value: 31500, label: Text('315 MHz')),
+              ButtonSegment(value: 43392, label: Text('433.92 MHz')),
+            ],
+            selected: {tpms.selectedFreqX100},
+            onSelectionChanged: (s) => tpms.setFrequency(s.first),
+          ),
+        ]),
+      );
+
+  /// Live radio-activity readout so a 0-hit drive can be diagnosed:
+  /// activity 0 = radio hearing nothing (dead radio / wiring),
+  /// activity > 0 but 0 packets = hearing RF but nothing decoded.
+  Widget _radioBar(TpmsProvider tpms) {
+    final a = tpms.activity;
+    final String text;
+    final Color color;
+    if (a == null) {
+      text = 'Radio: waiting for first status…';
+      color = AppColors.secondaryText;
+    } else if (a == 0 && tpms.peakActivity == 0) {
+      text = 'Radio: NO activity — the CC1101 is delivering nothing';
+      color = AppColors.error;
+    } else {
+      text = 'Radio: activity $a (peak ${tpms.peakActivity}) · '
+          '${tpms.packets} decoded packets';
+      color = AppColors.cyanAccent;
+    }
+    return Container(
+      width: double.infinity,
+      color: AppColors.secondaryBackground,
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Row(children: [
+        Icon(Icons.graphic_eq, size: 15, color: color),
+        const SizedBox(width: 8),
+        Expanded(
+            child: Text(text, style: TextStyle(color: color, fontSize: 12))),
+      ]),
+    );
+  }
 
   Widget _followerBanner(int n) => Container(
         width: double.infinity,
