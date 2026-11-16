@@ -178,6 +178,26 @@ inline bool decodeTRW(const uint8_t* b, int n, TpmsDecoded& out) {
     return true;
 }
 
+// ── Jeep / FCA (rtl_433 tpms_jeep, Continental): FSK Manchester, 10 bytes ───
+// XOR of b1..b9 == 0. ID = b1..b4 big-endian. Pressure = b6 * 2.728 kPa.
+// Temp = b7 - 50 C. b6 and b7 must be non-zero. (proto 8) Jeep/Chrysler/Dodge/
+// RAM (wire format shared with Citroën).
+inline bool decodeJeep(const uint8_t* b, int n, TpmsDecoded& out) {
+    if (n < 10) return false;
+    uint8_t x = 0;
+    for (int i = 1; i <= 9; i++) x ^= b[i];
+    if (x != 0) return false;
+    if (b[6] == 0 || b[7] == 0) return false;
+    out.id = ((uint32_t)b[1] << 24) | ((uint32_t)b[2] << 16) |
+             ((uint32_t)b[3] << 8) | (uint32_t)b[4];
+    if (out.id == 0 || out.id == 0xFFFFFFFFu) return false;
+    out.pressureKpa = (uint16_t)(b[6] * 2.728f + 0.5f);
+    out.tempC = (int8_t)((int)b[7] - 50);
+    out.protocol = 8;
+    out.ok = true;
+    return true;
+}
+
 // Try every known protocol on a payload byte buffer. Returns true on first hit.
 // CRC/checksum validation makes a false match at a wrong alignment near-impossible.
 // Reject IDs that are just a short repeating bit pattern (0x55555555,
@@ -233,6 +253,7 @@ inline bool decodeAny(const uint8_t* b, int n, TpmsDecoded& out, int family = 0)
         if (decodeFord(b, n, out) && TPMS_ACCEPT) return true;
         if (decodeToyota(b, n, out) && TPMS_ACCEPT) return true;
         if (decodeHyundaiVDO(b, n, out) && TPMS_ACCEPT) return true;
+        if (decodeJeep(b, n, out) && TPMS_ACCEPT) return true;
     }
     if (family != 1) {
         if (decodeSchraderEG53(b, n, out) && TPMS_ACCEPT) return true;

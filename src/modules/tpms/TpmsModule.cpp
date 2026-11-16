@@ -262,14 +262,53 @@ bool TpmsModule::demodPulses(const std::vector<unsigned long>& pulses, TpmsDecod
     if (nh < (int)sizeof(half)) half[nh++] = level ? 1 : 0;
     if (nh < 128) return false;
 
+    // Decoder family from the half-bit hint: ~52us = FSK, ~120us = OOK,
+    // no hint (self-test) = try all.
+    const int family = tHint <= 0.0f ? 0 : (tHint > 90.0f ? 2 : 1);
+
+    // 2b. Honda (proto 6): rtl_433 locates Honda by a 23-bit raw desync MARKER
+    //     (0xDA 0xE3 0x54) a Manchester decoder can't produce, then decodes 8
+    //     Manchester bytes after it. Honda's CRC-8/SMBUS init 0x00 is too weak
+    //     for the generic anchor path (it cross-matches other protocols), so it
+    //     is decoded ONLY when its marker is found — making it self-anchored and
+    //     ghost-free. Searched in both polarities (RX inversion varies).
+    if (family != 2) {   // Honda is FSK
+        static const uint8_t mk[23] = {1,1,0,1,1,0,1,0, 1,1,1,0,0,0,1,1, 0,1,0,1,0,1,0};
+        for (int inv = 0; inv < 2 && !out.ok; inv++) {
+            for (int s = 0; s + 23 + 128 <= nh; s++) {
+                bool m = true;
+                for (int k = 0; k < 23; k++)
+                    if ((uint8_t)(half[s + k] ^ inv) != mk[k]) { m = false; break; }
+                if (!m) continue;
+                uint8_t hb[64]; int nbit = 0; int i = s + 23;
+                while (i + 1 < nh && nbit < 64) {
+                    uint8_t a = (uint8_t)(half[i] ^ inv), b = (uint8_t)(half[i + 1] ^ inv);
+                    if (a == 1 && b == 0) { hb[nbit++] = 1; i += 2; }
+                    else if (a == 0 && b == 1) { hb[nbit++] = 0; i += 2; }
+                    else break;   // violation -> not a clean payload here
+                }
+                if (nbit < 64) continue;
+                uint8_t by[8];
+                for (int B = 0; B < 8; B++) {
+                    uint8_t v = 0;
+                    for (int k = 0; k < 8; k++) v = (uint8_t)((v << 1) | hb[B * 8 + k]);
+                    by[B] = v;
+                }
+                if (tpms::decodeHonda(by, 8, out) &&
+                    tpms::plausibleId(out.id, 32) &&
+                    tpms::plausibleReading(out.pressureKpa, out.tempC)) {
+                    return true;
+                }
+                out = TpmsDecoded();   // reset on a failed candidate
+            }
+        }
+    }
+
     // 3. Manchester-decode half-bit pairs into a bit array (realign on
     //    violation), then 4. try the real protocol decoders at every bit
     //    alignment (normal + inverted). Both half-bit phases are tried: on air
     //    the first frame of a burst sometimes locks to the wrong phase and a
     //    preamble of equal-width pulses never forces a violation to resync.
-    // Decoder family from the half-bit hint: ~52us = FSK, ~120us = OOK,
-    // no hint (self-test) = try all.
-    const int family = tHint <= 0.0f ? 0 : (tHint > 90.0f ? 2 : 1);
     static uint8_t bitbuf[256];
     static uint8_t firstBits[256];
     int firstNb = -1;
