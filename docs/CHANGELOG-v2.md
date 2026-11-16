@@ -632,6 +632,21 @@ moving (~60–90 s) — ideal for the follow-in-traffic threat case; short range
 Backups pinned with it: **dual-radio "capture trap"** (radio A detects a burst firing, radio B already
 parked records it in full — kills the single-radio scan-vs-capture problem) and **sub-GHz wardriving**
 (GPS+timestamp heatmap of TPMS/433 weather/AMR meters/garage remotes). Builds on/after P5.
+**TPMS follow-on features (pinned 2026-11-16):**
+- **★ Police vehicle coverage (top priority)** — confirm Ford Police Interceptor Utility, Chevy Tahoe PPV,
+  Dodge Charger Pursuit (+ Durango Pursuit, F-150 Police Responder) are decoded + bench-verified. Police TPMS
+  is identical to the civilian model (same OEM sensors/protocol). Also cover the generic protocols the
+  programmable aftermarket sensors (Schrader EZ-sensor, Autel MX-Sensor, Huf IntelliSens) mimic.
+- **Omit my own vehicle** — "learn my car" + manual entry so your own 4 sensor IDs never flag as followers.
+- **★ Known-police-vehicle ID database / watch list** — sensor IDs are fixed and unique (like MACs), so
+  tagging a confirmed police vehicle gives a high-confidence alert when it passes again; make/model alone
+  stays a low-confidence "Fleet-type vehicle" tag. Local watch list first; **shared/downloadable database
+  in scope** (WiGLE/DeFlock precedent). Match on protocol + ID; entries expire + need multi-user
+  confirmation (sensors change with tire/wheel swaps); ID-only DB hosted as repo JSON. **Fusion alert:**
+  fleet-model TPMS hit + Axon BLE (OUI 00:25:DF) / fleet-router Wi-Fi at the same time = strong signal,
+  works on unmarked cars.
+- **Downloadable TPMS decoder packs** — decoder definitions as downloadable files (like SubGHz packs);
+  feasibility study owed.
 Firmware-side: BLE + WiFi AP spam · deauth detection · POCSAG/FLEX pager decode ·
 **nRF24 raw ESB sniffer/logger** (with legacy-keyboard keystroke decode) ·
 **nRF24 ESB capture→replay + fuzzing** (own device). *(Reviewed 2026-11-05: promiscuous sniffing,
