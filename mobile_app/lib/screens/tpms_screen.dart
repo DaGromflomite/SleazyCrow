@@ -39,10 +39,14 @@ class TpmsScreen extends StatelessWidget {
             Expanded(
               child: tpms.liveSensors.isEmpty
                   ? _empty(tpms)
-                  : ListView.builder(
-                      itemCount: tpms.liveSensors.length,
-                      itemBuilder: (_, i) =>
-                          _sensorTile(tpms, tpms.liveSensors[i]),
+                  : Scrollbar(
+                      thumbVisibility: true,
+                      child: ListView.builder(
+                        primary: true,
+                        itemCount: tpms.liveSensors.length,
+                        itemBuilder: (_, i) =>
+                            _sensorTile(tpms, tpms.liveSensors[i]),
+                      ),
                     ),
             ),
           ],
