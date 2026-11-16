@@ -654,13 +654,24 @@ void NrfJammer::jammerTask(void* param) {
     }
 
     size_t hopIndex = 0;
-    uint32_t yieldCounter = 0;  // For WDT feed in turbo (dwell=0) mode
+    uint32_t yieldCounter = 0;  // For WDT feed + cooperative yield in turbo mode
 
     while (!stopRequest_) {
-        // Periodic yield to prevent watchdog timeout in turbo mode
-        if (++yieldCounter >= 64) {
+        // CRITICAL: cooperatively yield to lower-priority tasks so a STOP can
+        // actually be received.  This task runs at priority 2 pinned to core 1;
+        // the BLE command / Arduino loop task that sets stopRequest_ is LOWER
+        // priority on the same core.  taskYIELD() only yields to EQUAL-priority
+        // ready tasks, so in turbo mode (dwell=0, no blocking call in the body)
+        // this loop starved the command task completely — the jammer could
+        // never be stopped over BLE and, because it holds the shared HSPI mutex
+        // (acquireSpi), the nRF AND the CC1101 radios stayed wedged until a
+        // physical power-cycle.  vTaskDelay(1) briefly BLOCKS this task (~1 tick
+        // / 1 ms) so the command task runs, processes 0x2B, and sets
+        // stopRequest_; it also feeds the WDT.  ~1 ms idle per ~7 ms jam keeps
+        // duty cycle high (~85%) while making the jammer reliably stoppable.
+        if (++yieldCounter >= 48) {
             yieldCounter = 0;
-            taskYIELD();
+            vTaskDelay(1);
         }
         // ── Hot-swap: detect mode change from app ───────────────
         if (activeMode != currentMode_) {

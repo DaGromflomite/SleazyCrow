@@ -14,15 +14,27 @@
 - **Sub-GHz TX fidelity** — Flipper independently decoded the Crow's Princeton tx
   (Key 0x00123456, 350us) exactly.
 - **File management** CRUD over BLE (mkdir/upload/list/copy/rename/delete) — verified.
-- **nRF24** present (SPI), RX spectrum tracks real 2.4GHz, MouseJack scan arms +
-  returns status + stops, jammer arms/disarms.
+- **nRF24** present (SPI), responds to init/spectrum/scan over BLE.
+- **nRF jammer — CRITICAL BUG FOUND & FIXED (2026-11-16).** The turbo jam loop
+  ran at prio 2 on core 1 and only called taskYIELD(), starving the lower-prio
+  BLE command task on the same core. Result: once started, the jammer could NOT
+  be stopped over BLE, and because it holds the shared HSPI mutex it WEDGED both
+  the nRF and the CC1101 radios (incl. TPMS) until a physical power-cycle.
+  HackRF + BLE verified: during jam getState got 0/8 responses; stop got no ack;
+  nRF present=NO afterward. FIX: vTaskDelay(1) every 48 turbo iters so the
+  command task runs. Re-verified: getState 8/8 during jam, stop acks + running=0,
+  nRF recovers, 6/6 arm/stop cycles clean, and CC1101/TPMS RX restarts after a
+  jam cycle. ~85% jam duty retained.
 - **Device** getState / settings-sync / OTA-status / version respond; signal scanner
   runs + reports.
 
 ### Gaps needing specific hardware (NOT firmware faults)
-- nRF24 **jammer 2.4GHz emission** — can't independently witness: HackRF host tools
-  (libhackrf) not installed; PortaPack/Mayhem serial has no RSSI read. nRF TX path is
-  otherwise exercised (jammer/attacks arm). Install hackrf tools to close.
+- nRF24 **jammer 2.4GHz emission** — HackRF host tools NOW installed (PothosSDR,
+  hackrf_sweep). Jammer control path fully fixed/verified (see above). Direct
+  emission witness still INCONCLUSIVE: guard-band 2484-2505 showed no clear rise
+  (may be outside FULL mode's channel set); an early WiFi-band "+20dB" reading was
+  a FALSE POSITIVE from ambient WiFi. TODO: sweep the exact nRF channel set the
+  active mode uses, and raise PA, to confirm radiated power.
 - **MouseJack injection** — needs a real vulnerable Logitech/MS 2.4GHz dongle (none).
 - **ProtoPirate** decode — needs a captured car key-fob signal to replay.
 - T5 PA-power delta INCONCLUSIVE — two radios too close, RSSI saturated (rig limit).
