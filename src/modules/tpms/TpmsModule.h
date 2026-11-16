@@ -79,7 +79,7 @@ private:
     static constexpr int kRecentMax = 48;
     uint32_t recentIds_[kRecentMax] = {0};
     // Unconfirmed generic (no-CRC) fingerprints awaiting a repeat.
-    static constexpr int kPendingMax = 16;
+    static constexpr int kPendingMax = 32;
     uint32_t pendingIds_[kPendingMax] = {0};
     uint32_t pendingAt_[kPendingMax] = {0};
     int pendingNext_ = 0;

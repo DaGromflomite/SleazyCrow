@@ -529,8 +529,19 @@ through a Python copy of the decoder.
   held 1 s and dropped if a CRC-validated frame arrives in the same burst.
 - **App:** TPMS screen gets a **315 / 433.92 MHz band switch** (remembered; retunes live) and a **radio-activity line**
   (activity / peak / decoded packets; red warning if the radio delivers nothing), so a 0-hit drive can be diagnosed.
-- **Verified OTA on the Crow:** Ford FSK 315 → `0xABCDEF01` proto Ford ✔; Schrader OOK 315 → `0x0AB1C2D3` proto
-  Schrader ✔; Schrader OOK 433.92 ✔. Self-test 0x9F pass; no crash; GetState fine after.
+- **Fix — checksum false positives (round 2):** brute-forcing every bit alignment against 8-bit checksums let garbled
+  frames pass now and then (OTA: a wrong Schrader ID with a valid CRC; an FSK frame "passing" GM EG53). Now **every**
+  ID — validated or generic — must repeat within 15 s, and decoders only run on their own modulation (FSK frames →
+  Ford/Toyota/Hyundai, OOK → Schrader/GM).
+- **FOC:** TPMS FSK now writes FOCCFG explicitly (`TPMS_FOCCFG`, default 0x16 = library default). FOC off (0x14) lost
+  433 MHz FSK completely; 0x1D no better.
+- **Verified OTA on the final build:** Ford FSK 315 → exactly one hit `0xABCDEF01` Ford (20/20 frames decode);
+  Schrader OOK 315 and 433.92 → exactly one hit `0x0AB1C2D3` Schrader; no fake sensors in any run. Self-test 0x9F
+  pass; no crash; GetState fine after.
+- **Known gap — FSK at 433.92:** frames arrive with lopsided pulse widths (radio-to-radio crystal offset; an RX
+  sweep showed the best point ~+10 kHz and still marginal). 0 decodes, 0 fakes. Affects only FSK sensors on 433
+  (EU cars, some newer FCA); US 315 FSK and all OOK are fine. Could be the Crow's own two crystals — needs a real
+  433 sensor to judge.
 - **Note (upstream bug, test-only impact):** the built-in `FuriHalSubGhzPreset2FSKDev238Async`/`Dev476Async` register
   tables are identical copies with GFSK @ ~3.8 kbaud and no DEVIATN entry, so .sub files using them don't transmit
   the FSK they name. The OTA test used a Custom 2-FSK 19.2 kbaud preset instead. Not fixed yet.

@@ -570,6 +570,10 @@ void CC1101Worker::retuneTpms(int module, float frequency, bool ook) {
     } else {
         moduleCC1101State[module].setReceiveConfig(
             frequency, false, MODULATION_2_FSK, 232.0f, 30.0f, 19.2f).initConfig();
+#ifndef TPMS_FOCCFG
+#define TPMS_FOCCFG 0x16   // library default; FOC off (0x14) lost 433 MHz FSK entirely in OTA tests
+#endif
+        moduleCC1101State[module].writeRegisterRx(CC1101_FOCCFG, TPMS_FOCCFG);
     }
     clearReceivedSamples(module);
 }

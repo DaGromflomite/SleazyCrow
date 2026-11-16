@@ -96,6 +96,7 @@ public:
   int getRssi();
   byte getLqi();
   void setSidle();
+  void writeRegisterRx(byte address, byte value);  // idle, write one config register, back to RX
   void goSleep();
   SemaphoreHandle_t getStateChangeSemaphore();
   void unlock();

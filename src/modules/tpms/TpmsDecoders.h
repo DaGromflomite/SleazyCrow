@@ -148,12 +148,20 @@ inline bool decodeSchraderEG53(const uint8_t* b, int n, TpmsDecoded& out) {
 
 // Try every known protocol on a payload byte buffer. Returns true on first hit.
 // CRC/checksum validation makes a false match at a wrong alignment near-impossible.
-inline bool decodeAny(const uint8_t* b, int n, TpmsDecoded& out) {
-    if (decodeFord(b, n, out)) return true;
-    if (decodeToyota(b, n, out)) return true;
-    if (decodeHyundaiVDO(b, n, out)) return true;
-    if (decodeSchraderEG53(b, n, out)) return true;
-    if (decodeSchrader(b, n, out)) return true;
+// family: 0 = any (self-test), 1 = FSK only (Ford/Toyota/Hyundai-VDO),
+// 2 = OOK only (Schrader family). Only trying the decoders that match the
+// modulation being received halves the odds of a garbled frame passing some
+// protocol's 8-bit checksum by chance (seen OTA: an FSK frame "passed" GM EG53).
+inline bool decodeAny(const uint8_t* b, int n, TpmsDecoded& out, int family = 0) {
+    if (family != 2) {
+        if (decodeFord(b, n, out)) return true;
+        if (decodeToyota(b, n, out)) return true;
+        if (decodeHyundaiVDO(b, n, out)) return true;
+    }
+    if (family != 1) {
+        if (decodeSchraderEG53(b, n, out)) return true;
+        if (decodeSchrader(b, n, out)) return true;
+    }
     return false;
 }
 

@@ -11,7 +11,8 @@
 // Pack a Manchester-decoded bit array into bytes at every bit-offset (normal and
 // inverted) and run the protocol decoders. A wrong alignment can't pass a
 // checksum/CRC, so a validated decode is a strong positive.
-static bool packAndDecode(const uint8_t* bits, int nb, bool invert, TpmsDecoded& out) {
+static bool packAndDecode(const uint8_t* bits, int nb, bool invert, TpmsDecoded& out,
+                          int family) {
     uint8_t bytes[12];
     for (int off = 0; off + 64 <= nb; off++) {
         int maxbytes = (nb - off) / 8;
@@ -25,7 +26,7 @@ static bool packAndDecode(const uint8_t* bits, int nb, bool invert, TpmsDecoded&
             }
             bytes[B] = v;
         }
-        if (maxbytes >= 8 && tpms::decodeAny(bytes, maxbytes, out)) return true;
+        if (maxbytes >= 8 && tpms::decodeAny(bytes, maxbytes, out, family)) return true;
     }
     return false;
 }
@@ -245,6 +246,9 @@ bool TpmsModule::demodPulses(const std::vector<unsigned long>& pulses, TpmsDecod
     //    alignment (normal + inverted). Both half-bit phases are tried: on air
     //    the first frame of a burst sometimes locks to the wrong phase and a
     //    preamble of equal-width pulses never forces a violation to resync.
+    // Decoder family from the half-bit hint: ~52us = FSK, ~120us = OOK,
+    // no hint (self-test) = try all.
+    const int family = tHint <= 0.0f ? 0 : (tHint > 90.0f ? 2 : 1);
     static uint8_t bitbuf[256];
     static uint8_t firstBits[256];
     int firstNb = -1;
@@ -265,7 +269,8 @@ bool TpmsModule::demodPulses(const std::vector<unsigned long>& pulses, TpmsDecod
         if (firstNb < 0) { firstNb = nb; memcpy(firstBits, bitbuf, nb); }
         if (nb < 64) continue;
         // A passing checksum/CRC is a strong positive -> pressure/temp valid.
-        if (packAndDecode(bitbuf, nb, false, out) || packAndDecode(bitbuf, nb, true, out)) {
+        if (packAndDecode(bitbuf, nb, false, out, family) ||
+            packAndDecode(bitbuf, nb, true, out, family)) {
             return true;
         }
     }
@@ -294,28 +299,31 @@ void TpmsModule::processPacket(const std::vector<unsigned long>& pulses, float T
 #endif
     TpmsDecoded d;
     if (!demodPulses(pulses, d, T)) return;
+    // Every ID must repeat before it is reported. Generic (no-CRC) IDs are
+    // random on a corrupted frame, and even CRC-checked ones aren't safe: the
+    // decoder tries every bit alignment against 8-bit checksums, so a garbled
+    // frame passes by chance now and then (seen OTA: a wrong Schrader ID with a
+    // valid CRC). Real sensors send several identical repeats per burst, so
+    // require the exact same ID twice within 15 s.
+    uint32_t now = millis();
+    if (d.protocol != 0) lastValidatedAt_ = now;
+    bool confirmed = false;
+    for (int k = 0; k < kPendingMax; k++) {
+        if (pendingIds_[k] == d.id && now - pendingAt_[k] < 15000) {
+            confirmed = true;
+            break;
+        }
+    }
+    if (!confirmed) {
+        pendingIds_[pendingNext_] = d.id;
+        pendingAt_[pendingNext_] = now;
+        pendingNext_ = (pendingNext_ + 1) % kPendingMax;
+        return;
+    }
     if (d.protocol == 0) {
-        // Unvalidated (no CRC) fingerprint: a corrupted frame yields a random
-        // ID, which would show up as a fake sensor. Real sensors send several
-        // identical repeats per transmission, so only report a generic ID once
-        // the exact same bits were seen twice within 15 s.
-        uint32_t now = millis();
-        bool confirmed = false;
-        for (int k = 0; k < kPendingMax; k++) {
-            if (pendingIds_[k] == d.id && now - pendingAt_[k] < 15000) {
-                confirmed = true;
-                break;
-            }
-        }
-        if (!confirmed) {
-            pendingIds_[pendingNext_] = d.id;
-            pendingAt_[pendingNext_] = now;
-            pendingNext_ = (pendingNext_ + 1) % kPendingMax;
-            return;
-        }
-        // Confirmed, but hold it ~1 s: if a CRC-validated frame arrives in the
-        // same burst, this was just a corrupted repeat of that sensor (a
-        // garbled first frame repeats identically every burst -- seen OTA).
+        // Confirmed generic: hold it ~1 s; if a CRC-validated frame arrives in
+        // the same burst, this was a corrupted repeat of that sensor (a garbled
+        // first frame repeats identically every burst -- seen OTA).
         for (int k = 0; k < kHeldMax; k++) {
             if (heldIds_[k] == d.id) return;          // already held
         }
@@ -324,7 +332,6 @@ void TpmsModule::processPacket(const std::vector<unsigned long>& pulses, float T
         }
         return;
     }
-    lastValidatedAt_ = millis();
     if (seenRecently(d.id)) return;
     if (seen_ < 0xFFFF) seen_++;
     emitHit(d.id, d.pressureKpa, d.tempC, (int8_t)rssi, d.protocol,

@@ -261,6 +261,16 @@ byte ModuleCc1101::getLqi()
     return lqi;
 }
 
+void ModuleCc1101::writeRegisterRx(byte address, byte value)
+{
+    xSemaphoreTake(rwSemaphore, portMAX_DELAY);
+    cc1101.setModul(id);
+    cc1101.setSidle();
+    cc1101.SpiWriteReg(address, value);
+    cc1101.SetRx();
+    xSemaphoreGive(rwSemaphore);
+}
+
 void ModuleCc1101::setSidle()
 {
     xSemaphoreTake(rwSemaphore, portMAX_DELAY);
