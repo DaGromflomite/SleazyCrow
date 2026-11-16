@@ -11,9 +11,22 @@
 // Pack a Manchester-decoded bit array into bytes at every bit-offset (normal and
 // inverted) and run the protocol decoders. A wrong alignment can't pass a
 // checksum/CRC, so a validated decode is a strong positive.
+//
+// We take the decode at the LATEST validating offset, not the first. A weak
+// checksum (Ford is a plain additive sum) can also pass at an alignment shifted
+// one bit EARLIER, where the frame's first byte absorbs a trailing preamble bit.
+// That shift-ghost is deterministic, so it would repeat and defeat the repeat
+// filter, surfacing as a phantom sensor. The genuine frame always sits at a
+// LATER offset (immediately after the full preamble, before the trailing idle
+// gap), so scanning all offsets and keeping the last match picks the true frame
+// and drops the preamble-absorbing ghost. Verified on real Ford frames carrying
+// the rtl_433 0x55555556 preamble; Schrader/Toyota/Hyundai use real CRCs and
+// yield a single offset, so this does not change them.
 static bool packAndDecode(const uint8_t* bits, int nb, bool invert, TpmsDecoded& out,
                           int family) {
     uint8_t bytes[12];
+    bool found = false;
+    TpmsDecoded best;
     for (int off = 0; off + 64 <= nb; off++) {
         int maxbytes = (nb - off) / 8;
         if (maxbytes > 12) maxbytes = 12;
@@ -26,9 +39,14 @@ static bool packAndDecode(const uint8_t* bits, int nb, bool invert, TpmsDecoded&
             }
             bytes[B] = v;
         }
-        if (maxbytes >= 8 && tpms::decodeAny(bytes, maxbytes, out, family)) return true;
+        TpmsDecoded cur;
+        if (maxbytes >= 8 && tpms::decodeAny(bytes, maxbytes, cur, family)) {
+            best = cur;
+            found = true;
+        }
     }
-    return false;
+    if (found) out = best;
+    return found;
 }
 
 static const char* TAG __attribute__((unused)) = "Tpms";
