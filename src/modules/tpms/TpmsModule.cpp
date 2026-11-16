@@ -304,6 +304,42 @@ bool TpmsModule::demodPulses(const std::vector<unsigned long>& pulses, TpmsDecod
         }
     }
 
+    // 2c. Nissan (proto 9): dedicated 36-bit preamble search (0xF5 55 55 55 E0),
+    //     then 5 Manchester bytes. Its checksum is only 2 bits, so it is decoded
+    //     ONLY when its specific preamble is found (self-anchored, ghost-free).
+    if (family != 2) {
+        static const uint8_t np[36] = {1,1,1,1,0,1,0,1, 0,1,0,1,0,1,0,1,
+                                       0,1,0,1,0,1,0,1, 0,1,0,1,0,1,0,1, 1,1,1,0};
+        for (int inv = 0; inv < 2 && !out.ok; inv++) {
+            for (int s = 0; s + 36 + 80 <= nh; s++) {
+                bool m = true;
+                for (int k = 0; k < 36; k++)
+                    if ((uint8_t)(half[s + k] ^ inv) != np[k]) { m = false; break; }
+                if (!m) continue;
+                uint8_t hb[40]; int nbit = 0; int i = s + 36;
+                while (i + 1 < nh && nbit < 40) {
+                    uint8_t a = (uint8_t)(half[i] ^ inv), b = (uint8_t)(half[i + 1] ^ inv);
+                    if (a == 1 && b == 0) { hb[nbit++] = 1; i += 2; }
+                    else if (a == 0 && b == 1) { hb[nbit++] = 0; i += 2; }
+                    else break;
+                }
+                if (nbit < 40) continue;
+                uint8_t by[5];
+                for (int B = 0; B < 5; B++) {
+                    uint8_t v = 0;
+                    for (int k = 0; k < 8; k++) v = (uint8_t)((v << 1) | hb[B * 8 + k]);
+                    by[B] = v;
+                }
+                if (tpms::decodeNissan(by, 5, out) &&
+                    tpms::plausibleId(out.id, 24) &&
+                    tpms::plausibleReading(out.pressureKpa, out.tempC)) {
+                    return true;
+                }
+                out = TpmsDecoded();
+            }
+        }
+    }
+
     // 3. Manchester-decode half-bit pairs into a bit array (realign on
     //    violation), then 4. try the real protocol decoders at every bit
     //    alignment (normal + inverted). Both half-bit phases are tried: on air
