@@ -148,19 +148,47 @@ inline bool decodeSchraderEG53(const uint8_t* b, int n, TpmsDecoded& out) {
 
 // Try every known protocol on a payload byte buffer. Returns true on first hit.
 // CRC/checksum validation makes a false match at a wrong alignment near-impossible.
+// Reject IDs that are just a short repeating bit pattern (0x55555555,
+// 0x24924924, 0xFFFFFF...). Those come from the preamble or from a garbled
+// frame, and with weak 8-bit checksums tried at every bit alignment they can
+// "validate" -- and repeat identically, so the repeat rule can't catch them
+// (found replaying OTA captures). A real factory ID is never periodic.
+inline bool plausibleId(uint32_t id, int bits) {
+    uint32_t mask = bits >= 32 ? 0xFFFFFFFFu : ((1u << bits) - 1u);
+    id &= mask;
+    if (id == 0 || id == mask) return false;
+    for (int p = 1; p <= 4; p++) {
+        // periodic with at most one stray bit
+        if (__builtin_popcount((id ^ (id >> p)) & (mask >> p)) <= 1) return false;
+    }
+    // ...nor mostly one long run of 0s or 1s (0x000003FF, 0x80000000 seen in
+    // replayed captures): reject a run >= 2/3 of the ID width.
+    int run = 1, longest = 1;
+    for (int i = 1; i < bits; i++) {
+        bool same = ((id >> i) & 1u) == ((id >> (i - 1)) & 1u);
+        run = same ? run + 1 : 1;
+        if (run > longest) longest = run;
+    }
+    return longest * 3 < bits * 2;
+}
+
+inline int idBits(uint8_t protocol) {
+    return protocol == 4 ? 28 : protocol == 5 ? 24 : 32;
+}
+
 // family: 0 = any (self-test), 1 = FSK only (Ford/Toyota/Hyundai-VDO),
 // 2 = OOK only (Schrader family). Only trying the decoders that match the
 // modulation being received halves the odds of a garbled frame passing some
 // protocol's 8-bit checksum by chance (seen OTA: an FSK frame "passed" GM EG53).
 inline bool decodeAny(const uint8_t* b, int n, TpmsDecoded& out, int family = 0) {
     if (family != 2) {
-        if (decodeFord(b, n, out)) return true;
-        if (decodeToyota(b, n, out)) return true;
-        if (decodeHyundaiVDO(b, n, out)) return true;
+        if (decodeFord(b, n, out) && plausibleId(out.id, idBits(out.protocol))) return true;
+        if (decodeToyota(b, n, out) && plausibleId(out.id, idBits(out.protocol))) return true;
+        if (decodeHyundaiVDO(b, n, out) && plausibleId(out.id, idBits(out.protocol))) return true;
     }
     if (family != 1) {
-        if (decodeSchraderEG53(b, n, out)) return true;
-        if (decodeSchrader(b, n, out)) return true;
+        if (decodeSchraderEG53(b, n, out) && plausibleId(out.id, idBits(out.protocol))) return true;
+        if (decodeSchrader(b, n, out) && plausibleId(out.id, idBits(out.protocol))) return true;
     }
     return false;
 }

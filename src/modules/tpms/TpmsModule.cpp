@@ -281,7 +281,7 @@ bool TpmsModule::demodPulses(const std::vector<unsigned long>& pulses, TpmsDecod
     //    consistent trackable ID even for protocols we don't yet decode.
     uint32_t id = 0;
     for (int k = 0; k < 32; k++) id = (id << 1) | bitbuf[k];
-    if (id == 0 || id == 0xFFFFFFFFu) return false;
+    if (!tpms::plausibleId(id, 32)) return false;   // preamble / garbage pattern
     out.ok = true;
     out.id = id;
     out.pressureKpa = 0xFFFF;
