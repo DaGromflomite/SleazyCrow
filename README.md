@@ -7,13 +7,16 @@ hardware — a pocket radio tool for sub-GHz and 2.4 GHz. It's built for reliabi
 an "is a car following me?" tire-sensor detector, car key-fob decoding (now including Chrysler/Dodge/Jeep/RAM),
 sub-GHz capture / replay / brute-force, a 2.4 GHz toolkit, and more.
 
-> **Beta build (v2.2.0-beta).** The reliability bugs are fixed and tested on real
-> hardware, so this is past the rough "unstable" stage. It's still beta because two
-> big features haven't been proven in the real world yet: the car-follower detector
-> hasn't been tried next to a real car on a drive, and the key-fob next-code feature
-> hasn't been fired at a real vehicle. If something misbehaves, you can always go back
-> to **v1.2.0-beta** (the main web flasher), and please
+> **Beta build (v2.3.0-beta).** The reliability bugs are fixed, and every app function
+> has been run on real radios on the bench (see [`docs/QA-STATUS.md`](docs/QA-STATUS.md)).
+> It's still beta because the two features that need a real-world target haven't had one
+> yet: the car-follower detector hasn't been tried next to a real car on a drive, and the
+> key-fob next-code feature hasn't been fired at a real vehicle. If something misbehaves,
+> you can always go back to **v1.2.0-beta** (the main web flasher), and please
 > [tell us what happened](https://github.com/DaGromflomite/SleazyCrow/issues/new).
+>
+> New to it? Start with the [**instruction manual**](docs/MANUAL.md) — it walks through
+> every function step by step.
 
 ## Install
 
@@ -21,11 +24,60 @@ sub-GHz capture / replay / brute-force, a 2.4 GHz toolkit, and more.
 - **App:** `SleazyCrow-vX.Y.Z.apk` from [Releases](https://github.com/DaGromflomite/SleazyCrow/releases). It installs as its own app next to the official EvilCrow RF app. The official app also works with Sleazy Crow firmware (same Bluetooth protocol).
 - **Updates:** the Sleazy Crow app checks this repo's releases for new firmware (OTA over Bluetooth) and app versions.
 
+## What it can do
+
+Everything below is driven from the phone app over Bluetooth. There's a step-by-step
+walkthrough of each one in the [instruction manual](docs/MANUAL.md).
+
+**Sub-GHz (300–928 MHz), two radios:**
+- **RF scanner** — sweep the common bands and see which frequencies are busy, as a live
+  spectrum or a list of decoded signals.
+- **Record** — capture a signal off the air and save it as a `.sub` file.
+- **Replay / transmit** — send a saved `.sub` back out, or send a raw on/off pattern on a
+  frequency you pick.
+- **Brute force** — walk the whole code space of a garage/gate protocol (CAME, Princeton,
+  NICE, Holtek, FAAC, BFT and more), in order or as a de Bruijn sequence.
+- **Key-fob reader (ProtoPirate)** — read a car key fob, show the make and button, and for
+  the supported makes build and send the next valid rolling code. See which makes in
+  [docs/PROTOPIRATE-SUPPORTED.md](docs/PROTOPIRATE-SUPPORTED.md).
+- **Playlists** — line up several `.sub` files and send them in order with one tap.
+- **Download library** — pull signals straight from the Flipper Sub-GHz DB and UberGuidoZ's
+  collection to the SD card.
+
+**Tire-pressure sensors (TPMS):**
+- **"Is a car following me?" detector** — listen for the tire sensors on nearby cars and
+  flag one that keeps showing up. Reads nine sensor types across the common US makes, shows
+  make, pressure and temperature, and lets you save known followers.
+
+**2.4 GHz (nRF24):**
+- **Spectrum view** — see which 2.4 GHz channels are busy.
+- **Jammer** — flood a band (Wi-Fi, BLE, Bluetooth, Zigbee, RC, a single channel, or the
+  whole range). For testing on gear you own, where it's legal to do so.
+- **MouseJack** — scan for vulnerable wireless mice and keyboards.
+
+**Files and device:**
+- **File manager** — browse, make, upload, rename and delete files on the SD card or the
+  Crow's internal storage, over Bluetooth.
+- **Settings** — radio options, hardware-button actions, nRF power/rate/channel, device name.
+- **Firmware update** — check GitHub for a newer release and flash it over Bluetooth.
+
 ## What's different from the original
 
 See [`changelog.json`](changelog.json) for the full list. Highlights:
 
-**New in this build (v2.2.0-beta):**
+**New in this build (v2.3.0-beta):**
+
+- **The key-fob next-code feature now works for every make it supports** — StarLine, Fiat,
+  Ford, Hyundai/Kia (V3/V4) and the VW/Audi/Seat/Škoda (VAG) family. VAG Type 3/4 was the
+  last one that read back wrong; it's fixed and checked on the real hardware (all four VAG
+  makes pass). Details in [`docs/PROTOPIRATE-FORWARD-CODES.md`](docs/PROTOPIRATE-FORWARD-CODES.md).
+- **Every app function was run on real radios** and written up in
+  [`docs/QA-STATUS.md`](docs/QA-STATUS.md). The 2.4 GHz jammer's output was confirmed on a
+  HackRF this round.
+- **New plain-English docs:** a [supported-fobs list](docs/PROTOPIRATE-SUPPORTED.md) and a
+  full [instruction manual](docs/MANUAL.md).
+
+**New in v2.2.0-beta:**
 
 - **Key-fob reader can build the next rolling code (for testing on vehicles you own
   or are allowed to test).** It reads the fob, moves the counter forward, re-encrypts
