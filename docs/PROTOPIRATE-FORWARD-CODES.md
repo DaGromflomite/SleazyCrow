@@ -41,7 +41,8 @@ arbitrary vehicles.
 | **Fiat V0** | Cleartext counter | ✅ Yes | ✅ Self-test |
 | **KIA V3/V4** | KeeLoq (keystore) | ✅ Yes | ✅ Self-test: crypto + my new encoder round-trips our decoder |
 | **Ford V0** | Obfuscation + GF(2) CRC | ✅ Yes | ✅ Full RF roundtrip self-test (decoder + encoder re-ported from upstream; a real decode bug was fixed in the process) |
-| VAG | AUT64 / XTEA | ⏳ Decoder only | No encoder in our port; needs the upstream VAG encoder + a real fob |
+| VAG (Type 2, XTEA) | XTEA (built-in key) | ⚠️ Math done | ✅ Forward data-level self-tested on hardware (`VAG(t2) 4660→4661`); XTEA encrypt ported. TX encoder + AUT64 types (1/3/4) still to port |
+| VAG (Types 1/3/4, AUT64) | AUT64 (keystore) | ⏳ Decoder path | Needs AUT64 keys loaded + aut64-encrypt forward + the type-specific encoders |
 | Subaru | Bit-rotation (no key) | ➖ N/A | Counter isn't a clean rolling counter |
 | PSA / KIA V5/V6 | — | ➖ Decode only | — |
 
