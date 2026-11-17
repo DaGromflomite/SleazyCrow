@@ -10,7 +10,11 @@
 #include "ProtoPirateModule.h"
 #include "modules/subghz_function/StreamingSubFileParser.h"
 #include "FlipperSubFile.h"
+#include "protocols/PPKeystore.h"
+#include "protocols/KeeloqCipher.h"
+#include <SD.h>
 #include <cstring>
+#include <cstdlib>
 #include <algorithm>
 
 // Static allocation for FreeRTOS task
@@ -75,6 +79,12 @@ bool ProtoPirateModule::init() {
         decoders_.push_back(entry.creator());
     }
     ESP_LOGI(TAG, "Initialized with %zu protocol decoders", decoders_.size());
+
+    // Load manufacturer/learning keys from SD (if present) into the shared
+    // keystore, so rolling-code decoders can recover counters and the
+    // forward-code generator can synthesize next codes. Tester-supplied file.
+    loadKeystoreFromSd();
+
     return true;
 }
 
@@ -718,6 +728,127 @@ bool ProtoPirateModule::emulate(const PPDecodeResult& result,
     }
 
     return true;
+}
+
+// ── Emulate the NEXT rolling code (authorized testing) ──────────
+
+bool ProtoPirateModule::emulateForward(const PPDecodeResult& in, int ccModule,
+                                        int counterDelta, int repeatCount) {
+    PPProtocol* proto = findProtocolByName(in.protocolName);
+    if (!proto) {
+        ESP_LOGE(TAG, "emulateForward: unknown protocol '%s'",
+                 in.protocolName ? in.protocolName : "null");
+        notifyTxStatus(3, 3);
+        return false;
+    }
+    if (!proto->supportsForward()) {
+        ESP_LOGW(TAG, "emulateForward: '%s' has no forward-code support",
+                 proto->getName());
+        notifyTxStatus(3, 7);  // error: protocol can't roll forward
+        return false;
+    }
+    if (counterDelta < 1) counterDelta = 1;
+
+    PPDecodeResult fwd;
+    if (!proto->generateForward(in, counterDelta, fwd)) {
+        // Almost always: the manufacturer key is not in the keystore.
+        ESP_LOGW(TAG, "emulateForward: no key / cannot roll forward for '%s' "
+                      "(load the manufacturer key into the keystore)",
+                 proto->getName());
+        notifyTxStatus(3, 8);  // error: no key in store
+        return false;
+    }
+
+    ESP_LOGI(TAG, "emulateForward: %s counter %u -> %u (delta %d), TX on module %d",
+             in.protocolName, (unsigned)in.counter, (unsigned)fwd.counter,
+             counterDelta, ccModule);
+    return emulate(fwd, ccModule, repeatCount);
+}
+
+// ── Load manufacturer keys from SD into the shared keystore ─────
+
+int ProtoPirateModule::loadKeystoreFromSd(const char* path) {
+    File f = SD.open(path, FILE_READ);
+    if (!f) {
+        ESP_LOGW(TAG, "keystore: no key file at %s (keystore stays empty)", path);
+        return -1;
+    }
+    int loaded = 0;
+    while (f.available()) {
+        String line = f.readStringUntil('\n');
+        line.trim();
+        if (line.length() == 0 || line[0] == '#') continue;
+
+        // name:learning:hexkey
+        int c1 = line.indexOf(':');
+        int c2 = (c1 >= 0) ? line.indexOf(':', c1 + 1) : -1;
+        if (c1 <= 0 || c2 <= c1) continue;
+
+        String name = line.substring(0, c1);
+        String learn = line.substring(c1 + 1, c2);
+        String hex = line.substring(c2 + 1);
+        name.trim(); learn.trim(); hex.trim();
+        if (hex.startsWith("0x") || hex.startsWith("0X")) hex = hex.substring(2);
+        if (hex.length() == 0) continue;
+
+        uint64_t key = strtoull(hex.c_str(), nullptr, 16);
+        uint8_t learning = pp::Keystore::parseLearning(learn.c_str());
+        if (pp::Keystore::add(name.c_str(), key, learning)) loaded++;
+    }
+    f.close();
+    ESP_LOGI(TAG, "keystore: loaded %d key(s) from %s (total %u)",
+             loaded, path, (unsigned)pp::Keystore::count());
+    return loaded;
+}
+
+// ── On-device forward-code self-test (synthetic key, no RF) ─────
+
+bool ProtoPirateModule::forwardSelfTest(char* msg, size_t msgLen) {
+    const uint64_t K = 0x0123456789ABCDEFULL;  // synthetic device key (simple)
+    const uint8_t  btn = 0x2;
+    const uint32_t serial = 0xA5B6C7;
+    const uint16_t cnt = 0x0041;
+
+    // Build a StarLine frame exactly as a capture would produce.
+    uint32_t keyFix = ((uint32_t)btn << 24) | (serial & 0xFFFFFF);
+    uint8_t  endSer = keyFix & 0xFF;
+    uint32_t plain  = ((uint32_t)btn << 24) | ((uint32_t)endSer << 16) | cnt;
+    uint32_t hop    = keeloq::encrypt(plain, K);
+    uint64_t key64  = ((uint64_t)keyFix << 32) | hop;
+
+    // Temporarily add the synthetic key, then restore keystore state.
+    size_t saved = pp::Keystore::count();
+    pp::Keystore::add("__selftest__", K, 1 /*simple*/);
+
+    PPDecodeResult in;
+    memset(&in, 0, sizeof(in));
+    in.protocolName = PPStarLine::PROTOCOL_NAME;
+    in.data     = pp_reverse64(key64);
+    in.counter  = cnt;
+    in.dataBits = 64;
+
+    bool ok = false;
+    uint32_t fwdCnt = 0;
+    PPProtocol* proto = findProtocolByName(in.protocolName);
+    if (proto && proto->supportsForward()) {
+        PPDecodeResult out;
+        if (proto->generateForward(in, 1, out)) {
+            fwdCnt = out.counter;
+            uint64_t k  = pp_reverse64(out.data);
+            uint32_t kh = (uint32_t)(k & 0xFFFFFFFF);
+            uint32_t d  = keeloq::decrypt(kh, K);
+            bool valid  = ((d >> 24) == btn) && (((d >> 16) & 0xFF) == endSer);
+            uint32_t dc = d & 0xFFFF;
+            ok = valid && (dc == (uint32_t)(cnt + 1)) && (out.data != in.data);
+        }
+    }
+
+    pp::Keystore::truncate(saved);  // remove the synthetic key
+
+    snprintf(msg, msgLen, "StarLine fwd self-test: cnt %u->%u %s",
+             (unsigned)cnt, (unsigned)fwdCnt, ok ? "PASS" : "FAIL");
+    ESP_LOGI(TAG, "%s", msg);
+    return ok;
 }
 
 // ── Save decoded result to SD card ──────────────────────────────

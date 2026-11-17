@@ -133,6 +133,43 @@ public:
     bool emulate(const PPDecodeResult& result, int ccModule, int repeatCount = 3);
 
     /**
+     * @brief Emulate the NEXT rolling code (authorized testing).
+     *
+     * Advances the recovered counter by `counterDelta`, re-encrypts with the
+     * manufacturer/device key from the keystore, and transmits the resulting
+     * forward frame. Only works for protocols whose cipher is supported AND
+     * whose key is loaded (otherwise returns false without transmitting).
+     *
+     * @param in           A previously decoded result.
+     * @param ccModule      CC1101 module index for TX.
+     * @param counterDelta  Steps to advance the counter (>=1).
+     * @param repeatCount   TX repeats.
+     * @return true if a forward code was generated and transmitted.
+     */
+    bool emulateForward(const PPDecodeResult& in, int ccModule,
+                        int counterDelta, int repeatCount = 3);
+
+    /**
+     * @brief Load manufacturer/learning keys from an SD text file into the
+     *        shared keystore (pp::Keystore). Format: name:learning:hexkey.
+     * @return number of keys loaded (-1 on open failure).
+     */
+    static int loadKeystoreFromSd(const char* path = "/DATA/KEYS/keeloq_mfcodes.txt");
+
+    /**
+     * @brief On-device self-test of the forward-code engine (StarLine/KeeLoq).
+     *
+     * Uses a synthetic key (never touches real keystore state): encrypts a
+     * frame, runs generateForward(+1), decrypts the result, and checks the
+     * counter advanced by exactly 1 and the frame changed. Proves the compiled
+     * firmware's cipher + forward path, independent of RF.
+     * @param msg     Buffer for a short human-readable result.
+     * @param msgLen  Size of msg.
+     * @return true on PASS.
+     */
+    bool forwardSelfTest(char* msg, size_t msgLen);
+
+    /**
      * @brief Save a decoded result to SD card as a .sub file.
      *
      * Creates /DATA/PROTOPIRATE/ if it does not exist.

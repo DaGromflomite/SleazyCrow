@@ -20,6 +20,12 @@
  *                           [data:8][data2:8][serial:4][btn:1][cnt:4][bits:1][freq:4LE])
  *   0x0A = Save capture    (same data payload as 0x09 without module/repeat)
  *   0x0B = List saved      (no params — lists /DATA/PROTOPIRATE/)
+ *   0x0C = Emulate FORWARD (next rolling code; authorized testing)
+ *          [module:1][repeat:1][counterDelta:2LE][<0x09 PPResult payload>]
+ *   0x0D = Add keystore key  [nameLen:1][name...][key:8LE][learning:1]
+ *   0x0E = Clear keystore    (no params)
+ *   0x0F = Reload keys from SD (/DATA/KEYS/keeloq_mfcodes.txt) → count
+ *   0x10 = Keystore count    → [MSG_COMMAND_SUCCESS][count:1]
  */
 
 #include "core/ble/CommandHandler.h"
@@ -27,6 +33,7 @@
 #include "BinaryMessages.h"
 #include "config.h"
 #include "modules/protopirate/ProtoPirateModule.h"
+#include "modules/protopirate/protocols/PPKeystore.h"
 #include "esp_log.h"
 #include <cstring>
 #include "SD.h"
@@ -63,6 +70,12 @@ private:
         case 0x09: return cmdEmulate(pp, data + 1, len - 1);
         case 0x0A: return cmdSaveCapture(pp, data + 1, len - 1);
         case 0x0B: return cmdListSaved(data + 1, len - 1);
+        case 0x0C: return cmdEmulateForward(pp, data + 1, len - 1);
+        case 0x0D: return cmdAddKey(data + 1, len - 1);
+        case 0x0E: return cmdClearKeys();
+        case 0x0F: return cmdReloadKeys(pp);
+        case 0x10: return cmdKeyCount();
+        case 0x11: return cmdForwardSelfTest(pp);
         default:
             ESP_LOGW("PPCmd", "Unknown sub-command: 0x%02X", subCmd);
             sendError(2);
@@ -401,6 +414,103 @@ private:
                  module, repeat, result.button, result.counter);
 
         return pp.emulate(result, module, repeat);
+    }
+
+    /**
+     * Emulate FORWARD (next rolling code — authorized testing):
+     *   [0x0C][module:1][repeat:1][counterDelta:2LE][<PPResult payload as 0x09>]
+     * Advances the counter by counterDelta, re-encrypts with the keystore key,
+     * and transmits. Fails (error 8) if the manufacturer key isn't loaded.
+     */
+    static bool cmdEmulateForward(ProtoPirateModule& pp, const uint8_t* data,
+                                  size_t len) {
+        if (len < 4) {
+            ESP_LOGE("PPCmd", "EmulateForward: need module+repeat+delta+result");
+            sendError(10);
+            return false;
+        }
+        uint8_t module = data[0];
+        uint8_t repeat = data[1];
+        if (repeat < 1) repeat = 1;
+        if (repeat > 10) repeat = 10;
+        uint16_t delta = 0;
+        memcpy(&delta, data + 2, 2);
+        if (delta < 1) delta = 1;
+
+        PPDecodeResult result;
+        memset(&result, 0, sizeof(result));
+        size_t consumed = 0;
+        if (!parsePPResult(data + 4, len - 4, result, consumed)) {
+            ESP_LOGE("PPCmd", "EmulateForward: failed to parse result payload");
+            sendError(11);
+            return false;
+        }
+        ESP_LOGI("PPCmd", "EmulateForward: proto=%s module=%d delta=%u cnt=%u",
+                 result.protocolName ? result.protocolName : "?",
+                 module, delta, result.counter);
+        return pp.emulateForward(result, module, (int)delta, repeat);
+    }
+
+    /**
+     * Add a keystore key: [0x0D][nameLen:1][name...][key:8LE][learning:1]
+     * learning follows keeloq::LearningType (1=simple, 2=normal, 0=unknown...).
+     */
+    static bool cmdAddKey(const uint8_t* data, size_t len) {
+        if (len < 1) { sendError(14); return false; }
+        uint8_t nameLen = data[0];
+        size_t need = 1 + (size_t)nameLen + 8 + 1;
+        if (len < need) { sendError(14); return false; }
+        char name[24];
+        size_t cp = std::min((size_t)nameLen, sizeof(name) - 1);
+        memcpy(name, data + 1, cp);
+        name[cp] = '\0';
+        uint64_t key = 0;
+        memcpy(&key, data + 1 + nameLen, 8);
+        uint8_t learning = data[1 + nameLen + 8];
+        if (pp::Keystore::add(name, key, learning)) {
+            ESP_LOGI("PPCmd", "AddKey: '%s' learning=%u (total %u)",
+                     name, learning, (unsigned)pp::Keystore::count());
+            cmdKeyCount();
+            return true;
+        }
+        sendError(15);  // keystore full
+        return false;
+    }
+
+    /** Clear keystore: [0x0E] */
+    static bool cmdClearKeys() {
+        pp::Keystore::clear();
+        ESP_LOGI("PPCmd", "ClearKeys");
+        sendSuccess();
+        return true;
+    }
+
+    /** Reload keys from SD: [0x0F] → reports the new count. */
+    static bool cmdReloadKeys(ProtoPirateModule& /*pp*/) {
+        ProtoPirateModule::loadKeystoreFromSd();
+        return cmdKeyCount();
+    }
+
+    /** Keystore count: [0x10] → [MSG_COMMAND_SUCCESS][count:1] */
+    static bool cmdKeyCount() {
+        uint8_t buf[2] = {MSG_COMMAND_SUCCESS, (uint8_t)pp::Keystore::count()};
+        ClientsManager::getInstance().notifyAllBinary(
+            NotificationType::SignalSendingError, buf, 2);
+        return true;
+    }
+
+    /** Forward-code self-test: [0x11] → [SUCCESS/ERROR][ascii result...] */
+    static bool cmdForwardSelfTest(ProtoPirateModule& pp) {
+        char msg[96];
+        bool ok = pp.forwardSelfTest(msg, sizeof(msg));
+        uint8_t buf[98];
+        buf[0] = ok ? MSG_COMMAND_SUCCESS : MSG_COMMAND_ERROR;
+        size_t n = strlen(msg);
+        if (n > sizeof(buf) - 1) n = sizeof(buf) - 1;
+        memcpy(buf + 1, msg, n);
+        ClientsManager::getInstance().notifyAllBinary(
+            NotificationType::SignalSendingError, buf, n + 1);
+        return ok;
     }
 
     /**

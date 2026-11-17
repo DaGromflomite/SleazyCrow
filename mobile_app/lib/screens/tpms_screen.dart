@@ -36,21 +36,67 @@ class TpmsScreen extends StatelessWidget {
                   'Listening on ${tpms.freqMHz.toStringAsFixed(2)} MHz. TPMS mostly '
                   'transmits from MOVING cars — packets appear when a vehicle is '
                   'nearby and rolling.'),
+            if (tpms.liveSensors.isNotEmpty) _listActionBar(context, tpms),
             Expanded(
               child: tpms.liveSensors.isEmpty
                   ? _empty(tpms)
-                  : Scrollbar(
-                      thumbVisibility: true,
-                      child: ListView.builder(
-                        primary: true,
-                        itemCount: tpms.liveSensors.length,
-                        itemBuilder: (_, i) =>
-                            _sensorTile(tpms, tpms.liveSensors[i]),
-                      ),
-                    ),
+                  : _sensorList(tpms),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Scrollable, draggable-scrollbar list of tracked sensors. An explicit
+  /// controller guarantees the scrollbar thumb shows and drags even with a
+  /// long list of tracked vehicles.
+  Widget _sensorList(TpmsProvider tpms) {
+    final controller = ScrollController();
+    return Scrollbar(
+      controller: controller,
+      thumbVisibility: true,
+      interactive: true,
+      child: ListView.builder(
+        controller: controller,
+        padding: const EdgeInsets.only(bottom: 12),
+        itemCount: tpms.liveSensors.length,
+        itemBuilder: (_, i) => _sensorTile(tpms, tpms.liveSensors[i]),
+      ),
+    );
+  }
+
+  /// Visible tracked-count + Clear button so users can wipe the list without
+  /// digging into the overflow menu.
+  Widget _listActionBar(BuildContext context, TpmsProvider tpms) {
+    final n = tpms.liveSensors.length;
+    return Container(
+      width: double.infinity,
+      color: AppColors.secondaryBackground,
+      padding: const EdgeInsets.fromLTRB(16, 6, 10, 6),
+      child: Row(
+        children: [
+          const Icon(Icons.format_list_bulleted,
+              size: 15, color: AppColors.secondaryText),
+          const SizedBox(width: 8),
+          Text('$n tracked vehicle${n == 1 ? '' : 's'}',
+              style: const TextStyle(
+                  color: AppColors.secondaryText, fontSize: 12)),
+          const Spacer(),
+          OutlinedButton.icon(
+            onPressed: () => _confirmClear(context, tpms),
+            icon: const Icon(Icons.delete_sweep, size: 16),
+            label: const Text('Clear'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.error,
+              side: const BorderSide(color: AppColors.error),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              visualDensity: VisualDensity.compact,
+              textStyle:
+                  const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
       ),
     );
   }
