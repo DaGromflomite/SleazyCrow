@@ -16,6 +16,20 @@ public:
     const char* getName() const override { return PROTOCOL_NAME; }
     bool canEmulate() const override { return true; }
 
+    // Fiat V0 carries the counter in cleartext (data = (counter<<32)|serial),
+    // so the next code is just a counter increment, re-encoded from data.
+    bool supportsForward() const override { return true; }
+    bool generateForward(const PPDecodeResult& in, int32_t delta,
+                         PPDecodeResult& out) override {
+        uint32_t serial = (uint32_t)(in.data & 0xFFFFFFFFULL);
+        uint32_t newCnt = in.counter + (uint32_t)delta;
+        out = in;
+        out.counter    = newCnt;
+        out.data       = ((uint64_t)newCnt << 32) | serial;
+        out.canEmulate = true;
+        return true;
+    }
+
     const PPTimingConst& getTiming() const override {
         static const PPTimingConst t = {200, 400, 100, 64};
         return t;
