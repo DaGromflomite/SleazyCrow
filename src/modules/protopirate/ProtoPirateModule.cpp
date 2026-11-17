@@ -943,13 +943,19 @@ bool ProtoPirateModule::forwardSelfTest(char* msg, size_t msgLen) {
     }
 
     char ford[52] = "Ford SKIP";
-    // ---- Ford V0: verify the forward obfuscation+CRC at the data level
-    // against the corrected (upstream-matching) decode format. The RF framing
-    // (encoder/feed) is a faithful upstream port but its full roundtrip still
-    // needs a real Ford signal to confirm, so this checks the forward math. ----
+    // ---- Ford V0: full RF roundtrip (forward -> ported encoder -> re-ported
+    // decoder). Encoder + decoder now match the upstream format exactly. ----
     {
         PPProtocol* proto = findProtocolByName(PPFordV0::PROTOCOL_NAME);
         if (proto && proto->supportsForward()) {
+            auto feedTo = [](PPFordV0& d, const std::vector<PPPulse>& ps) -> bool {
+                for (auto& p : ps) {
+                    bool lvl = p.duration > 0;
+                    uint32_t du = (uint32_t)(lvl ? p.duration : -p.duration);
+                    if (d.feed(lvl, du)) return true;
+                }
+                return false;
+            };
             uint64_t key1 = 0x0123456789ABCDEULL;
             uint16_t key2 = 0x55AA;
             uint32_t ser0 = 0, cnt0 = 0; uint8_t btn0 = 0; bool crc0 = false;
@@ -964,15 +970,20 @@ bool ProtoPirateModule::forwardSelfTest(char* msg, size_t msgLen) {
             bool ok = false; uint32_t cnt1 = 0;
             PPDecodeResult out;
             if (proto->generateForward(in, 1, out)) {
-                uint32_t ser1 = 0, c1 = 0; uint8_t btn1 = 0; bool crc1 = false;
-                PPFordV0::decodeFields(out.data, (uint16_t)out.data2,
-                                       ser1, btn1, c1, crc1);
-                cnt1 = c1;
-                ok = (c1 == cnt0 + 1) && (btn1 == btn0) &&
-                     (ser1 == ser0) && crc1;
+                PPFordV0 dec;
+                if (feedTo(dec, proto->generatePulseData(out))) {
+                    PPDecodeResult fwd = dec.getResult();
+                    cnt1 = fwd.counter;
+                    ok = (fwd.counter == cnt0 + 1) && (fwd.button == btn0) &&
+                         (fwd.serial == ser0) && fwd.crcValid;
+                    snprintf(ford, sizeof(ford), "Ford %u->%u %s",
+                             (unsigned)cnt0, (unsigned)cnt1, ok ? "PASS" : "FAIL");
+                } else {
+                    snprintf(ford, sizeof(ford), "Ford FAIL(rf-decode)");
+                }
+            } else {
+                snprintf(ford, sizeof(ford), "Ford FAIL(gen)");
             }
-            snprintf(ford, sizeof(ford), "Ford %u->%u %s(data)",
-                     (unsigned)cnt0, (unsigned)cnt1, ok ? "PASS" : "FAIL");
             allOk = allOk && ok;
         }
     }
