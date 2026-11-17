@@ -804,51 +804,80 @@ int ProtoPirateModule::loadKeystoreFromSd(const char* path) {
 // ── On-device forward-code self-test (synthetic key, no RF) ─────
 
 bool ProtoPirateModule::forwardSelfTest(char* msg, size_t msgLen) {
-    const uint64_t K = 0x0123456789ABCDEFULL;  // synthetic device key (simple)
-    const uint8_t  btn = 0x2;
-    const uint32_t serial = 0xA5B6C7;
-    const uint16_t cnt = 0x0041;
+    bool allOk = true;
+    char star[48] = "StarLine SKIP";
+    char fiat[48] = "Fiat SKIP";
 
-    // Build a StarLine frame exactly as a capture would produce.
-    uint32_t keyFix = ((uint32_t)btn << 24) | (serial & 0xFFFFFF);
-    uint8_t  endSer = keyFix & 0xFF;
-    uint32_t plain  = ((uint32_t)btn << 24) | ((uint32_t)endSer << 16) | cnt;
-    uint32_t hop    = keeloq::encrypt(plain, K);
-    uint64_t key64  = ((uint64_t)keyFix << 32) | hop;
+    // ---- StarLine (KeeLoq, keystore) ----
+    {
+        const uint64_t K = 0x0123456789ABCDEFULL;  // synthetic device key (simple)
+        const uint8_t  btn = 0x2;
+        const uint32_t serial = 0xA5B6C7;
+        const uint16_t cnt = 0x0041;
+        uint32_t keyFix = ((uint32_t)btn << 24) | (serial & 0xFFFFFF);
+        uint8_t  endSer = keyFix & 0xFF;
+        uint32_t plain  = ((uint32_t)btn << 24) | ((uint32_t)endSer << 16) | cnt;
+        uint32_t hop    = keeloq::encrypt(plain, K);
+        uint64_t key64  = ((uint64_t)keyFix << 32) | hop;
 
-    // Temporarily add the synthetic key, then restore keystore state.
-    size_t saved = pp::Keystore::count();
-    pp::Keystore::add("__selftest__", K, 1 /*simple*/);
+        size_t saved = pp::Keystore::count();
+        pp::Keystore::add("__selftest__", K, 1 /*simple*/);
 
-    PPDecodeResult in;
-    memset(&in, 0, sizeof(in));
-    in.protocolName = PPStarLine::PROTOCOL_NAME;
-    in.data     = pp_reverse64(key64);
-    in.counter  = cnt;
-    in.dataBits = 64;
+        PPDecodeResult in;
+        memset(&in, 0, sizeof(in));
+        in.protocolName = PPStarLine::PROTOCOL_NAME;
+        in.data = pp_reverse64(key64);
+        in.counter = cnt; in.dataBits = 64;
 
-    bool ok = false;
-    uint32_t fwdCnt = 0;
-    PPProtocol* proto = findProtocolByName(in.protocolName);
-    if (proto && proto->supportsForward()) {
-        PPDecodeResult out;
-        if (proto->generateForward(in, 1, out)) {
-            fwdCnt = out.counter;
-            uint64_t k  = pp_reverse64(out.data);
-            uint32_t kh = (uint32_t)(k & 0xFFFFFFFF);
-            uint32_t d  = keeloq::decrypt(kh, K);
-            bool valid  = ((d >> 24) == btn) && (((d >> 16) & 0xFF) == endSer);
-            uint32_t dc = d & 0xFFFF;
-            ok = valid && (dc == (uint32_t)(cnt + 1)) && (out.data != in.data);
+        bool ok = false; uint32_t fwdCnt = 0;
+        PPProtocol* proto = findProtocolByName(in.protocolName);
+        if (proto && proto->supportsForward()) {
+            PPDecodeResult out;
+            if (proto->generateForward(in, 1, out)) {
+                fwdCnt = out.counter;
+                uint32_t kh = (uint32_t)(pp_reverse64(out.data) & 0xFFFFFFFF);
+                uint32_t d  = keeloq::decrypt(kh, K);
+                bool valid  = ((d >> 24) == btn) && (((d >> 16) & 0xFF) == endSer);
+                ok = valid && ((d & 0xFFFF) == (uint32_t)(cnt + 1)) &&
+                     (out.data != in.data);
+            }
         }
+        pp::Keystore::truncate(saved);
+        snprintf(star, sizeof(star), "StarLine %u->%u %s",
+                 (unsigned)cnt, (unsigned)fwdCnt, ok ? "PASS" : "FAIL");
+        allOk = allOk && ok;
     }
 
-    pp::Keystore::truncate(saved);  // remove the synthetic key
+    // ---- Fiat V0 (cleartext counter) ----
+    {
+        const uint32_t serial = 0x11223344;
+        const uint32_t cnt = 0x0000ABCD;
+        PPDecodeResult in;
+        memset(&in, 0, sizeof(in));
+        in.protocolName = PPFiatV0::PROTOCOL_NAME;
+        in.data = ((uint64_t)cnt << 32) | serial;
+        in.counter = cnt; in.dataBits = 64;
 
-    snprintf(msg, msgLen, "StarLine fwd self-test: cnt %u->%u %s",
-             (unsigned)cnt, (unsigned)fwdCnt, ok ? "PASS" : "FAIL");
+        bool ok = false; uint32_t fwdCnt = 0;
+        PPProtocol* proto = findProtocolByName(in.protocolName);
+        if (proto && proto->supportsForward()) {
+            PPDecodeResult out;
+            if (proto->generateForward(in, 1, out)) {
+                fwdCnt = out.counter;
+                ok = (out.counter == cnt + 1) &&
+                     ((uint32_t)(out.data >> 32) == cnt + 1) &&
+                     ((uint32_t)(out.data & 0xFFFFFFFF) == serial);
+            }
+        }
+        snprintf(fiat, sizeof(fiat), "Fiat %u->%u %s",
+                 (unsigned)cnt, (unsigned)fwdCnt, ok ? "PASS" : "FAIL");
+        allOk = allOk && ok;
+    }
+
+    snprintf(msg, msgLen, "fwd self-test: %s | %s | %s",
+             star, fiat, allOk ? "ALL PASS" : "FAIL");
     ESP_LOGI(TAG, "%s", msg);
-    return ok;
+    return allOk;
 }
 
 // ── Save decoded result to SD card ──────────────────────────────
