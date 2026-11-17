@@ -1081,13 +1081,15 @@ bool ProtoPirateModule::forwardSelfTest(char* msg, size_t msgLen) {
                 t34rf = (d34.getResult().counter == 0x1235);
             }
 
-            // Type 3/4 (500us) is informational: its encoder is ported but the
-            // decode's sync/merge boundary isn't nailed yet, so it doesn't gate.
+            // Type 3/4 (500us): decode now uses the faithful Flipper Manchester
+            // FSM (PPVag::manchAdvanceFlipper), so the encode -> forward -> decode
+            // RF roundtrip passes for real frames (type byte 0xC0-0xC3, which carry
+            // the implied leading '1' bit the 500us sync framing requires).
             snprintf(vag, sizeof(vag),
-                     "VAG t2 d%s/RF%s | aut64 t1 d%s/RF%s | t3/4 RF%s(wip)",
+                     "VAG t2 d%s/RF%s | aut64 t1 d%s/RF%s | t3/4 RF%s",
                      t2data ? "P" : "F", t2rf ? "P" : "F",
                      audata ? "P" : "F", aurf ? "P" : "F", t34rf ? "P" : "F");
-            allOk = allOk && t2data && t2rf && autInv && audata && aurf;
+            allOk = allOk && t2data && t2rf && autInv && audata && aurf && t34rf;
         }
     }
 

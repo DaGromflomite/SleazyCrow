@@ -140,6 +140,7 @@ public:
         vagType_ = 0;
         midCount_ = 0;
         manchState_ = ManchMid0;
+        fmanch_ = 1;
     }
 
     /**
@@ -287,9 +288,9 @@ public:
                 midCount_++;
                 parserStep_ = StepSync2B;
                 if (midCount_ == 3) {
-                    dataLow_ = 1; dataHigh_ = 0;
+                    dataLow_ = 1; dataHigh_ = 0;   // implied leading '1' bit
                     bitCount_ = 1;
-                    manchState_ = ManchMid0;
+                    fmanch_ = 1;                    // Flipper manchester reset -> Mid1
                     parserStep_ = StepData2;
                 }
             } else {
@@ -298,16 +299,19 @@ public:
             return false;
 
         case StepData2: {
-            int manchEvent = -1;
-            if (duration >= 380 && duration <= 620) {
-                manchEvent = level ? 1 : 0;  // HIGH short = ShortHigh (same fix as type 1/2)
-            } else if (duration >= 880 && duration <= 1120) {
-                manchEvent = level ? 2 : 3;
+            // Flipper Manchester events: ShortLow=0, ShortHigh=2, LongLow=4, LongHigh=6.
+            // Adjacent same-level half-bits merge on-air into one long pulse, which
+            // is a valid full-bit event — handled by the long-pulse range below.
+            int fevent = -1;
+            if (duration >= 400 && duration <= 600) {
+                fevent = level ? 0 : 2;   // ShortLow : ShortHigh
+            } else if (duration >= 800 && duration <= 1200) {
+                fevent = level ? 4 : 6;   // LongLow  : LongHigh
             }
 
-            if (manchEvent >= 0) {
+            if (fevent >= 0) {
                 bool bitVal;
-                if (manchesterAdvance(manchEvent, bitVal)) {
+                if (manchAdvanceFlipper(fevent, bitVal)) {
                     pushBit(bitVal);
                     if (bitCount_ == 64) {
                         key1Low_ = dataLow_;
@@ -334,7 +338,8 @@ public:
 
     // Transmit encoder, faithful port of the upstream VAG encoder pulse
     // emission with consecutive same-level pulses merged to match real RF.
-    // Type 1/2 = 300us Manchester (prefix differs). Type 3/4 (500us) is TODO.
+    // Type 1/2 = 300us Manchester (prefix differs). Type 3/4 = 500us Manchester,
+    // sync sequence + implied leading '1' bit; decoded by manchAdvanceFlipper.
     std::vector<PPPulse> generatePulseData(const PPDecodeResult& r) override {
         std::vector<PPPulse> out;
         int vt = (r.keyIndex == 0xFF) ? 2 : (int)r.bsMagic;
@@ -392,9 +397,28 @@ private:
         StepPreamble2, StepSync2A, StepSync2B, StepSync2C, StepData2,
     };
 
-    // ──── Simple Manchester state machine ────
+    // ──── Simple Manchester state machine (type 1/2 path) ────
     enum ManchState { ManchMid0 = 0, ManchMid1, ManchLow, ManchHigh };
     ManchState manchState_ = ManchMid0;
+
+    // ──── Faithful Flipper Manchester decoder (type 3/4 path) ────
+    // Verbatim port of lib/toolbox/manchester_decoder.c. The 500µs type 3/4
+    // framing uses an implied leading '1' bit and relies on this exact FSM; the
+    // custom machine above decodes this convention wrong, so types 3/4 use this.
+    // States: Start1=0, Mid1=1, Mid0=2, Start0=3 (reset -> Mid1).
+    // Events : ShortLow=0, ShortHigh=2, LongLow=4, LongHigh=6, Reset=8.
+    uint8_t fmanch_ = 1;
+    bool manchAdvanceFlipper(int event, bool& bit) {
+        static const uint8_t trans[4] =
+            {0b00000001, 0b10010001, 0b10011011, 0b11111011};
+        if (event == 8) { fmanch_ = 1; return false; }        // Reset -> Mid1
+        uint8_t ns = (uint8_t)((trans[fmanch_] >> event) & 0x3);
+        if (ns == fmanch_) { fmanch_ = 1; return false; }     // stall -> reset
+        fmanch_ = ns;
+        if (ns == 2) { bit = false; return true; }            // Mid0 -> bit 0
+        if (ns == 1) { bit = true;  return true; }            // Mid1 -> bit 1
+        return false;
+    }
 
     bool manchesterAdvance(int event, bool& bit) {
         // event: 0=ShortLow, 1=ShortHigh, 2=LongLow, 3=LongHigh

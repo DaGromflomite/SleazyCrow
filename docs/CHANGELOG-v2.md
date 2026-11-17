@@ -8,6 +8,33 @@ Baseline: everything below is on top of the published **v1.2.0-beta** firmware +
 
 ---
 
+## VAG Type 3/4 decode fixed — full RF roundtrip (2026-11-17)
+
+**Authorized security testing only.** The last incomplete ProtoPirate item —
+VAG Type 3/4 (500µs, AUT64) — now does a full encode → forward(+1) → decode RF
+roundtrip, **verified on real hardware** (ESP32-PICO-D4 bench Crow), 4/4 for
+every real type byte 0xC0–0xC3 (VW/Audi/Seat/Skoda).
+
+- **Root cause:** the type 3/4 data path reused the custom Manchester state
+  machine written for type 1/2. The 500µs sync framing carries an *implied
+  leading `1` bit* and needs the exact Flipper `manchester_advance` FSM; the
+  custom machine decoded that convention wrong (≈50% of bits), so sync/data never
+  recovered cleanly. (Diagnosed against upstream `protocols/vag.c` and Flipper
+  `lib/toolbox/manchester_decoder.c`, then proven with a faithful offline model
+  over 20,000 random frames before touching firmware.)
+- **Fix:** type 3/4 now decodes with a verbatim port of Flipper's
+  `manchester_advance` (`PPVag::manchAdvanceFlipper`); type 1/2 is untouched.
+  Adjacent same-level half-bits merge on-air into one long pulse, which that FSM
+  handles as a valid full-bit event.
+- **Self-test:** the on-device `forwardSelfTest` VAG line now **gates** on type
+  3/4 (`t3/4 RFP`), and the bench boot self-test (`esp32dev-selftest`) gained a
+  dedicated `[T-VAG]` section that runs the roundtrip for all four types.
+- **Known limit (same as upstream):** a type-0x00 frame (MSB=0) can't roundtrip
+  because the framing fixes the implied first bit to `1`; real 500µs frames carry
+  a 0xC0–0xC3 type byte, so this does not affect live use.
+
+---
+
 ## Post-2.1.0 unstable — ProtoPirate forward rolling-code generation (2026-11-17)
 
 **Authorized security testing only.** Full guide: `docs/PROTOPIRATE-FORWARD-CODES.md`.

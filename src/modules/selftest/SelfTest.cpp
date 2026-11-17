@@ -10,6 +10,7 @@
 // Pulls in CC1101Worker (capture ISR API), StreamingSubFileParser and
 // StreamingPulsePayload — the real .sub parse + transmit building blocks.
 #include "modules/CC1101_driver/CC1101_Worker.h"
+#include "modules/protopirate/protocols/PPVag.h"
 
 // The whole diagnostic only exists in the bench build; the release build gets an
 // empty run() (see the #else at the end of this file).
@@ -444,6 +445,58 @@ void SelfTest::run() {
 
             SD.remove(path);
         }
+    }
+
+    // ---- T-VAG: VAG Type 3/4 (500us) encode->forward->decode RF roundtrip -----
+    // Exercises the fixed decoder (faithful Flipper Manchester FSM) on real
+    // hardware. Pure logic: builds a frame, rolls the counter +1, re-encodes to a
+    // pulse stream, feeds it back through PPVag::feed, and checks the recovered
+    // counter. Runs for every real VAG type byte (0xC0 VW .. 0xC3 Skoda).
+    line();
+    Serial.println("[T-VAG] VAG Type 3/4 (500us) encode->forward->decode roundtrip");
+    {
+        aut64::Key sk;
+        const uint8_t pb[8] = {3, 0, 5, 6, 1, 4, 7, 2};
+        const uint8_t sb[16] = {0xE, 0x4, 0xD, 0x1, 0x2, 0xF, 0xB, 0x8,
+                                0x3, 0xA, 0x6, 0xC, 0x5, 0x9, 0x0, 0x7};
+        for (int i = 0; i < 8; i++) { sk.key[i] = (uint8_t)(i + 1); sk.pbox[i] = pb[i]; }
+        for (int i = 0; i < 16; i++) sk.sbox[i] = sb[i];
+        PPVag::setAut64Key(0, sk);
+        PPVag::setAut64Key(1, sk);
+        PPVag::setAut64Key(2, sk);
+
+        const uint8_t types[4] = {0xC0, 0xC1, 0xC2, 0xC3};
+        const char* names[4] = {"VW", "Audi", "Seat", "Skoda"};
+        int passes = 0;
+        for (int ti = 0; ti < 4; ti++) {
+            uint8_t dec[8] = {0x11, 0x22, 0x33, 0x44, 0x34, 0x12, 0x00, 0x20};
+            uint16_t k2 = 0;
+            uint64_t k1 = PPVag::encodeBlock(dec, types[ti], 0x2B, 0, k2);
+            PPDecodeResult in;
+            memset(&in, 0, sizeof(in));
+            in.protocolName = PPVag::PROTOCOL_NAME;
+            in.data = k1; in.data2 = k2; in.counter = 0x1234;
+            in.keyIndex = 0; in.bsMagic = 3;
+            bool ok = false;
+            PPVag enc, dec2;
+            PPDecodeResult out;
+            if (enc.generateForward(in, 1, out)) {
+                auto pls = enc.generatePulseData(out);
+                for (auto& p : pls) {
+                    bool lvl = p.duration > 0;
+                    if (dec2.feed(lvl, (uint32_t)(lvl ? p.duration : -p.duration))) break;
+                }
+                ok = (dec2.getResult().counter == 0x1235);
+            }
+            if (ok) passes++;
+            Serial.printf("   type %02X (%-5s): counter 0x1234 -> 0x%04X  -> %s\n",
+                          types[ti], names[ti],
+                          (unsigned)(ok ? 0x1235 : 0),
+                          ok ? "PASS" : "FAIL");
+        }
+        Serial.printf("   VAG Type 3/4 roundtrip: %d/4  -> %s\n", passes,
+                      passes == 4 ? "PASS (decode sync/merge fixed)"
+                                  : "FAIL (check PPVag manchAdvanceFlipper)");
     }
 
     line();
