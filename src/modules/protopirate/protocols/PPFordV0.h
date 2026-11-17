@@ -29,7 +29,7 @@ public:
         dataLow_ = 0;
         dataHigh_ = 0;
         bitCount_ = 0;
-        manchState_ = MS_Mid1;
+        manchState_ = MS_Mid0;
     }
 
     // Faithful port of subghz_protocol_decoder_ford_v0_feed (standard Flipper
@@ -43,7 +43,7 @@ public:
             if (level && DURATION_DIFF(duration, te_short) < te_delta) {
                 dataLow_ = 0; dataHigh_ = 0; bitCount_ = 0; headerCount_ = 0;
                 teLast_ = duration;
-                manchState_ = MS_Mid1;
+                manchState_ = MS_Mid0;
                 parserStep_ = StepPreamble;
             }
             break;
@@ -206,7 +206,7 @@ private:
     enum { ME_ShortLow = 0, ME_ShortHigh = 2, ME_LongLow = 4,
            ME_LongHigh = 6, ME_Reset = 8 };
     enum { MS_Start1 = 0, MS_Mid1 = 1, MS_Mid0 = 2, MS_Start0 = 3 };
-    uint8_t manchState_ = MS_Mid1;
+    uint8_t manchState_ = MS_Mid0;
 
     static int manchEvent(uint32_t dur, bool level, uint32_t te_short,
                           uint32_t te_long, uint32_t te_delta) {

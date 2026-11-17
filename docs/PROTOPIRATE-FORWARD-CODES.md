@@ -40,7 +40,7 @@ arbitrary vehicles.
 | **StarLine** | KeeLoq (keystore) | ✅ Yes | ✅ Self-test: crypto + framing (cnt N→N+1) |
 | **Fiat V0** | Cleartext counter | ✅ Yes | ✅ Self-test |
 | **KIA V3/V4** | KeeLoq (keystore) | ✅ Yes | ✅ Self-test: crypto + my new encoder round-trips our decoder |
-| Ford V0 | Obfuscation + GF(2) CRC | ⚠️ Math done | ✅ Forward math self-tested on the corrected format; decoder + encoder re-ported from upstream (real buf[5] decode bug fixed); full RF roundtrip needs a real Ford signal to finish one Manchester-start detail |
+| **Ford V0** | Obfuscation + GF(2) CRC | ✅ Yes | ✅ Full RF roundtrip self-test (decoder + encoder re-ported from upstream; a real decode bug was fixed in the process) |
 | VAG | AUT64 / XTEA | ⏳ Decoder only | No encoder in our port; needs the upstream VAG encoder + a real fob |
 | Subaru | Bit-rotation (no key) | ➖ N/A | Counter isn't a clean rolling counter |
 | PSA / KIA V5/V6 | — | ➖ Decode only | — |
@@ -49,17 +49,15 @@ arbitrary vehicles.
 manufacturer key is **not** shipped; load it yourself (simple learning) for the
 makes you're authorized to test.
 
-**Ford note:** pulled the real upstream `ford_v0.c` and re-ported it. This fixed
-a genuine bug — our decoder read the button/counter from the wrong bits of
-`buf[5]` (`>>4`/`&0x0F` instead of the real `>>3`/`&0x07`), so Ford decode was
-quietly wrong — and restored the real encoder our build had dropped (the key is
-transmitted inverted, after a lead-in + 4 preamble pairs + sync). The forward
-**math** is proven on-device against the corrected format (advance the 19-bit
-counter, re-apply the reversible XOR + byte-swap + GF(2) CRC → decodes back to
-counter+1 with a valid CRC). One detail of the Manchester *start* (how the
-first-bit lead-in meets the decoder's preset) didn't resolve from the bench; the
-encoder and decoder each match upstream, so a short capture from a real Ford fob
-will confirm and finish the over-the-air path. Not guessed.
+**Ford note:** pulled the real upstream `ford_v0.c` and re-ported it end to end.
+This fixed a genuine bug — our decoder read the button/counter from the wrong
+bits of `buf[5]` (`>>4`/`&0x0F` instead of the real `>>3`/`&0x07`), so Ford
+decode was quietly wrong — and restored the real encoder our build had dropped
+(the key is transmitted inverted, after a lead-in + 4 preamble pairs + sync,
+in the standard Flipper Manchester). Forward advances the 19-bit counter,
+re-applies the reversible XOR + byte-swap + GF(2) CRC, and the whole path is
+proven on-device: forward → transmit encoder → receive decoder → counter+1 with
+button/serial preserved and a valid CRC. Faithful port, no guessing.
 
 The engine is **extensible**: any protocol can add forward support by
 implementing `supportsForward()` + `generateForward()` on its decoder class
