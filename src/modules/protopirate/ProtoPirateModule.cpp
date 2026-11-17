@@ -942,8 +942,42 @@ bool ProtoPirateModule::forwardSelfTest(char* msg, size_t msgLen) {
         allOk = allOk && ok;
     }
 
-    snprintf(msg, msgLen, "fwd self-test: %s | %s | %s | %s",
-             star, fiat, kia, allOk ? "ALL PASS" : "FAIL");
+    char ford[52] = "Ford SKIP";
+    // ---- Ford V0 (unencrypted; verify the forward obfuscation+CRC at the
+    // data level — Ford's Manchester TX encoder has a separate pre-existing
+    // preamble bug, so this checks the forward math, not the RF framing). ----
+    {
+        PPProtocol* proto = findProtocolByName(PPFordV0::PROTOCOL_NAME);
+        if (proto && proto->supportsForward()) {
+            uint64_t key1 = 0x0123456789ABCDEULL;  // 63-bit key1
+            uint16_t key2 = 0x55AA;
+            uint32_t ser0 = 0, cnt0 = 0; uint8_t btn0 = 0; bool crc0 = false;
+            PPFordV0::decodeFields(key1, key2, ser0, btn0, cnt0, crc0);
+
+            PPDecodeResult in;
+            memset(&in, 0, sizeof(in));
+            in.protocolName = PPFordV0::PROTOCOL_NAME;
+            in.data = key1; in.data2 = key2;
+            in.counter = cnt0; in.button = btn0; in.serial = ser0;
+
+            bool ok = false; uint32_t cnt1 = 0;
+            PPDecodeResult out;
+            if (proto->generateForward(in, 1, out)) {
+                uint32_t ser1 = 0, c1 = 0; uint8_t btn1 = 0; bool crc1 = false;
+                PPFordV0::decodeFields(out.data, (uint16_t)out.data2,
+                                       ser1, btn1, c1, crc1);
+                cnt1 = c1;
+                ok = (c1 == cnt0 + 1) && (btn1 == btn0) &&
+                     (ser1 == ser0) && crc1;
+            }
+            snprintf(ford, sizeof(ford), "Ford %u->%u %s(data)",
+                     (unsigned)cnt0, (unsigned)cnt1, ok ? "PASS" : "FAIL");
+            allOk = allOk && ok;
+        }
+    }
+
+    snprintf(msg, msgLen, "fwd self-test: %s | %s | %s | %s | %s",
+             star, fiat, kia, ford, allOk ? "ALL PASS" : "FAIL");
     ESP_LOGI(TAG, "%s", msg);
     return allOk;
 }

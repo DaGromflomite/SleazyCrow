@@ -501,9 +501,9 @@ private:
 
     /** Forward-code self-test: [0x11] → [SUCCESS/ERROR][ascii result...] */
     static bool cmdForwardSelfTest(ProtoPirateModule& pp) {
-        char msg[96];
+        char msg[160];
         bool ok = pp.forwardSelfTest(msg, sizeof(msg));
-        uint8_t buf[98];
+        uint8_t buf[162];
         buf[0] = ok ? MSG_COMMAND_SUCCESS : MSG_COMMAND_ERROR;
         size_t n = strlen(msg);
         if (n > sizeof(buf) - 1) n = sizeof(buf) - 1;

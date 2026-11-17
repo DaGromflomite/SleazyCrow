@@ -37,13 +37,24 @@ arbitrary vehicles.
 
 | Protocol | Scheme | Forward code | Verified |
 |---|---|---|---|
-| **StarLine** | KeeLoq (keystore) | ✅ Yes | ✅ On-device self-test (cnt N→N+1) |
-| **Fiat V0** | Cleartext counter | ✅ Yes | ✅ On-device self-test |
-| Ford V0 | Obfuscated + GF(2) CRC | ⏳ Decoder only | Encoder needs real-fob validation |
-| VAG | AUT64 | ⏳ Decoder only | Pending validated encoder |
-| KIA V3/V4 | KeeLoq | ⏳ Decoder only | TX encoder not yet written |
+| **StarLine** | KeeLoq (keystore) | ✅ Yes | ✅ Self-test: crypto + framing (cnt N→N+1) |
+| **Fiat V0** | Cleartext counter | ✅ Yes | ✅ Self-test |
+| **KIA V3/V4** | KeeLoq (keystore) | ✅ Yes | ✅ Self-test: crypto + my new encoder round-trips our decoder |
+| Ford V0 | Obfuscation + GF(2) CRC | ⚠️ Math only | ✅ Forward math self-tested; ❌ TX blocked — Ford's Manchester encoder has a pre-existing preamble bug (needs a real Ford capture to fix the framing) |
+| VAG | AUT64 / XTEA | ⏳ Decoder only | No encoder in our port; needs the upstream VAG encoder + a real fob |
 | Subaru | Bit-rotation (no key) | ➖ N/A | Counter isn't a clean rolling counter |
 | PSA / KIA V5/V6 | — | ➖ Decode only | — |
+
+**KIA note:** KIA V3/V4 now uses the shared keystore like StarLine — the KIA
+manufacturer key is **not** shipped; load it yourself (simple learning) for the
+makes you're authorized to test.
+
+**Ford note:** the forward **math** is proven on-device (advance the 20-bit
+counter, re-apply the XOR + symmetric byte-swap + GF(2) CRC — all reversible,
+and the result decodes back to counter+1 with a valid CRC). What's not ready is
+the over-the-air **transmit**: Ford's existing Manchester encoder disagrees with
+its own decoder on the preamble, so it can't be trusted on the air until that's
+fixed against a real Ford frame. We did not guess the framing.
 
 The engine is **extensible**: any protocol can add forward support by
 implementing `supportsForward()` + `generateForward()` on its decoder class
