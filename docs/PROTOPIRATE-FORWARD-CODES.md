@@ -41,19 +41,18 @@ arbitrary vehicles.
 | **Fiat V0** | Cleartext counter | ✅ Yes | ✅ Self-test |
 | **KIA V3/V4** | KeeLoq (keystore) | ✅ Yes | ✅ Self-test: crypto + my new encoder round-trips our decoder |
 | **Ford V0** | Obfuscation + GF(2) CRC | ✅ Yes | ✅ Full RF roundtrip self-test (decoder + encoder re-ported from upstream; a real decode bug was fixed in the process) |
-| **VAG (Type 2, XTEA)** | XTEA (built-in key) | ✅ Yes | ✅ Full RF roundtrip self-test (`VAG ... /RF PASS`); encoder ported, a real decode bug fixed (short-pulse Manchester mapping) |
-| VAG (Types 1/3/4, AUT64) | AUT64 (keystore) | ⛔ Blocked | Forward + encoder wired, but our `Aut64Cipher.h` port's `encrypt`/`decrypt` are **not a full 8-byte inverse** — so AUT64 forward can't be trusted until that cipher bug is fixed. Type-1 uses the same 300µs format as type-2 (works once the cipher is fixed); type-3/4 is the 500µs format |
+| **VAG Type 1 (AUT64, 300µs)** | AUT64 (keystore) | ✅ Yes | ✅ Full RF roundtrip self-test (`aut64 dP/RFP`) with a valid key; needs the real AUT64 key loaded for live use |
+| **VAG Type 2 (XTEA, 300µs)** | XTEA (built-in key) | ✅ Yes | ✅ Full RF roundtrip self-test; encoder ported, a real decode bug fixed (short-pulse Manchester mapping) |
+| VAG Types 3/4 (AUT64, 500µs) | AUT64 (keystore) | ⏳ Format pending | Forward crypto works (same AUT64 path); needs the 500µs transmit encoder ported (different Manchester format) |
 
-**VAG note:** VAG **type 2 (XTEA)** fully works — forward + transmit encoder +
-full RF roundtrip, verified on-device (`VAG(t2) data P/RF P`). In porting it we
-fixed a real decode bug (the short-pulse Manchester mapping was inverted). The
-**AUT64 types (1/3/4)** have the forward and the 300µs encoder wired, but they're
-**blocked on a cipher bug**: our `Aut64Cipher.h` port's `encrypt` and `decrypt`
-are not a full 8-byte inverse (a block round-trips its counter bytes but not the
-rest), so AUT64 forward can't be trusted yet. The self-test flags this as
-`aut64 inv BUG`. Fixing the AUT64 cipher (then the type-3/4 500µs encoder, then
-loading real AUT64 keys) is the remaining VAG work. The type-2 XTEA key is
-built in; AUT64 keys are loaded by the operator, not shipped.
+**VAG note:** VAG **types 1 (AUT64) and 2 (XTEA)** — both the 300µs format —
+fully work: forward + transmit encoder + full RF roundtrip, verified on-device
+(`VAG t2 dP/RFP | aut64 dP/RFP`). In porting them we fixed a real decode bug (the
+short-pulse Manchester mapping was inverted). AUT64 key bytes must be nibbles
+(< 16) — that's a key-format rule, not a code limit. **Types 3/4** (AUT64, 500µs
+format) are the only VAG piece left: the forward crypto already works; they need
+the 500µs transmit encoder ported (a different Manchester framing). The type-2
+XTEA key is built in; AUT64 keys are loaded by the operator, not shipped.
 | Subaru | Bit-rotation (no key) | ➖ N/A | Counter isn't a clean rolling counter |
 | PSA / KIA V5/V6 | — | ➖ Decode only | — |
 
