@@ -988,8 +988,38 @@ bool ProtoPirateModule::forwardSelfTest(char* msg, size_t msgLen) {
         }
     }
 
-    snprintf(msg, msgLen, "fwd self-test: %s | %s | %s | %s | %s",
-             star, fiat, kia, ford, allOk ? "ALL PASS" : "FAIL");
+    char vag[48] = "VAG SKIP";
+    // ---- VAG type 2 (XTEA, built-in key) data-level forward test ----
+    {
+        PPProtocol* proto = findProtocolByName(PPVag::PROTOCOL_NAME);
+        if (proto && proto->supportsForward()) {
+            // dec: serial bytes, counter=0x001234 (dec[4..6]), button=2 (dec[7]).
+            uint8_t dec[8] = {0x11, 0x22, 0x33, 0x44, 0x34, 0x12, 0x00, 0x20};
+            uint16_t key2 = 0;
+            uint64_t key1 = PPVag::encodeType2(dec, 0xC0, 0x2A, key2);
+            uint32_t cnt0 = (uint32_t)dec[4] | ((uint32_t)dec[5] << 8) |
+                            ((uint32_t)dec[6] << 16);
+
+            PPDecodeResult in;
+            memset(&in, 0, sizeof(in));
+            in.protocolName = PPVag::PROTOCOL_NAME;
+            in.data = key1; in.data2 = key2; in.counter = cnt0;
+            in.keyIndex = 0xFF;
+
+            bool ok = false; uint32_t cnt1 = 0;
+            PPDecodeResult out;
+            if (proto->generateForward(in, 1, out)) {
+                cnt1 = PPVag::decodeType2Cnt(out.data, (uint16_t)out.data2);
+                ok = (cnt1 == cnt0 + 1) && (out.data != in.data);
+            }
+            snprintf(vag, sizeof(vag), "VAG(t2) %u->%u %s(data)",
+                     (unsigned)cnt0, (unsigned)cnt1, ok ? "PASS" : "FAIL");
+            allOk = allOk && ok;
+        }
+    }
+
+    snprintf(msg, msgLen, "fwd self-test: %s | %s | %s | %s | %s | %s",
+             star, fiat, kia, ford, vag, allOk ? "ALL PASS" : "FAIL");
     ESP_LOGI(TAG, "%s", msg);
     return allOk;
 }

@@ -23,6 +23,120 @@ public:
     const char* getName() const override { return PROTOCOL_NAME; }
     bool canEmulate() const override { return false; }  // Emulation behind feature flag
 
+    // ---- Forward-code generation (authorized testing) ----
+    // Type 2 (XTEA) uses a built-in key, so its forward path is self-contained:
+    // decrypt the block, advance the 24-bit counter, re-encrypt, reassemble.
+    // AUT64 types (keyIndex 0/1/2) need loaded keys and are handled separately.
+    bool supportsForward() const override { return true; }
+    bool generateForward(const PPDecodeResult& in, int32_t delta,
+                         PPDecodeResult& out) override {
+        if (in.keyIndex != 0xFF) return false;  // only XTEA/type-2 for now
+
+        uint32_t k1h = (uint32_t)(in.data >> 32);
+        uint32_t k1l = (uint32_t)in.data;
+        uint16_t k2  = (uint16_t)in.data2;
+        uint8_t dispatch = (uint8_t)(k2 & 0xFF);
+        uint8_t key2High = (uint8_t)((k2 >> 8) & 0xFF);
+
+        uint8_t key1Bytes[8] = {
+            (uint8_t)(k1h >> 24), (uint8_t)(k1h >> 16),
+            (uint8_t)(k1h >> 8),  (uint8_t)(k1h),
+            (uint8_t)(k1l >> 24), (uint8_t)(k1l >> 16),
+            (uint8_t)(k1l >> 8),  (uint8_t)(k1l)
+        };
+        uint8_t block[8];
+        memcpy(block, key1Bytes + 1, 7);
+        block[7] = key2High;
+
+        uint32_t v0 = ((uint32_t)block[0] << 24) | ((uint32_t)block[1] << 16) |
+                      ((uint32_t)block[2] << 8) | block[3];
+        uint32_t v1 = ((uint32_t)block[4] << 24) | ((uint32_t)block[5] << 16) |
+                      ((uint32_t)block[6] << 8) | block[7];
+        teaDecrypt(v0, v1);
+        uint8_t dec[8] = {
+            (uint8_t)(v0 >> 24), (uint8_t)(v0 >> 16), (uint8_t)(v0 >> 8), (uint8_t)v0,
+            (uint8_t)(v1 >> 24), (uint8_t)(v1 >> 16), (uint8_t)(v1 >> 8), (uint8_t)v1
+        };
+
+        // Advance the 24-bit counter (dec[4..6]); keep serial + button.
+        uint32_t newCnt = (in.counter + (uint32_t)delta) & 0xFFFFFF;
+        dec[4] = (uint8_t)(newCnt & 0xFF);
+        dec[5] = (uint8_t)((newCnt >> 8) & 0xFF);
+        dec[6] = (uint8_t)((newCnt >> 16) & 0xFF);
+
+        uint32_t e0 = ((uint32_t)dec[0] << 24) | ((uint32_t)dec[1] << 16) |
+                      ((uint32_t)dec[2] << 8) | dec[3];
+        uint32_t e1 = ((uint32_t)dec[4] << 24) | ((uint32_t)dec[5] << 16) |
+                      ((uint32_t)dec[6] << 8) | dec[7];
+        teaEncrypt(e0, e1);
+        uint8_t nb[8] = {
+            (uint8_t)(e0 >> 24), (uint8_t)(e0 >> 16), (uint8_t)(e0 >> 8), (uint8_t)e0,
+            (uint8_t)(e1 >> 24), (uint8_t)(e1 >> 16), (uint8_t)(e1 >> 8), (uint8_t)e1
+        };
+
+        // Reassemble: key1Bytes[1..7] = nb[0..6]; key1Bytes[0] unchanged; key2High = nb[7].
+        for (int i = 0; i < 7; i++) key1Bytes[1 + i] = nb[i];
+        uint8_t newKey2High = nb[7];
+
+        uint32_t nk1h = ((uint32_t)key1Bytes[0] << 24) | ((uint32_t)key1Bytes[1] << 16) |
+                        ((uint32_t)key1Bytes[2] << 8) | key1Bytes[3];
+        uint32_t nk1l = ((uint32_t)key1Bytes[4] << 24) | ((uint32_t)key1Bytes[5] << 16) |
+                        ((uint32_t)key1Bytes[6] << 8) | key1Bytes[7];
+        uint16_t nk2 = (uint16_t)(((uint16_t)newKey2High << 8) | dispatch);
+
+        out = in;
+        out.data = ((uint64_t)nk1h << 32) | nk1l;
+        out.data2 = nk2;
+        out.counter = newCnt;
+        out.canEmulate = true;
+        return true;
+    }
+
+    // ---- Type-2 (XTEA) test helpers (authorized-testing verification) ----
+    static uint64_t encodeType2(const uint8_t dec[8], uint8_t typeByte,
+                                uint8_t dispatch, uint16_t& key2out) {
+        uint32_t e0 = ((uint32_t)dec[0] << 24) | ((uint32_t)dec[1] << 16) |
+                      ((uint32_t)dec[2] << 8) | dec[3];
+        uint32_t e1 = ((uint32_t)dec[4] << 24) | ((uint32_t)dec[5] << 16) |
+                      ((uint32_t)dec[6] << 8) | dec[7];
+        teaEncrypt(e0, e1);
+        uint8_t nb[8] = {
+            (uint8_t)(e0 >> 24), (uint8_t)(e0 >> 16), (uint8_t)(e0 >> 8), (uint8_t)e0,
+            (uint8_t)(e1 >> 24), (uint8_t)(e1 >> 16), (uint8_t)(e1 >> 8), (uint8_t)e1
+        };
+        uint8_t kb[8];
+        kb[0] = typeByte;
+        for (int i = 0; i < 7; i++) kb[1 + i] = nb[i];
+        uint32_t k1h = ((uint32_t)kb[0] << 24) | ((uint32_t)kb[1] << 16) |
+                       ((uint32_t)kb[2] << 8) | kb[3];
+        uint32_t k1l = ((uint32_t)kb[4] << 24) | ((uint32_t)kb[5] << 16) |
+                       ((uint32_t)kb[6] << 8) | kb[7];
+        key2out = (uint16_t)(((uint16_t)nb[7] << 8) | dispatch);
+        return ((uint64_t)k1h << 32) | k1l;
+    }
+
+    static uint32_t decodeType2Cnt(uint64_t key1, uint16_t key2) {
+        uint32_t k1h = (uint32_t)(key1 >> 32), k1l = (uint32_t)key1;
+        uint8_t key2High = (uint8_t)((key2 >> 8) & 0xFF);
+        uint8_t kb[8] = {
+            (uint8_t)(k1h >> 24), (uint8_t)(k1h >> 16), (uint8_t)(k1h >> 8), (uint8_t)k1h,
+            (uint8_t)(k1l >> 24), (uint8_t)(k1l >> 16), (uint8_t)(k1l >> 8), (uint8_t)k1l
+        };
+        uint8_t block[8];
+        memcpy(block, kb + 1, 7);
+        block[7] = key2High;
+        uint32_t v0 = ((uint32_t)block[0] << 24) | ((uint32_t)block[1] << 16) |
+                      ((uint32_t)block[2] << 8) | block[3];
+        uint32_t v1 = ((uint32_t)block[4] << 24) | ((uint32_t)block[5] << 16) |
+                      ((uint32_t)block[6] << 8) | block[7];
+        teaDecrypt(v0, v1);
+        uint8_t dec[8] = {
+            (uint8_t)(v0 >> 24), (uint8_t)(v0 >> 16), (uint8_t)(v0 >> 8), (uint8_t)v0,
+            (uint8_t)(v1 >> 24), (uint8_t)(v1 >> 16), (uint8_t)(v1 >> 8), (uint8_t)v1
+        };
+        return (uint32_t)dec[4] | ((uint32_t)dec[5] << 8) | ((uint32_t)dec[6] << 16);
+    }
+
     const PPTimingConst& getTiming() const override {
         // Type 3/4 timing; type 1/2 uses 300µs internally
         static const PPTimingConst t = {500, 1000, 80, 80};
@@ -302,6 +416,17 @@ private:
             sum -= TEA_DELTA;
             v0 -= (((v1 << 4) ^ (v1 >> 5)) + v1) ^
                   (sum + TEA_KEY[sum & 3]);
+        }
+    }
+
+    // XTEA encrypt — inverse of teaDecrypt (port of upstream vag_tea_encrypt).
+    static void teaEncrypt(uint32_t& v0, uint32_t& v1) {
+        uint32_t sum = 0;
+        for (int i = 0; i < (int)TEA_ROUNDS; i++) {
+            v0 += (((v1 << 4) ^ (v1 >> 5)) + v1) ^ (sum + TEA_KEY[sum & 3]);
+            sum += TEA_DELTA;
+            v1 += (((v0 << 4) ^ (v0 >> 5)) + v0) ^
+                  (sum + TEA_KEY[(sum >> 11) & 3]);
         }
     }
 
