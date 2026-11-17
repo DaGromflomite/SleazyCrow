@@ -1,6 +1,29 @@
 {
   "firmware": [
     {
+      "version": "2.2.0",
+      "date": "2026-11-17",
+      "tag": "v2.2.0-beta",
+      "changes": [
+        {
+          "type": "improvement",
+          "text": "Moved from the unstable channel to beta. The reliability bugs that held it back are fixed and tested on the real hardware (the stuck jammer, the Bluetooth drop, the flashing failures, the long-transmit reboot). It is still beta, not final, because the car-follower detector has not been tried next to a real car on the road yet, and the new key-fob next-code feature has not been tested on a real vehicle."
+        },
+        {
+          "type": "feature",
+          "text": "Key-fob reader can now build the NEXT rolling code (for testing on vehicles you own or are allowed to test). It reads the fob, moves the counter forward, re-encrypts it with a manufacturer key you load, and sends it. Working on StarLine and Fiat so far. It needs the key loaded first; capturing a signal does not reveal the key, and it will not guess it."
+        },
+        {
+          "type": "feature",
+          "text": "Added a key store you fill yourself, either from a text file on the SD card (/DATA/KEYS/keeloq_mfcodes.txt) or from the app. No keys are built in."
+        },
+        {
+          "type": "improvement",
+          "text": "Added a built-in self-test for the next-code feature that checks the math on the device, with no radio and no car needed."
+        }
+      ]
+    },
+    {
       "version": "2.1.0",
       "date": "2026-11-16",
       "tag": "v2.1.0-unstable",
@@ -107,6 +130,25 @@
     }
   ],
   "app": [
+    {
+      "version": "2.2.0",
+      "date": "2026-11-17",
+      "tag": "v2.2.0-beta",
+      "changes": [
+        {
+          "type": "feature",
+          "text": "Added a 'Transmit next code' button on rolling-code key-fob results. You pick how far to move the counter, and it reminds you this is for gear you own or are allowed to test."
+        },
+        {
+          "type": "feature",
+          "text": "You can add and reload key-store keys from the app."
+        },
+        {
+          "type": "improvement",
+          "text": "Car-follower (TPMS) screen now has a Clear button and a scroll bar, so a long list of tracked vehicles is easy to wipe and scroll."
+        }
+      ]
+    },
     {
       "version": "2.0.0",
       "date": "2026-11-13",

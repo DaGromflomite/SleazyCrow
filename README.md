@@ -7,10 +7,13 @@ hardware — a pocket radio tool for sub-GHz and 2.4 GHz. It's built for reliabi
 an "is a car following me?" tire-sensor detector, car key-fob decoding (now including Chrysler/Dodge/Jeep/RAM),
 sub-GHz capture / replay / brute-force, a 2.4 GHz toolkit, and more.
 
-> ⚠ **Unstable test build (v2.1.0-unstable).** This channel moves fast and some
-> features are still being tested. If it doesn't work on your Evil Crow, go back to the stable
-> **v1.2.0-beta** build (the main web flasher), and please
-> [report what happened](https://github.com/DaGromflomite/SleazyCrow/issues/new).
+> **Beta build (v2.2.0-beta).** The reliability bugs are fixed and tested on real
+> hardware, so this is past the rough "unstable" stage. It's still beta because two
+> big features haven't been proven in the real world yet: the car-follower detector
+> hasn't been tried next to a real car on a drive, and the key-fob next-code feature
+> hasn't been fired at a real vehicle. If something misbehaves, you can always go back
+> to **v1.2.0-beta** (the main web flasher), and please
+> [tell us what happened](https://github.com/DaGromflomite/SleazyCrow/issues/new).
 
 ## Install
 
@@ -22,7 +25,18 @@ sub-GHz capture / replay / brute-force, a 2.4 GHz toolkit, and more.
 
 See [`changelog.json`](changelog.json) for the full list. Highlights:
 
-**New in this build (v2.1.0-unstable):**
+**New in this build (v2.2.0-beta):**
+
+- **Key-fob reader can build the next rolling code (for testing on vehicles you own
+  or are allowed to test).** It reads the fob, moves the counter forward, re-encrypts
+  it with a manufacturer key you load, and sends it. Working on StarLine and Fiat so
+  far. It needs the key loaded first — capturing a signal doesn't reveal the key, and
+  it won't guess it. There's a full write-up in
+  [`docs/PROTOPIRATE-FORWARD-CODES.md`](docs/PROTOPIRATE-FORWARD-CODES.md).
+- **Car-follower screen got a Clear button and a scroll bar** for long lists of
+  tracked vehicles.
+
+**Earlier in the v2 line:**
 
 - **"Is a car following me?" detector.** The Crow listens for the tire-pressure
   sensors on cars around you and flags one that keeps showing up. It now reads 9
