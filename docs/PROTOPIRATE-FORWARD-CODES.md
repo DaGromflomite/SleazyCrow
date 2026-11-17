@@ -43,7 +43,7 @@ arbitrary vehicles.
 | **Ford V0** | Obfuscation + GF(2) CRC | ✅ Yes | ✅ Full RF roundtrip self-test (decoder + encoder re-ported from upstream; a real decode bug was fixed in the process) |
 | **VAG Type 1 (AUT64, 300µs)** | AUT64 (keystore) | ✅ Yes | ✅ Full RF roundtrip self-test (`aut64 dP/RFP`) with a valid key; needs the real AUT64 key loaded for live use |
 | **VAG Type 2 (XTEA, 300µs)** | XTEA (built-in key) | ✅ Yes | ✅ Full RF roundtrip self-test; encoder ported, a real decode bug fixed (short-pulse Manchester mapping) |
-| VAG Types 3/4 (AUT64, 500µs) | AUT64 (keystore) | ⏳ Encoder ported, decode pending | Forward crypto + the 500µs encoder are done; the decode's sync→data boundary merges (the 3rd sync LOW joins a LOW-starting first bit), so the self-test roundtrip isn't passing yet — needs the upstream type-3/4 feed sync re-ported |
+| VAG Types 3/4 (AUT64, 500µs) | AUT64 (keystore) | ⏳ Encoder ported (faithful) | Forward crypto + the 500µs encoder are done and faithful to upstream. The self-test roundtrip can't pass because the **upstream decoder itself** can't handle the merged sync→data boundary (3rd sync LOW joins a LOW-starting first bit) — same limitation in upstream, not a port bug. Needs a real type-3/4 fob to validate the air framing |
 
 **VAG note:** VAG **types 1 (AUT64) and 2 (XTEA)** — both the 300µs format —
 fully work: forward + transmit encoder + full RF roundtrip, verified on-device
