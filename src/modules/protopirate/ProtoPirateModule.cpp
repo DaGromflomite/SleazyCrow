@@ -988,33 +988,45 @@ bool ProtoPirateModule::forwardSelfTest(char* msg, size_t msgLen) {
         }
     }
 
-    char vag[48] = "VAG SKIP";
-    // ---- VAG type 2 (XTEA, built-in key) data-level forward test ----
+    char vag[64] = "VAG SKIP";
+    // ---- VAG forward (data-level): type 2 (XTEA, built-in key) and an AUT64
+    // type (synthetic key). Both: build frame -> forward(+1) -> re-decode. ----
     {
         PPProtocol* proto = findProtocolByName(PPVag::PROTOCOL_NAME);
         if (proto && proto->supportsForward()) {
-            // dec: serial bytes, counter=0x001234 (dec[4..6]), button=2 (dec[7]).
-            uint8_t dec[8] = {0x11, 0x22, 0x33, 0x44, 0x34, 0x12, 0x00, 0x20};
-            uint16_t key2 = 0;
-            uint64_t key1 = PPVag::encodeType2(dec, 0xC0, 0x2A, key2);
-            uint32_t cnt0 = (uint32_t)dec[4] | ((uint32_t)dec[5] << 8) |
-                            ((uint32_t)dec[6] << 16);
+            auto testVag = [&](uint8_t keyIndex, uint8_t typeByte,
+                               uint8_t dispatch, uint32_t& c0, uint32_t& c1) -> bool {
+                uint8_t dec[8] = {0x11, 0x22, 0x33, 0x44, 0x34, 0x12, 0x00, 0x20};
+                c0 = (uint32_t)dec[4] | ((uint32_t)dec[5] << 8) | ((uint32_t)dec[6] << 16);
+                uint16_t key2 = 0;
+                uint64_t key1 = PPVag::encodeBlock(dec, typeByte, dispatch, keyIndex, key2);
+                PPDecodeResult in;
+                memset(&in, 0, sizeof(in));
+                in.protocolName = PPVag::PROTOCOL_NAME;
+                in.data = key1; in.data2 = key2; in.counter = c0;
+                in.keyIndex = keyIndex;
+                PPDecodeResult out;
+                if (!proto->generateForward(in, 1, out)) { c1 = 0; return false; }
+                c1 = PPVag::decodeBlockCnt(out.data, (uint16_t)out.data2, keyIndex);
+                return (c1 == c0 + 1) && (out.data != in.data);
+            };
 
-            PPDecodeResult in;
-            memset(&in, 0, sizeof(in));
-            in.protocolName = PPVag::PROTOCOL_NAME;
-            in.data = key1; in.data2 = key2; in.counter = cnt0;
-            in.keyIndex = 0xFF;
+            // Type 2 (XTEA, built-in key)
+            uint32_t t2c0 = 0, t2c1 = 0;
+            bool t2 = testVag(0xFF, 0xC0, 0x2A, t2c0, t2c1);
 
-            bool ok = false; uint32_t cnt1 = 0;
-            PPDecodeResult out;
-            if (proto->generateForward(in, 1, out)) {
-                cnt1 = PPVag::decodeType2Cnt(out.data, (uint16_t)out.data2);
-                ok = (cnt1 == cnt0 + 1) && (out.data != in.data);
-            }
-            snprintf(vag, sizeof(vag), "VAG(t2) %u->%u %s(data)",
-                     (unsigned)cnt0, (unsigned)cnt1, ok ? "PASS" : "FAIL");
-            allOk = allOk && ok;
+            // AUT64 type (synthetic identity-box key in slot 0)
+            aut64::Key sk;
+            for (int i = 0; i < 8; i++) { sk.key[i] = (uint8_t)(0x11 * (i + 1)); sk.pbox[i] = (uint8_t)i; }
+            for (int i = 0; i < 16; i++) sk.sbox[i] = (uint8_t)i;
+            PPVag::setAut64Key(0, sk);
+            uint32_t a0 = 0, a1 = 0;
+            bool au = testVag(0, 0xC0, 0x2B, a0, a1);
+
+            snprintf(vag, sizeof(vag), "VAG t2 %u->%u %s / aut64 %u->%u %s",
+                     (unsigned)t2c0, (unsigned)t2c1, t2 ? "PASS" : "FAIL",
+                     (unsigned)a0, (unsigned)a1, au ? "PASS" : "FAIL");
+            allOk = allOk && t2 && au;
         }
     }
 

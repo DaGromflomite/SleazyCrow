@@ -41,8 +41,16 @@ arbitrary vehicles.
 | **Fiat V0** | Cleartext counter | ✅ Yes | ✅ Self-test |
 | **KIA V3/V4** | KeeLoq (keystore) | ✅ Yes | ✅ Self-test: crypto + my new encoder round-trips our decoder |
 | **Ford V0** | Obfuscation + GF(2) CRC | ✅ Yes | ✅ Full RF roundtrip self-test (decoder + encoder re-ported from upstream; a real decode bug was fixed in the process) |
-| VAG (Type 2, XTEA) | XTEA (built-in key) | ⚠️ Math done | ✅ Forward data-level self-tested on hardware (`VAG(t2) 4660→4661`); XTEA encrypt ported. TX encoder + AUT64 types (1/3/4) still to port |
-| VAG (Types 1/3/4, AUT64) | AUT64 (keystore) | ⏳ Decoder path | Needs AUT64 keys loaded + aut64-encrypt forward + the type-specific encoders |
+| VAG (Type 2, XTEA) | XTEA (built-in key) | ⚠️ Math done | ✅ Forward crypto self-tested on hardware (`VAG t2 4660→4661`). TX encoder still to port |
+| VAG (Types 1/3/4, AUT64) | AUT64 (keystore) | ⚠️ Math done | ✅ Forward crypto self-tested on hardware with a synthetic key (`aut64 4660→4661`). Real use needs the AUT64 keys loaded; TX encoder still to port |
+
+**VAG note:** the forward **crypto** is done and verified on-device for both VAG
+cipher families — XTEA (type 2, built-in key) and AUT64 (types 1/3/4). The forward
+is unified: decrypt the 8-byte block → advance the 24-bit counter → re-encrypt →
+reassemble. What's left for VAG is the **transmit encoder** (upstream has three
+per-format builders) and loading the real AUT64 keys for live use (the type-2
+XTEA key is built in). Decode/forward of AUT64 types needs those keys loaded,
+same keystore model as the others — not shipped.
 | Subaru | Bit-rotation (no key) | ➖ N/A | Counter isn't a clean rolling counter |
 | PSA / KIA V5/V6 | — | ➖ Decode only | — |
 
