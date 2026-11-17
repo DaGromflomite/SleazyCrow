@@ -1,0 +1,29 @@
+# Sleazy Crow - manufacturer key store (example)
+#
+# Copy this file to the Crow's SD card as:
+#     /DATA/KEYS/keeloq_mfcodes.txt
+# and put in the real keys for the makes you are authorized to test.
+#
+# AUTHORIZED TESTING ONLY. These keys let the key-fob reader recover a fob's
+# counter and build the next rolling code. Only load keys for vehicles and fobs
+# you own or have written permission to test.
+#
+# One key per line:   name:learning:16-hex-key
+# Lines starting with # are ignored.
+#
+# learning is one of:
+#   simple          device key = the manufacturer key as-is
+#   normal          device key derived from the fob serial + manufacturer key
+#   magic_xor1
+#   magic_serial1
+#   magic_serial2
+#   magic_serial3
+#   unknown         try the common modes automatically
+#
+# The two lines below are PLACEHOLDERS with made-up keys so you can see the
+# format. They will not match any real fob. Replace them with your own.
+
+MyBenchAlarm:normal:0123456789ABCDEF
+TestRig:simple:FEDCBA9876543210
+
+# No real manufacturer keys are shipped with Sleazy Crow. You supply them.
