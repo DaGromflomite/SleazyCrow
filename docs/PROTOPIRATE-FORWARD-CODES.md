@@ -41,8 +41,8 @@ arbitrary vehicles.
 | **Fiat V0** | Cleartext counter | ✅ Yes | ✅ Self-test |
 | **KIA V3/V4** | KeeLoq (keystore) | ✅ Yes | ✅ Self-test: crypto + my new encoder round-trips our decoder |
 | **Ford V0** | Obfuscation + GF(2) CRC | ✅ Yes | ✅ Full RF roundtrip self-test (decoder + encoder re-ported from upstream; a real decode bug was fixed in the process) |
-| VAG (Type 2, XTEA) | XTEA (built-in key) | ⚠️ Math done | ✅ Forward crypto self-tested on hardware (`VAG t2 4660→4661`). TX encoder still to port |
-| VAG (Types 1/3/4, AUT64) | AUT64 (keystore) | ⚠️ Math done | ✅ Forward crypto self-tested on hardware with a synthetic key (`aut64 4660→4661`). Real use needs the AUT64 keys loaded; TX encoder still to port |
+| **VAG (Type 2, XTEA)** | XTEA (built-in key) | ✅ Yes | ✅ Full RF roundtrip self-test (`VAG ... /RF PASS`); encoder ported, a real decode bug fixed (short-pulse Manchester mapping) |
+| VAG (Types 1/3/4, AUT64) | AUT64 (keystore) | ⚠️ Math done | ✅ Forward crypto self-tested with a synthetic key. Type-1 encoder is the same 300µs format (near-done); type-3/4 is the 500µs format. Real use needs the AUT64 keys loaded |
 
 **VAG note:** the forward **crypto** is done and verified on-device for both VAG
 cipher families — XTEA (type 2, built-in key) and AUT64 (types 1/3/4). The forward

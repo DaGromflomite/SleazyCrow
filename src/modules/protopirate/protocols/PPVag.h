@@ -21,7 +21,7 @@ public:
     static constexpr const char* PROTOCOL_NAME = "VAG";
 
     const char* getName() const override { return PROTOCOL_NAME; }
-    bool canEmulate() const override { return false; }  // Emulation behind feature flag
+    bool canEmulate() const override { return true; }
 
     // ---- Forward-code generation (authorized testing) ----
     // Type 2 (XTEA) uses a built-in key, so its forward path is self-contained:
@@ -203,7 +203,7 @@ public:
             if (bitCount_ < 96) {
                 int manchEvent = -1;
                 if (inRange(duration, 300, 79)) {
-                    manchEvent = level ? 0 : 1;  // ShortLow : ShortHigh
+                    manchEvent = level ? 1 : 0;  // HIGH short = ShortHigh (verified vs upstream encoder)
                 } else if (inRange(duration, 600, 79)) {
                     manchEvent = level ? 2 : 3;  // LongLow : LongHigh
                 }
@@ -332,8 +332,36 @@ public:
         return false;
     }
 
-    std::vector<PPPulse> generatePulseData(const PPDecodeResult&) override {
-        return {};  // TX behind feature flag
+    // Type-2 (XTEA) transmit encoder, faithful port of the upstream
+    // vag_encoder_build_type2 pulse emission (300us Manchester), with
+    // consecutive same-level pulses merged to match real RF.
+    std::vector<PPPulse> generatePulseData(const PPDecodeResult& r) override {
+        std::vector<PPPulse> out;
+        if (r.keyIndex != 0xFF) return out;  // only the type-2 encoder for now
+
+        std::vector<PPPulse> raw;
+        auto E = [&](bool lvl, int32_t dur) {
+            raw.push_back({ lvl ? dur : -dur });
+        };
+        auto MB = [&](int bit) { E(bit != 0, 300); E(bit == 0, 300); };
+
+        for (int i = 0; i < 220; i++) { E(true, 300); E(false, 300); }  // preamble
+        E(false, 300); E(true, 300);                                     // sync
+        for (int i = 15; i >= 0; i--) MB((0xAF1C >> i) & 1);             // type-2 prefix
+        uint64_t k1i = ~r.data;
+        for (int i = 63; i >= 0; i--) MB((int)((k1i >> i) & 1));         // ~key1
+        uint16_t k2i = (uint16_t)(~(uint16_t)r.data2);
+        for (int i = 15; i >= 0; i--) MB((k2i >> i) & 1);               // ~key2
+        E(false, 6000);                                                 // end gap
+
+        // Merge consecutive same-level pulses (real RF behaviour).
+        for (auto& p : raw) {
+            if (!out.empty() && ((out.back().duration > 0) == (p.duration > 0)))
+                out.back().duration += p.duration;
+            else
+                out.push_back(p);
+        }
+        return out;
     }
 
 private:
