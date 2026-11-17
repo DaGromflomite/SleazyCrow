@@ -874,8 +874,76 @@ bool ProtoPirateModule::forwardSelfTest(char* msg, size_t msgLen) {
         allOk = allOk && ok;
     }
 
-    snprintf(msg, msgLen, "fwd self-test: %s | %s | %s",
-             star, fiat, allOk ? "ALL PASS" : "FAIL");
+    char kia[48] = "Kia SKIP";
+    // ---- Kia V3/V4 (KeeLoq, keystore) ----
+    {
+        const uint64_t K = 0x1122334455667788ULL;
+        const uint8_t  btn = 0x2;
+        const uint16_t cnt = 0x1000;
+        uint32_t plain = ((uint32_t)btn << 28) | cnt;      // middle bits 0
+        uint32_t enc   = keeloq::encrypt(plain, K);
+        uint8_t b[8];
+        b[0] = pp_reverse8((uint8_t)(enc & 0xFF));
+        b[1] = pp_reverse8((uint8_t)((enc >> 8) & 0xFF));
+        b[2] = pp_reverse8((uint8_t)((enc >> 16) & 0xFF));
+        b[3] = pp_reverse8((uint8_t)((enc >> 24) & 0xFF));
+        b[4] = 0; b[5] = 0; b[6] = 0;
+        b[7] = pp_reverse8((uint8_t)(btn << 4));            // top nibble = btn
+        uint64_t data = 0;
+        for (int k = 0; k < 8; k++) data |= (uint64_t)b[k] << (56 - 8 * k);
+
+        size_t saved = pp::Keystore::count();
+        pp::Keystore::add("__selftest__", K, 1);
+
+        PPDecodeResult in;
+        memset(&in, 0, sizeof(in));
+        in.protocolName = PPKiaV3V4::PROTOCOL_NAME;
+        in.data = data; in.counter = cnt; in.dataBits = 68;
+        in.type = "V4";
+
+        bool ok = false; uint32_t fwdCnt = 0;
+        PPProtocol* proto = findProtocolByName(in.protocolName);
+        if (proto && proto->supportsForward()) {
+            PPDecodeResult out;
+            if (proto->generateForward(in, 1, out)) {
+                fwdCnt = out.counter;
+                uint8_t ob[8];
+                for (int k = 0; k < 8; k++) ob[k] = (uint8_t)(out.data >> (56 - 8 * k));
+                uint32_t oenc = ((uint32_t)pp_reverse8(ob[3]) << 24) |
+                                ((uint32_t)pp_reverse8(ob[2]) << 16) |
+                                ((uint32_t)pp_reverse8(ob[1]) << 8) |
+                                pp_reverse8(ob[0]);
+                uint32_t op = keeloq::decrypt(oenc, K);
+                ok = (((op >> 28) & 0x0F) == btn) &&
+                     ((op & 0xFFFF) == (uint32_t)(cnt + 1)) &&
+                     (out.data != in.data);
+
+                // Encode-roundtrip: the TX encoder I wrote must produce a frame
+                // our own decoder reads back to the same forward counter.
+                if (ok) {
+                    PPKiaV3V4 dec;
+                    bool rtOk = false;
+                    auto pulses = proto->generatePulseData(out);
+                    for (auto& p : pulses) {
+                        bool lvl = p.duration > 0;
+                        uint32_t du = (uint32_t)(lvl ? p.duration : -p.duration);
+                        if (dec.feed(lvl, du)) {
+                            rtOk = (dec.getResult().counter == (uint32_t)(cnt + 1));
+                            break;
+                        }
+                    }
+                    ok = ok && rtOk;
+                }
+            }
+        }
+        pp::Keystore::truncate(saved);
+        snprintf(kia, sizeof(kia), "Kia %u->%u %s",
+                 (unsigned)cnt, (unsigned)fwdCnt, ok ? "PASS" : "FAIL");
+        allOk = allOk && ok;
+    }
+
+    snprintf(msg, msgLen, "fwd self-test: %s | %s | %s | %s",
+             star, fiat, kia, allOk ? "ALL PASS" : "FAIL");
     ESP_LOGI(TAG, "%s", msg);
     return allOk;
 }
