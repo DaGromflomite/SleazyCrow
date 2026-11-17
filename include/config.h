@@ -9,7 +9,7 @@
 #define FIRMWARE_VERSION_MAJOR 2
 #define FIRMWARE_VERSION_MINOR 0
 #define FIRMWARE_VERSION_PATCH 0
-#define FIRMWARE_VERSION_STRING "2.0.0-unstable"
+#define FIRMWARE_VERSION_STRING "2.1.0-unstable"
 
 // Sleazy Crow: community fork of Senape3000's EvilCrowRF-V2 firmware (MIT).
 // Beta builds bump PATCH (1.2.0-beta, 1.2.1-beta, ...) because the app compares the
