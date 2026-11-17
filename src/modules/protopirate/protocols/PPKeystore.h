@@ -37,7 +37,7 @@ struct MfKey {
 
 class Keystore {
 public:
-    static constexpr size_t MAX_KEYS = 64;
+    static constexpr size_t MAX_KEYS = 256;  // holds a full plaintext keeloq_mfcodes (~190 makes)
 
     /// Add (or append) a key. Returns false if the store is full.
     static bool add(const char* name, uint64_t key, uint8_t learning) {
