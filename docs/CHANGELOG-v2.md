@@ -78,59 +78,26 @@ hardware with real radio signals (Flipper transmitting, HackRF witnessing, a rea
 
 ---
 
+> **REMOVED FEATURE — read first.** An earlier round built a phone-radio **detection suite**
+> (a Detect tab, Fox Hunt, and a signature database that flagged trackers / surveillance gear). It was
+> **removed entirely** (commit `e0bb08e`) because phone radios couldn't reliably see the targets. It is
+> **not in the shipping app** and is not a Sleazy Crow feature. Sections further down that describe it are
+> kept only as a dated development log of what was tried — do not quote them as current features.
+
 ## Headline features in v2
 
-1. **Phone-based surveillance / tracker detection suite** (works with **no Crow attached**).
-2. **The Crow is now optional** — every menu is browsable offline; only hardware functions wait for the device.
-3. **Sub-GHz transmit playlists** — build, save, and play ordered lists of `.sub` files with pauses.
+1. **The Crow is optional for browsing** — every menu is browsable offline; only hardware functions wait for the device.
+2. **Sub-GHz transmit playlists** — build, save, and play ordered lists of `.sub` files with pauses.
 
 ---
 
-## 1. Detection suite (phone radios, no Crow required)
+## 1. Detection suite — REMOVED (not a feature)
 
-### P0 — Home hub + "Crow optional"
-- Home screen became a **hub** with **Connect** and **Detect** sub-tabs.
-- **Detect** runs on phone radios alone (no Crow needed); **Connect** keeps the original pairing flow.
-- Files: `lib/screens/home_screen.dart`, `lib/screens/detect_screen.dart`.
-
-### P1 — BLE scanner + fox hunt
-- Live BLE device list (name / address / RSSI), flagged devices float to the top.
-- **Fox hunt:** tap a device → gradient ring signal meter, live dBm, warmer/colder trend, haptic pulses
-  that speed up as you close in. RSSI-only (phones can't do true AoA bearing).
-- Files: `lib/screens/detect_screen.dart`, `lib/screens/hunt_screen.dart`,
-  `lib/widgets/gradient_widgets.dart`, `lib/theme/app_colors.dart` (cyber pink→purple).
-
-### P2 — Detection engine + signature database
-- **Grading engine** (High / Med / Low) over an updatable signature DB.
-- **DB delivery:** bundled `assets/detection/signatures.json` (always works offline) **plus** a background
-  auto-fetch from the repo raw URL — update detections **without an app release** by editing one JSON file.
-  Bundled copy is the permanent fallback; nothing to self-host or keep alive.
-- **Per-category toggles** ("What to flag"), persisted; iBeacon off by default.
-- **Signature list v7 — 19 categories**, all reimplemented from **primary public sources**
-  (IEEE MA-L OUI registry, Bluetooth SIG assigned numbers, ASTM F3411 / OpenDroneID, Apple Find My /
-  iBeacon, Google FMDN, DULT). GPL projects (SquatchWatch-CYD, surveillance-signatures) were used **only**
-  as a pointer to which identifiers to verify, never copied — keeps the app MIT-clean.
-  - **Fire on BLE now:** Flock Safety, Axon/Taser body cam, camera glasses (Meta Ray-Ban / Snap Spectacles),
-    fleet GPS/ELD (Samsara/PeopleNet), DULT unknown-tracker, ShotSpotter/Raven, AirTag, Tile,
-    Samsung SmartTag, Google Find My, Drone (OpenDroneID), Flipper Zero, card skimmer.
-  - **Staged for P4 (WiFi):** license-plate readers (ALPR), body-worn cameras, Ring (13 OUIs),
-    generic security cameras, hacker gear (Pineapple / Pwnagotchi / O.MG).
-  - Deliberately **omitted** the weak chip-vendor OUIs (SiLabs/Liteon/Espressif) that cause false positives.
-  - ShotSpotter OUI `d4:11:d6` confirmed against the IEEE registry.
-- **UI polish:** the "What to flag" sheet groups categories under section headers
-  (**Surveillance · Trackers · Drones · Tools · Other**) and shows a **friendly group label** on each row
-  (e.g. "Surveillance", "Item tracker", "Hacker tool") instead of the raw severity keyword.
-- Files: `lib/detection/detection_models.dart`, `lib/providers/detection_provider.dart`,
-  `assets/detection/signatures.json`, `lib/screens/detect_screen.dart`.
-
-### P3 — Classic Bluetooth + card-skimmer detector
-- Native Kotlin channel does classic-BT inquiry; classic devices merge into the Detect list.
-- Card-skimmer category flags the common cheap modules (HC-05/06, RN-42, BT04, Linvor, JDY-3…).
-- Files: `android/.../MainActivity.kt`, `lib/services/classic_bt.dart`, `lib/providers/detection_provider.dart`.
-
-### Drone detection
-- BLE **OpenDroneID / Remote ID** (service `0xFFFA`) detection is **live now** in the Detect suite.
-- Pinned for later: a dedicated live drone-monitor view (like the Mesh Monitor widget) + WiFi Remote ID (P4).
+The phone-radio detection suite (Detect tab, BLE scanner, Fox Hunt, signature database, classic-BT and
+drone detection) was prototyped across several rounds and then **removed in full** (commit `e0bb08e`):
+phone radios couldn't reliably detect the intended targets, so shipping it would have given users false
+confidence. The screens, the signature JSON, and the detection tests are gone from the app. The dated test
+rounds later in this file mention it only as a record of the attempt; it is **not** in the product.
 
 ---
 
@@ -171,23 +138,21 @@ reachable straight from Sub-GHz without going to the Files tab.
 
 ## 4. Design / theming
 
-- Cyberpunk **pink→purple** gradient identity on the new Detect/Hunt/Playlist screens.
+- Cyberpunk **pink→purple** gradient identity on the Playlist screens.
 - **Logo watermark:** blank areas show a very subtle, desaturated Sleazy Crow emblem instead of a flat
-  black wall — on the main Connect screen (disconnected), the Detect "no devices" screen, the playlist
-  library and editor (empty, and faintly behind a short list). Reusable `LogoWatermark` / `LogoEmptyState`.
+  black wall — on the main Connect screen (disconnected) and the playlist library and editor (empty, and
+  faintly behind a short list). Reusable `LogoWatermark` / `LogoEmptyState`.
   Files: `lib/widgets/logo_watermark.dart`, `lib/screens/home_screen.dart`,
-  `lib/screens/detect_screen.dart`, `lib/screens/playlist_screen.dart`.
+  `lib/screens/playlist_screen.dart`.
 
 ---
 
 ## 5. Testing
 
 First automated tests in the project (`flutter test`), all passing:
-- `test/detection_signatures_test.dart` — 8 tests over the bundled signature DB + parser (version/count,
-  unique ids, LoRa/mesh removed + drone kept, iBeacon off-by-default, rule well-formedness, lowercase
-  storage, known BLE anchors AirTag/skimmer/drone/ShotSpotter).
 - `test/sub_playlist_test.dart` — 5 tests over the playlist model (file vs pause entries, JSON round-trip,
   file counting, defaults).
+  _(The detection-signature tests were removed with the detection suite — see section 1.)_
 - `flutter analyze`: 0 errors (only pre-existing info-level lints).
 
 ---
