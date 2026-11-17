@@ -258,6 +258,7 @@ void ProtoPirateModule::processLoop() {
 void ProtoPirateModule::feedSamplesToDecoders(const std::vector<unsigned long>& samples) {
     // Samples alternate: HIGH duration, LOW duration, HIGH, LOW, ...
     bool level = true;  // First sample is HIGH
+    bool anyDecoded = false;
 
     for (size_t i = 0; i < samples.size(); i++) {
         uint32_t duration = static_cast<uint32_t>(samples[i]);
@@ -265,6 +266,7 @@ void ProtoPirateModule::feedSamplesToDecoders(const std::vector<unsigned long>& 
         for (auto& d : decoders_) {
             bool decoded = d->feed(level, duration);
             if (decoded) {
+                anyDecoded = true;
                 PPDecodeResult result = d->getResult();
                 result.frequency = activeFrequency_;
 
@@ -287,6 +289,20 @@ void ProtoPirateModule::feedSamplesToDecoders(const std::vector<unsigned long>& 
         }
 
         level = !level;
+    }
+
+    // No decoder recognized the signal — still surface it to the app so the user
+    // sees that something WAS captured (e.g. an unsupported make such as a
+    // Chrysler/FCA/Ram fob). Carry the pulse count so the UI can show it.
+    if (!anyDecoded) {
+        PPDecodeResult unknown;
+        unknown.protocolName = "Unknown (no decoder)";
+        unknown.data        = (uint64_t)samples.size();
+        unknown.dataBits    = (uint16_t)std::min(samples.size(), (size_t)0xFFFF);
+        unknown.frequency   = activeFrequency_;
+        ESP_LOGI(TAG, "Signal unrecognized: %zu pulses, no decoder matched",
+                 samples.size());
+        notifyDecodeResult(unknown);
     }
 }
 
