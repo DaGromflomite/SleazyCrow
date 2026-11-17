@@ -42,15 +42,18 @@ arbitrary vehicles.
 | **KIA V3/V4** | KeeLoq (keystore) | ✅ Yes | ✅ Self-test: crypto + my new encoder round-trips our decoder |
 | **Ford V0** | Obfuscation + GF(2) CRC | ✅ Yes | ✅ Full RF roundtrip self-test (decoder + encoder re-ported from upstream; a real decode bug was fixed in the process) |
 | **VAG (Type 2, XTEA)** | XTEA (built-in key) | ✅ Yes | ✅ Full RF roundtrip self-test (`VAG ... /RF PASS`); encoder ported, a real decode bug fixed (short-pulse Manchester mapping) |
-| VAG (Types 1/3/4, AUT64) | AUT64 (keystore) | ⚠️ Math done | ✅ Forward crypto self-tested with a synthetic key. Type-1 encoder is the same 300µs format (near-done); type-3/4 is the 500µs format. Real use needs the AUT64 keys loaded |
+| VAG (Types 1/3/4, AUT64) | AUT64 (keystore) | ⛔ Blocked | Forward + encoder wired, but our `Aut64Cipher.h` port's `encrypt`/`decrypt` are **not a full 8-byte inverse** — so AUT64 forward can't be trusted until that cipher bug is fixed. Type-1 uses the same 300µs format as type-2 (works once the cipher is fixed); type-3/4 is the 500µs format |
 
-**VAG note:** the forward **crypto** is done and verified on-device for both VAG
-cipher families — XTEA (type 2, built-in key) and AUT64 (types 1/3/4). The forward
-is unified: decrypt the 8-byte block → advance the 24-bit counter → re-encrypt →
-reassemble. What's left for VAG is the **transmit encoder** (upstream has three
-per-format builders) and loading the real AUT64 keys for live use (the type-2
-XTEA key is built in). Decode/forward of AUT64 types needs those keys loaded,
-same keystore model as the others — not shipped.
+**VAG note:** VAG **type 2 (XTEA)** fully works — forward + transmit encoder +
+full RF roundtrip, verified on-device (`VAG(t2) data P/RF P`). In porting it we
+fixed a real decode bug (the short-pulse Manchester mapping was inverted). The
+**AUT64 types (1/3/4)** have the forward and the 300µs encoder wired, but they're
+**blocked on a cipher bug**: our `Aut64Cipher.h` port's `encrypt` and `decrypt`
+are not a full 8-byte inverse (a block round-trips its counter bytes but not the
+rest), so AUT64 forward can't be trusted yet. The self-test flags this as
+`aut64 inv BUG`. Fixing the AUT64 cipher (then the type-3/4 500µs encoder, then
+loading real AUT64 keys) is the remaining VAG work. The type-2 XTEA key is
+built in; AUT64 keys are loaded by the operator, not shipped.
 | Subaru | Bit-rotation (no key) | ➖ N/A | Counter isn't a clean rolling counter |
 | PSA / KIA V5/V6 | — | ➖ Decode only | — |
 

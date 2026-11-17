@@ -332,13 +332,15 @@ public:
         return false;
     }
 
-    // Type-2 (XTEA) transmit encoder, faithful port of the upstream
-    // vag_encoder_build_type2 pulse emission (300us Manchester), with
-    // consecutive same-level pulses merged to match real RF.
+    // Transmit encoder, faithful port of the upstream VAG encoder pulse
+    // emission with consecutive same-level pulses merged to match real RF.
+    // Type 1/2 = 300us Manchester (prefix differs). Type 3/4 (500us) is TODO.
     std::vector<PPPulse> generatePulseData(const PPDecodeResult& r) override {
         std::vector<PPPulse> out;
-        if (r.keyIndex != 0xFF) return out;  // only the type-2 encoder for now
+        int vt = (r.keyIndex == 0xFF) ? 2 : (int)r.bsMagic;  // 1/2 = 300us
+        if (vt != 1 && vt != 2) return out;  // type 3/4 encoder not ported yet
 
+        uint16_t prefix = (vt == 1) ? 0xAF3F : 0xAF1C;
         std::vector<PPPulse> raw;
         auto E = [&](bool lvl, int32_t dur) {
             raw.push_back({ lvl ? dur : -dur });
@@ -347,7 +349,7 @@ public:
 
         for (int i = 0; i < 220; i++) { E(true, 300); E(false, 300); }  // preamble
         E(false, 300); E(true, 300);                                     // sync
-        for (int i = 15; i >= 0; i--) MB((0xAF1C >> i) & 1);             // type-2 prefix
+        for (int i = 15; i >= 0; i--) MB((prefix >> i) & 1);            // type prefix
         uint64_t k1i = ~r.data;
         for (int i = 63; i >= 0; i--) MB((int)((k1i >> i) & 1));         // ~key1
         uint16_t k2i = (uint16_t)(~(uint16_t)r.data2);
@@ -589,6 +591,7 @@ private:
         result_.protocolName = PROTOCOL_NAME;
         result_.encrypted = true;
         result_.canEmulate = false;
+        result_.bsMagic = vagType_;   // stash VAG type (1/2/3/4) for the encoder
         result_.crcValid = decrypted;
 
         // Vehicle name as type string
