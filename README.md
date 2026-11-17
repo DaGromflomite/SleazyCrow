@@ -2,14 +2,14 @@
 
 ![Sleazy Crow](branding/source/banner.png)
 
-**Sleazy Crow** is a community fork of [Senape3000's EvilCrowRF-V2](https://github.com/Senape3000/EvilCrowRF-V2)
-firmware and Android app for the [Evil Crow RF V2](https://github.com/joelsernamoreno/EvilCrowRF-V2) hardware.
-It keeps everything the original does, fixes a lot of reliability problems, and adds
-some new tools on top.
+**Sleazy Crow** is firmware and an Android app for the [Evil Crow RF V2](https://github.com/joelsernamoreno/EvilCrowRF-V2)
+hardware — a pocket radio tool for sub-GHz and 2.4 GHz. It's built for reliability and adds its own features:
+an "is a car following me?" tire-sensor detector, car key-fob decoding (now including Chrysler/Dodge/Jeep/RAM),
+sub-GHz capture / replay / brute-force, a 2.4 GHz toolkit, and more.
 
 > ⚠ **Unstable test build (v2.1.0-unstable).** This channel moves fast and some
-> features are still being tested. If it doesn't work on your Evil Crow, go back to
-> [Senape3000's official firmware](https://senape3000.github.io/EvilCrowRF-V2/web-flasher/) and please
+> features are still being tested. If it doesn't work on your Evil Crow, go back to the stable
+> **v1.2.0-beta** build (the main web flasher), and please
 > [report what happened](https://github.com/DaGromflomite/SleazyCrow/issues/new).
 
 ## Install
@@ -24,7 +24,7 @@ See [`changelog.json`](changelog.json) for the full list. Highlights:
 
 **New in this build (v2.1.0-unstable):**
 
-- **"Is a car following me?" detector.** The Crow listens for the tyre-pressure
+- **"Is a car following me?" detector.** The Crow listens for the tire-pressure
   sensors on cars around you and flags one that keeps showing up. It now reads 9
   sensor types, covering most common US makes (Ford, Toyota/Subaru, Hyundai/Kia,
   GM/Chevy, Honda, Nissan/Infiniti, Jeep/Dodge/RAM, plus Schrader and TRW). Each
@@ -53,9 +53,18 @@ See [`changelog.json`](changelog.json) for the full list. Highlights:
 - File uploads can no longer silently save a corrupted file. (Every TouchTunes file
   copied to the SD card was also checked byte-for-byte against the source repo — all
   8,167 matched exactly.)
-- App: drill into **any** Flipper Sub-GHz DB subfolder, not just the top-level
-  categories, so you copy exactly the folders you want; much faster and more reliable
-  uploads; transmit toggle; brute-force frequency/timing options.
+- **Download signals straight from the big community libraries.** The Sub-GHz
+  downloader pulls from the Flipper Sub-GHz DB and **UberGuidoZ's** collection,
+  including his ready-made playlists — pick exactly what you want and send it to the
+  SD card. You can drill into **any** subfolder, not just the top-level categories.
+- **File downloading to the SD card is fixed** — much faster and more reliable, and a
+  download can no longer silently save a corrupted file (every file is checked against
+  the source).
+- **Build, edit, and save your own Sub-GHz playlists** — ordered lists of `.sub` files
+  with pauses, so you can send a sequence with one tap.
+- **Play a saved `.sub` right from the Sub-GHz screen.** A Play button is built in, so
+  you no longer have to switch over to the Files tab just to transmit a file.
+- Transmit toggle and brute-force frequency/timing options.
 
 Feature documentation for the device itself is in Senape3000's original README: [`docs/UPSTREAM_README.md`](docs/UPSTREAM_README.md).
 

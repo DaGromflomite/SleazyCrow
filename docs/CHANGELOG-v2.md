@@ -8,6 +8,47 @@ Baseline: everything below is on top of the published **v1.2.0-beta** firmware +
 
 ---
 
+## v2.1.0-unstable — release summary (2026-11-16)
+
+Published to the `v2-unstable` channel. The headline work this round, all tested on real
+hardware with real radio signals (Flipper transmitting, HackRF witnessing, a real car fob):
+
+**TPMS "is a car following me?" detector**
+- Expanded from 5 to **9 tire-sensor decoders**: added Hyundai/Kia, Honda (marker-anchored),
+  TRW, Jeep/Dodge/RAM (FCA), and Nissan/Infiniti (preamble-anchored), alongside the existing
+  Ford, Toyota/Subaru, Schrader and GM/EG53. Covers most common US makes. Each was verified on
+  the bench by transmitting the real sensor frame from a Flipper and confirming the Crow + app
+  read the correct ID, pressure and temperature, with zero ghosts and no cross-make leakage.
+- **Phantom-sensor fix (anchored demod).** Weak 8-bit checksums let a wrong bit-alignment
+  "validate" as a real sensor (a deterministic shift-ghost), so the detector could show a car
+  that wasn't there. The decoder now locks onto the leading constant run + preamble and decodes
+  one alignment, gated on a physically plausible pressure/temperature. 0 ghosts / 0 misses over
+  16,000 synthetic frames, then confirmed on hardware across all 9 protocols and a mixed scene.
+- App: scroll bar on the sensor list; new makes show their name.
+
+**Transmit Binary (0x06) — implemented**
+- Was a dead stub that returned success and transmitted nothing (the low-level `transmitBinary`
+  never entered TX mode). Now parses `[freq][pulseDuration][bits]`, keys the CC1101 via the
+  proven `setTxWithPreset(Ook650)` + `transmitRawData` path. Verified on a HackRF: it decoded
+  the exact key 0x123456 from a pattern the Crow sent (+40 dB at the commanded frequency).
+
+**ProtoPirate (car key-fob decoder)**
+- **New make: Chrysler / Dodge / Jeep / RAM (FCA).** 112-bit Manchester, te≈209 µs,
+  reverse-engineered from a real 2019 RAM 1500 fob and confirmed **live on-device** (decodes to
+  a steady serial, 0xC6B2ED23). New `PPChryslerFca.h`, registered in `PPAllProtocols.h`.
+- A captured signal with no matching decoder is now **saved to the SD and shown as "Unknown"**
+  instead of being silently dropped (`saveRawCapture` + an "Unknown (no decoder)" result).
+- **Load-.sub bug fix:** the offline loader did `if (duration_us > 0)` and dropped every LOW
+  pulse, feeding decoders a mangled half-signal. Now stores the absolute value of all pulses.
+  (The live decode path is fully working; the offline load path still needs more verification.)
+
+**Reliability**
+- **Flash reliability:** pinned `upload_speed = 115200` — the default 460800 was too fast for the
+  board's USB and failed mid-write with a "flash chip" error.
+- **nRF jammer wedge fix** — see the next section (critical).
+
+---
+
 ## CRITICAL FIX — nRF jammer wedged the radios / couldn't be stopped (2026-11-16)
 
 **Severity: showstopper (found & fixed during full-device QA with HackRF + BLE).**

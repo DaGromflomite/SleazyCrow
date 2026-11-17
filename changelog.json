@@ -7,7 +7,7 @@
       "changes": [
         {
           "type": "feature",
-          "text": "[UNSTABLE] The 'is a car following me?' TPMS detector now reads 9 tyre-sensor types, covering most common US makes: Ford, Toyota/Subaru, Hyundai/Kia, GM/Chevy, Honda, Nissan/Infiniti, Jeep/Dodge/RAM, plus Schrader and TRW. Each one was tested on the bench with real radio signals."
+          "text": "[UNSTABLE] The 'is a car following me?' TPMS detector now reads 9 tire-sensor types, covering most common US makes: Ford, Toyota/Subaru, Hyundai/Kia, GM/Chevy, Honda, Nissan/Infiniti, Jeep/Dodge/RAM, plus Schrader and TRW. Each one was tested on the bench with real radio signals."
         },
         {
           "type": "fix",
@@ -50,7 +50,7 @@
       "changes": [
         {
           "type": "feature",
-          "text": "[UNSTABLE] TPMS 'is a car following me?' detector: 5 tyre-sensor decoders (Ford, Toyota, Hyundai/VDO, Schrader, Schrader-GM), FSK+OOK, runs on one radio. Self-test passes on hardware; NOT yet tested near a real car."
+          "text": "[UNSTABLE] TPMS 'is a car following me?' detector: 5 tire-sensor decoders (Ford, Toyota, Hyundai/VDO, Schrader, Schrader-GM), FSK+OOK, runs on one radio. Self-test passes on hardware; NOT yet tested near a real car."
         },
         {
           "type": "fix",
