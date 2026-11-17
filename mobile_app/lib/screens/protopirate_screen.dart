@@ -1038,6 +1038,31 @@ class _ResultCard extends StatelessWidget {
 
                 const SizedBox(height: 16),
 
+                // Forward (next rolling code) — authorized testing. Shown for
+                // rolling-code results that carry a recoverable counter.
+                if (result.canEmulate &&
+                    (result.encrypted || result.counter != 0))
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          _emulateForwardResult(context);
+                        },
+                        icon: const Icon(Icons.fast_forward, size: 18),
+                        label: const Text('Transmit NEXT code (rolling)'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.error,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 // Action buttons row: Emulate, Save, Copy
                 Row(
                   children: [
@@ -1119,6 +1144,160 @@ class _ResultCard extends StatelessWidget {
               ],
             ),
           ),
+        );
+      },
+    );
+  }
+
+  /// Transmit the NEXT rolling code (authorized testing). Advances the
+  /// counter and re-encrypts with the keystore key. Needs the manufacturer
+  /// key loaded, or the firmware reports "no key" (TX error 8).
+  void _emulateForwardResult(BuildContext context) {
+    final ble = Provider.of<BleProvider>(context, listen: false);
+    final notifications =
+        Provider.of<NotificationProvider>(context, listen: false);
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        int module = 0;
+        int repeat = 3;
+        int delta = 1;
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              backgroundColor: AppColors.secondaryBackground,
+              title: const Text('Transmit NEXT code',
+                  style: TextStyle(color: AppColors.error, fontSize: 16)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.error.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text(
+                      'Authorized testing only. Generates a valid forward '
+                      'rolling code for a vehicle/fob you own or are permitted '
+                      'to test. Needs the manufacturer key loaded.',
+                      style: TextStyle(
+                          color: AppColors.error, fontSize: 11),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text('Protocol: ${result.protocolName}',
+                      style: const TextStyle(
+                          color: AppColors.primaryText, fontSize: 13)),
+                  Text('Current counter: ${result.counter}',
+                      style: const TextStyle(
+                          color: AppColors.secondaryText, fontSize: 11)),
+                  const SizedBox(height: 12),
+                  const Text('Advance counter by:',
+                      style: TextStyle(
+                          color: AppColors.secondaryText, fontSize: 12)),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      for (final d in [1, 2, 5, 10])
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: ChoiceChip(
+                            label: Text('+$d'),
+                            selected: delta == d,
+                            onSelected: (v) =>
+                                setDialogState(() => delta = d),
+                            selectedColor:
+                                AppColors.error.withValues(alpha: 0.25),
+                            labelStyle: TextStyle(
+                                color: delta == d
+                                    ? AppColors.error
+                                    : AppColors.primaryText,
+                                fontSize: 12),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('CC1101 Module:',
+                      style: TextStyle(
+                          color: AppColors.secondaryText, fontSize: 12)),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      for (final m in [0, 1])
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text('#${m + 1}'),
+                            selected: module == m,
+                            onSelected: (v) =>
+                                setDialogState(() => module = m),
+                            selectedColor:
+                                AppColors.error.withValues(alpha: 0.25),
+                            labelStyle: TextStyle(
+                                color: module == m
+                                    ? AppColors.error
+                                    : AppColors.primaryText,
+                                fontSize: 12),
+                          ),
+                        ),
+                      const SizedBox(width: 8),
+                      const Text('Repeat:',
+                          style: TextStyle(
+                              color: AppColors.secondaryText, fontSize: 12)),
+                      const SizedBox(width: 6),
+                      for (final r in [1, 3, 5])
+                        Padding(
+                          padding: const EdgeInsets.only(right: 4),
+                          child: ChoiceChip(
+                            label: Text('$r'),
+                            selected: repeat == r,
+                            onSelected: (v) =>
+                                setDialogState(() => repeat = r),
+                            selectedColor:
+                                AppColors.error.withValues(alpha: 0.25),
+                            labelStyle: TextStyle(
+                                color: repeat == r
+                                    ? AppColors.error
+                                    : AppColors.primaryText,
+                                fontSize: 12),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    try {
+                      await ble.ppEmulateForward(result,
+                          module: module, repeat: repeat, counterDelta: delta);
+                      notifications.showSuccess(
+                          'Next code (+$delta) for ${result.protocolName} on '
+                          'module #${module + 1}…');
+                    } catch (e) {
+                      notifications.showError('Next-code failed: $e');
+                    }
+                  },
+                  icon: const Icon(Icons.fast_forward, size: 16),
+                  label: const Text('Transmit next'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.error,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+            );
+          },
         );
       },
     );

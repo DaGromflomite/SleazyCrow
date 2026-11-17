@@ -4090,6 +4090,66 @@ class BleProvider extends ChangeNotifier {
     await sendBinaryCommand(cmd);
   }
 
+  /// Emulate the NEXT rolling code (authorized testing). Advances the counter
+  /// by [counterDelta], re-encrypts with the keystore key, and transmits.
+  /// Fails on the firmware (TX error 8) if no manufacturer key is loaded.
+  Future<void> ppEmulateForward(ProtoPirateResult result,
+      {int module = 0, int repeat = 3, int counterDelta = 1}) async {
+    if (!isConnected || txCharacteristic == null) {
+      throw Exception('Not connected');
+    }
+    _ppTxState = 0;
+    _ppTxErrorCode = 0;
+    _log('command',
+        'PP EmulateForward: ${result.protocolName} +$counterDelta module=$module');
+    final cmd = FirmwareBinaryProtocol.createPPEmulateForwardCommand(
+      module: module,
+      repeat: repeat,
+      counterDelta: counterDelta,
+      protocolName: result.protocolName,
+      data: result.data,
+      data2: result.data2,
+      serial: result.serial,
+      button: result.button,
+      counter: result.counter,
+      dataBits: result.dataBits,
+      frequencyMhz: result.frequency > 0 ? result.frequency : _ppFrequency,
+    );
+    await sendBinaryCommand(cmd);
+  }
+
+  /// Add a manufacturer/learning key to the keystore (authorized testing).
+  Future<void> ppAddKey(String name, int key, int learning) async {
+    if (!isConnected || txCharacteristic == null) {
+      throw Exception('Not connected');
+    }
+    _log('command', 'PP AddKey: $name learning=$learning');
+    await sendBinaryCommand(
+        FirmwareBinaryProtocol.createPPAddKeyCommand(
+            name: name, key: key, learning: learning));
+  }
+
+  /// Clear the keystore (0x0E).
+  Future<void> ppClearKeys() async {
+    if (!isConnected || txCharacteristic == null) return;
+    _log('command', 'PP ClearKeys');
+    await sendBinaryCommand(FirmwareBinaryProtocol.createPPSimpleCommand(0x0E));
+  }
+
+  /// Reload keys from SD /DATA/KEYS/keeloq_mfcodes.txt (0x0F).
+  Future<void> ppReloadKeys() async {
+    if (!isConnected || txCharacteristic == null) return;
+    _log('command', 'PP ReloadKeys');
+    await sendBinaryCommand(FirmwareBinaryProtocol.createPPSimpleCommand(0x0F));
+  }
+
+  /// Run the on-device forward-code self-test (0x11).
+  Future<void> ppForwardSelfTest() async {
+    if (!isConnected || txCharacteristic == null) return;
+    _log('command', 'PP ForwardSelfTest');
+    await sendBinaryCommand(FirmwareBinaryProtocol.createPPSimpleCommand(0x11));
+  }
+
   /// Save a decoded capture to SD card (/DATA/PROTOPIRATE/)
   Future<void> ppSaveCapture(ProtoPirateResult result) async {
     if (!isConnected || txCharacteristic == null) {

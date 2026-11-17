@@ -1346,6 +1346,83 @@ class FirmwareBinaryProtocol {
     return _createEnhancedCommand(MSG_PROTOPIRATE, payload);
   }
 
+  /// Emulate the NEXT rolling code (0x60 sub 0x0C) — authorized testing.
+  /// Layout: [0x0C][module][repeat][counterDelta:2LE][<emulate PPResult payload>]
+  static Uint8List createPPEmulateForwardCommand({
+    required int module,
+    required int repeat,
+    required int counterDelta,
+    required String protocolName,
+    required int data,
+    required int data2,
+    required int serial,
+    required int button,
+    required int counter,
+    required int dataBits,
+    required double frequencyMhz,
+  }) {
+    final nameBytes = utf8.encode(protocolName);
+    final nameLen = nameBytes.length.clamp(0, 31);
+    // 1(sub)+1(mod)+1(rep)+2(delta)+1(nameLen)+nameLen+8+8+4+1+4+1+4
+    final payload = Uint8List(36 + nameLen);
+    int off = 0;
+    payload[off++] = 0x0C;
+    payload[off++] = module;
+    payload[off++] = repeat;
+    payload[off++] = counterDelta & 0xFF;
+    payload[off++] = (counterDelta >> 8) & 0xFF;
+    payload[off++] = nameLen;
+    payload.setRange(off, off + nameLen, nameBytes);
+    off += nameLen;
+    for (int i = 0; i < 8; i++) {
+      payload[off++] = (data >> (i * 8)) & 0xFF;
+    }
+    for (int i = 0; i < 8; i++) {
+      payload[off++] = (data2 >> (i * 8)) & 0xFF;
+    }
+    for (int i = 0; i < 4; i++) {
+      payload[off++] = (serial >> (i * 8)) & 0xFF;
+    }
+    payload[off++] = button;
+    for (int i = 0; i < 4; i++) {
+      payload[off++] = (counter >> (i * 8)) & 0xFF;
+    }
+    payload[off++] = dataBits;
+    int freqHz = (frequencyMhz * 1000000).round();
+    for (int i = 0; i < 4; i++) {
+      payload[off++] = (freqHz >> (i * 8)) & 0xFF;
+    }
+    return _createEnhancedCommand(MSG_PROTOPIRATE, payload);
+  }
+
+  /// Add a manufacturer key to the keystore (0x60 sub 0x0D).
+  /// Layout: [0x0D][nameLen][name][key:8LE][learning:1]
+  static Uint8List createPPAddKeyCommand({
+    required String name,
+    required int key,
+    required int learning,
+  }) {
+    final nameBytes = utf8.encode(name);
+    final nameLen = nameBytes.length.clamp(0, 23);
+    final payload = Uint8List(1 + 1 + nameLen + 8 + 1);
+    int off = 0;
+    payload[off++] = 0x0D;
+    payload[off++] = nameLen;
+    payload.setRange(off, off + nameLen, nameBytes);
+    off += nameLen;
+    for (int i = 0; i < 8; i++) {
+      payload[off++] = (key >> (i * 8)) & 0xFF;
+    }
+    payload[off++] = learning & 0xFF;
+    return _createEnhancedCommand(MSG_PROTOPIRATE, payload);
+  }
+
+  /// Simple single-byte ProtoPirate sub-commands (clear keys 0x0E,
+  /// reload keys 0x0F, key count 0x10, forward self-test 0x11).
+  static Uint8List createPPSimpleCommand(int sub) {
+    return _createEnhancedCommand(MSG_PROTOPIRATE, Uint8List.fromList([sub]));
+  }
+
   /// Save a decoded capture to SD card (0x60 sub 0x0A)
   /// Same data layout as emulate but without module/repeat
   static Uint8List createPPSaveCaptureCommand({
