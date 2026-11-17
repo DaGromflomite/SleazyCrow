@@ -1023,10 +1023,34 @@ bool ProtoPirateModule::forwardSelfTest(char* msg, size_t msgLen) {
             uint32_t a0 = 0, a1 = 0;
             bool au = testVag(0, 0xC0, 0x2B, a0, a1);
 
-            snprintf(vag, sizeof(vag), "VAG t2 %u->%u %s / aut64 %u->%u %s",
-                     (unsigned)t2c0, (unsigned)t2c1, t2 ? "PASS" : "FAIL",
-                     (unsigned)a0, (unsigned)a1, au ? "PASS" : "FAIL");
-            allOk = allOk && t2 && au;
+            // Type-2 full RF roundtrip: forward -> encoder -> feed -> decode.
+            bool rf = false;
+            {
+                uint8_t dec[8] = {0x11, 0x22, 0x33, 0x44, 0x34, 0x12, 0x00, 0x20};
+                uint16_t key2 = 0;
+                uint64_t key1 = PPVag::encodeBlock(dec, 0xC0, 0x1C, 0xFF, key2);
+                uint32_t cnt0 = 0x1234;
+                PPDecodeResult in;
+                memset(&in, 0, sizeof(in));
+                in.protocolName = PPVag::PROTOCOL_NAME;
+                in.data = key1; in.data2 = key2; in.counter = cnt0;
+                in.keyIndex = 0xFF;
+                PPDecodeResult out;
+                if (proto->generateForward(in, 1, out)) {
+                    PPVag dec2;
+                    auto pulses = proto->generatePulseData(out);
+                    for (auto& p : pulses) {
+                        bool lvl = p.duration > 0;
+                        uint32_t du = (uint32_t)(lvl ? p.duration : -p.duration);
+                        if (dec2.feed(lvl, du)) break;
+                    }
+                    rf = (dec2.getResult().counter == cnt0 + 1);
+                }
+            }
+
+            snprintf(vag, sizeof(vag), "VAG t2 %s/aut64 %s/RF %s",
+                     t2 ? "P" : "F", au ? "P" : "F", rf ? "PASS" : "FAIL");
+            allOk = allOk && t2 && au && rf;
         }
     }
 
