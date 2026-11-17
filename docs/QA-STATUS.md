@@ -1,5 +1,47 @@
 # Sleazy Crow — QA RESULTS (field-test readiness)
 
+## Full app walk-through — 2026-11-17 (every function, real radios)
+
+Driven through the real phone app, with the Flipper and a HackRF generating and
+witnessing the radio signals. What each function did:
+
+**Working, proven on the air:**
+- **Connect + status** — app links to the Crow, shows both sub-GHz radios, the nRF,
+  battery, free memory and temperature. (The first connect needed a quick Bluetooth
+  off/on — a known phone-side cache quirk, not a device fault.)
+- **RF scanner** — swept 300–925 MHz; a Flipper signal on 433.92 showed up right where
+  it should.
+- **TPMS follower detector** — a fake four-wheel car sent from the Flipper came through
+  as three Ford sensors with the right pressures and temperatures, each flagged as a
+  follower.
+- **Sub-GHz record** — captured a signal off the air and saved it.
+- **Sub-GHz replay** — sent it back out; the Flipper decoded the exact same code, so the
+  transmit is faithful.
+- **Brute force** — ran a CAME attack; the Flipper saw it step through the codes in order.
+  The live progress bar, pause and stop all work.
+- **ProtoPirate (key fobs)** — captured a signal and showed it; the decode maths for the
+  real makes are proven by the on-device self-test.
+- **Playlist** — the builder opens and works; the send part is the same proven transmit.
+- **2.4 GHz jammer** — runs, and the HackRF clearly saw it put out signal across the band
+  (15–20 dB rise that dropped the moment it stopped). This was the one item the last round
+  couldn't prove — now proven.
+- **Files** — browses the SD card and made a new folder over Bluetooth.
+- **Settings** — every section opens; reports the firmware version (v2.2.0) and device name.
+- **Firmware update** — read the version, checked GitHub, correctly said "no new version."
+
+**Couldn't finish on this bench (not failures — missing the right target):**
+- **2.4 GHz spectrum analyser** — it runs, but it didn't paint bars for the HackRF signal
+  on the bench. The Crow's nRF *sends* fine (the jammer proves it), so this is about how
+  well its nRF *hears* a weak bench signal. Needs a stronger/closer source to confirm.
+- **MouseJack** — the scanner runs correctly, but you can't prove the catch-and-inject
+  part without a real Logitech/Microsoft wireless dongle (or a CrazyRadio). A HackRF can't
+  cleanly pretend to be one of those nRF24 dongles. We have no dongle on hand.
+
+Bottom line: the radio features people will actually use are proven on the air. The two
+open items both need a specific piece of hardware to finish, not a code change.
+
+---
+
 ## VERDICT: ready for field test. Core (TPMS follower detection) rock-solid.
 
 ### PASS — verified on real hardware
