@@ -291,6 +291,13 @@ void ProtoPirateModule::feedSamplesToDecoders(const std::vector<unsigned long>& 
         level = !level;
     }
 
+    // Persist the RAW waveform of every analyzed capture to a .sub so nothing is
+    // ever lost — this is the only way an UNRECOGNIZED signal (no decoder, e.g. an
+    // FCA/Ram fob) can be saved for later analysis or replay. It announces itself
+    // as a recording so the app lists it with no app change.
+    std::string savedPath;
+    saveRawCapture(samples, savedPath);
+
     // No decoder recognized the signal — still surface it to the app so the user
     // sees that something WAS captured (e.g. an unsupported make such as a
     // Chrysler/FCA/Ram fob). Carry the pulse count so the UI can show it.
@@ -300,10 +307,85 @@ void ProtoPirateModule::feedSamplesToDecoders(const std::vector<unsigned long>& 
         unknown.data        = (uint64_t)samples.size();
         unknown.dataBits    = (uint16_t)std::min(samples.size(), (size_t)0xFFFF);
         unknown.frequency   = activeFrequency_;
-        ESP_LOGI(TAG, "Signal unrecognized: %zu pulses, no decoder matched",
-                 samples.size());
+        ESP_LOGI(TAG, "Signal unrecognized: %zu pulses, no decoder matched (saved %s)",
+                 samples.size(), savedPath.c_str());
         notifyDecodeResult(unknown);
     }
+}
+
+bool ProtoPirateModule::saveRawCapture(const std::vector<unsigned long>& samples,
+                                       std::string& outPath) {
+    outPath.clear();
+    if (samples.size() < 2) return false;
+
+    static const char* DIR = "/DATA/SIGNALS";
+    if (!SD.exists(DIR)) {
+        if (!SD.exists("/DATA")) SD.mkdir("/DATA");
+        if (!SD.mkdir(DIR) && !SD.exists(DIR)) {
+            ESP_LOGE(TAG, "saveRawCapture: cannot create %s", DIR);
+            return false;
+        }
+    }
+
+    // Filename: pp_<freqKHz>_<counter>.sub (unique per boot).
+    // activeFrequency_ is in MHz (e.g. 433.92) -> kHz for a readable name.
+    static uint32_t rawSeq = 0;
+    uint32_t fkHz = (uint32_t)(activeFrequency_ * 1000.0f);
+    char fn[48];
+    snprintf(fn, sizeof(fn), "pp_%lu_%04lu.sub",
+             (unsigned long)fkHz, (unsigned long)(++rawSeq));
+    std::string full = std::string(DIR) + "/" + fn;
+
+    File f = SD.open(full.c_str(), FILE_WRITE);
+    if (!f) {
+        ESP_LOGE(TAG, "saveRawCapture: cannot open %s", full.c_str());
+        return false;
+    }
+
+    f.println("Filetype: Flipper SubGhz RAW File");
+    f.println("Version: 1");
+    f.print("Frequency: ");
+    f.print((uint32_t)(activeFrequency_ * 1000000.0f));  // MHz -> Hz
+    f.println();
+    f.println("Preset: FuriHalSubGhzPresetOok650Async");
+    f.println("Protocol: RAW");
+
+    // Samples alternate HIGH, LOW, ... ; write as signed durations (+HIGH, -LOW),
+    // 512 values per RAW_Data line (Flipper convention).
+    bool level = true;
+    int lineCount = 0;
+    f.print("RAW_Data: ");
+    for (size_t i = 0; i < samples.size(); i++) {
+        long v = (long)samples[i];
+        f.print(level ? v : -v);
+        f.print(' ');
+        level = !level;
+        if (++lineCount >= 512) {
+            f.println();
+            f.print("RAW_Data: ");
+            lineCount = 0;
+        }
+    }
+    f.println();
+    f.close();
+
+    outPath = fn;
+
+    // Announce as a recording (MSG_SIGNAL_RECORDED) so the app lists it with no
+    // app change — same path TPMS/record captures already use.
+    uint8_t buf[64];
+    size_t pos = 0;
+    buf[pos++] = MSG_SIGNAL_RECORDED;
+    buf[pos++] = (uint8_t)(activeModule_ >= 0 ? activeModule_ : 0);
+    uint8_t nl = (uint8_t)strnlen(fn, 40);
+    buf[pos++] = nl;
+    memcpy(buf + pos, fn, nl);
+    pos += nl;
+    ClientsManager::getInstance().notifyAllBinary(
+        NotificationType::SignalRecorded, buf, pos);
+
+    ESP_LOGI(TAG, "saveRawCapture: wrote %s (%zu pulses)", fn, samples.size());
+    return true;
 }
 
 void ProtoPirateModule::notifyDecodeResult(const PPDecodeResult& result) {
@@ -463,13 +545,18 @@ bool ProtoPirateModule::loadSubFile(const char* filePath) {
     bool capped = false;
 
     parser.streamRawData(filePath, [&](int32_t duration_us, bool pinState) {
-        // We just store absolute duration; the alternation HIGH/LOW
-        // is implied by position (even=HIGH, odd=LOW) in the RAW stream.
-        // The .sub format already has correct signing.
+        // streamRawData emits SIGNED durations (+HIGH, -LOW). Store the ABSOLUTE
+        // value of EVERY pulse so the HIGH/LOW alternation is preserved by position
+        // (even=HIGH, odd=LOW), exactly as feedSamplesToDecoders expects.
+        // BUGFIX: the old code did `if (duration_us > 0)`, which DROPPED every LOW
+        // pulse and fed the decoders a mangled half-signal — so Load-.sub never
+        // actually decoded anything.
         (void)pinState;
-        if (duration_us > 0 && samples.size() < MAX_LOAD_SAMPLES) {
-            samples.push_back((unsigned long)duration_us);
-        } else if (samples.size() >= MAX_LOAD_SAMPLES) {
+        if (samples.size() < MAX_LOAD_SAMPLES) {
+            uint32_t mag = (duration_us < 0) ? (uint32_t)(-duration_us)
+                                             : (uint32_t)duration_us;
+            if (mag > 0) samples.push_back((unsigned long)mag);
+        } else {
             capped = true;
         }
         totalPulses++;
