@@ -146,6 +146,13 @@ public:
     bool saveCapture(const PPDecodeResult& result, std::string& outPath);
 
 private:
+    // Save the RAW captured waveform (decoded or not) to a .sub on the SD, and
+    // announce it as a recording (MSG_SIGNAL_RECORDED) so the app lists it. This
+    // is how an UNRECOGNIZED capture (e.g. an FCA/Ram fob) gets persisted for
+    // later analysis/replay — saveCapture() can't, since it re-encodes from a
+    // decoded result that an unknown signal doesn't have.
+    bool saveRawCapture(const std::vector<unsigned long>& samples, std::string& outPath);
+
     ProtoPirateModule() = default;
     ~ProtoPirateModule() = default;
     ProtoPirateModule(const ProtoPirateModule&) = delete;
