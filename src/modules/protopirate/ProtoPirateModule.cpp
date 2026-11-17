@@ -12,6 +12,7 @@
 #include "FlipperSubFile.h"
 #include "protocols/PPKeystore.h"
 #include "protocols/KeeloqCipher.h"
+#include "pp_embedded_keys.h"
 #include <SD.h>
 #include <cstring>
 #include <cstdlib>
@@ -80,9 +81,21 @@ bool ProtoPirateModule::init() {
     }
     ESP_LOGI(TAG, "Initialized with %zu protocol decoders", decoders_.size());
 
-    // Load manufacturer/learning keys from SD (if present) into the shared
-    // keystore, so rolling-code decoders can recover counters and the
-    // forward-code generator can synthesize next codes. Tester-supplied file.
+    // Load manufacturer/learning keys so rolling-code decoders can recover
+    // counters and the forward-code generator can synthesize next codes.
+    //  1) keys compiled into the firmware (include/pp_embedded_keys.h), then
+    //  2) the SD file (/DATA/KEYS/keeloq_mfcodes.txt), which adds on top.
+    // (VAG Type-2's key is published and already built into PPVag; it needs no
+    //  keystore entry. No KeeLoq/AUT64 maker keys ship by default — they are not
+    //  published in the clear; the operator supplies their own authorized keys.)
+    for (unsigned i = 0; i < PP_EMBEDDED_KEELOQ_KEY_COUNT; i++) {
+        const PpEmbeddedKey& e = PP_EMBEDDED_KEELOQ_KEYS[i];
+        pp::Keystore::add(e.name, e.key, e.learning);
+    }
+    if (PP_EMBEDDED_KEELOQ_KEY_COUNT > 0) {
+        ESP_LOGI(TAG, "Loaded %u embedded keystore key(s)",
+                 PP_EMBEDDED_KEELOQ_KEY_COUNT);
+    }
     loadKeystoreFromSd();
 
     return true;

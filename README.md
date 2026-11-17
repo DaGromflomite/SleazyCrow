@@ -38,7 +38,11 @@ walkthrough of each one in the [instruction manual](docs/MANUAL.md).
 - **Brute force** — walk the whole code space of a garage/gate protocol (CAME, Princeton,
   NICE, Holtek, FAAC, BFT and more), in order or as a de Bruijn sequence.
 - **Key-fob reader (ProtoPirate)** — read a car key fob, show the make and button, and for
-  the supported makes build and send the next valid rolling code. See which makes in
+  the supported makes build and send the next valid rolling code. **Reading works for every
+  supported make with no setup.** For next-code, **VW/Audi/Seat/Škoda (VAG Type-2) works out
+  of the box** — its key is public and built in. The other next-code makes (StarLine, Fiat,
+  Ford, Hyundai/Kia, VAG AUT64) need a maker key you load for a vehicle you're authorized to
+  test; those keys aren't published in the clear, so none ship by default. Full breakdown in
   [docs/PROTOPIRATE-SUPPORTED.md](docs/PROTOPIRATE-SUPPORTED.md).
 - **Playlists** — line up several `.sub` files and send them in order with one tap.
 - **Download library** — pull signals straight from the Flipper Sub-GHz DB and UberGuidoZ's
