@@ -943,13 +943,14 @@ bool ProtoPirateModule::forwardSelfTest(char* msg, size_t msgLen) {
     }
 
     char ford[52] = "Ford SKIP";
-    // ---- Ford V0 (unencrypted; verify the forward obfuscation+CRC at the
-    // data level — Ford's Manchester TX encoder has a separate pre-existing
-    // preamble bug, so this checks the forward math, not the RF framing). ----
+    // ---- Ford V0: verify the forward obfuscation+CRC at the data level
+    // against the corrected (upstream-matching) decode format. The RF framing
+    // (encoder/feed) is a faithful upstream port but its full roundtrip still
+    // needs a real Ford signal to confirm, so this checks the forward math. ----
     {
         PPProtocol* proto = findProtocolByName(PPFordV0::PROTOCOL_NAME);
         if (proto && proto->supportsForward()) {
-            uint64_t key1 = 0x0123456789ABCDEULL;  // 63-bit key1
+            uint64_t key1 = 0x0123456789ABCDEULL;
             uint16_t key2 = 0x55AA;
             uint32_t ser0 = 0, cnt0 = 0; uint8_t btn0 = 0; bool crc0 = false;
             PPFordV0::decodeFields(key1, key2, ser0, btn0, cnt0, crc0);

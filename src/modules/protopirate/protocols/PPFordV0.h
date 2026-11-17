@@ -26,152 +26,108 @@ public:
         resetDecoder();
         key1_ = 0;
         key2_ = 0;
-        key1Bits_ = 0;
-        key2Bits_ = 0;
-        prevBit_ = 0;
-        phase_ = 0;
-        burstCount_ = 0;
-        collectingKey2_ = false;
+        dataLow_ = 0;
+        dataHigh_ = 0;
+        bitCount_ = 0;
+        manchState_ = MS_Mid1;
     }
 
+    // Faithful port of subghz_protocol_decoder_ford_v0_feed (standard Flipper
+    // Manchester). Our previous feed was a divergent, broken port (it never
+    // round-tripped the real encoder, so Ford decode was effectively broken).
     bool feed(bool level, uint32_t duration) override {
-        auto& t = getTiming();
+        const uint32_t te_short = 250, te_long = 500, te_delta = 100, gap = 3500;
 
         switch (parserStep_) {
         case StepReset:
-            if (!level) return false;
-            if (DURATION_DIFF(duration, t.te_long * 2) > t.te_delta * 2) return false;
-            parserStep_ = StepCheckPreamble;
-            headerCount_ = 1;
-            key1_ = 0; key2_ = 0;
-            key1Bits_ = 0; key2Bits_ = 0;
-            collectingKey2_ = false;
+            if (level && DURATION_DIFF(duration, te_short) < te_delta) {
+                dataLow_ = 0; dataHigh_ = 0; bitCount_ = 0; headerCount_ = 0;
+                teLast_ = duration;
+                manchState_ = MS_Mid1;
+                parserStep_ = StepPreamble;
+            }
             break;
 
-        case StepCheckPreamble:
-            if (DURATION_DIFF(duration, t.te_long * 2) <= t.te_delta * 2) {
-                headerCount_++;
-                if (headerCount_ >= 4) {
-                    parserStep_ = StepWaitSync;
-                }
-            } else {
+        case StepPreamble:
+            if (!level) {
+                if (DURATION_DIFF(duration, te_long) < te_delta) {
+                    teLast_ = duration; parserStep_ = StepPreambleCheck;
+                } else parserStep_ = StepReset;
+            }
+            break;
+
+        case StepPreambleCheck:
+            if (level) {
+                if (DURATION_DIFF(duration, te_long) < te_delta) {
+                    headerCount_++; teLast_ = duration; parserStep_ = StepPreamble;
+                } else if (DURATION_DIFF(duration, te_short) < te_delta) {
+                    parserStep_ = StepGap;
+                } else parserStep_ = StepReset;
+            }
+            break;
+
+        case StepGap:
+            if (!level && DURATION_DIFF(duration, gap) < 250) {
+                dataLow_ = 1; dataHigh_ = 0; bitCount_ = 1;
+                parserStep_ = StepData;
+            } else if (!level && duration > gap + 250) {
                 parserStep_ = StepReset;
             }
             break;
 
-        case StepWaitSync:
-            if (!level && duration > 3000 && duration < 4000) {
-                // 3500µs gap = sync
-                parserStep_ = StepDecodeKey1;
-                key1Bits_ = 0;
-                key1_ = 0;
-                prevBit_ = 0;
-                phase_ = 0;
-            } else {
-                parserStep_ = StepReset;
+        case StepData: {
+            int ev = manchEvent(duration, level, te_short, te_long, te_delta);
+            if (ev == ME_Reset) { parserStep_ = StepReset; break; }
+            bool bit;
+            if (manchAdvance(ev, bit)) {
+                addBit(bit);
+                if (processData()) { parserStep_ = StepReset; return true; }
             }
-            break;
-
-        case StepDecodeKey1: {
-            bool isShort = DURATION_DIFF(duration, t.te_short) <= t.te_delta;
-            bool isLong  = DURATION_DIFF(duration, t.te_long) <= t.te_delta;
-
-            if (isLong) {
-                prevBit_ = 1 - prevBit_;
-                key1_ = (key1_ << 1) | prevBit_;
-                key1Bits_++;
-            } else if (isShort) {
-                if (phase_ == 0) {
-                    phase_ = 1;
-                } else {
-                    key1_ = (key1_ << 1) | prevBit_;
-                    key1Bits_++;
-                    phase_ = 0;
-                }
-            } else {
-                if (key1Bits_ >= 63) {
-                    parserStep_ = StepDecodeKey2;
-                    key2Bits_ = 0;
-                    key2_ = 0;
-                    phase_ = 0;
-                } else {
-                    parserStep_ = StepReset;
-                }
-                return false;
-            }
-
-            if (key1Bits_ >= 63) {
-                parserStep_ = StepDecodeKey2;
-                key2Bits_ = 0;
-                key2_ = 0;
-            }
-            break;
-        }
-
-        case StepDecodeKey2: {
-            bool isShort = DURATION_DIFF(duration, t.te_short) <= t.te_delta;
-            bool isLong  = DURATION_DIFF(duration, t.te_long) <= t.te_delta;
-
-            if (isLong) {
-                prevBit_ = 1 - prevBit_;
-                key2_ = (key2_ << 1) | prevBit_;
-                key2Bits_++;
-            } else if (isShort) {
-                if (phase_ == 0) {
-                    phase_ = 1;
-                } else {
-                    key2_ = (key2_ << 1) | prevBit_;
-                    key2Bits_++;
-                    phase_ = 0;
-                }
-            } else {
-                if (key2Bits_ >= 16) {
-                    return decodeFord();
-                }
-                parserStep_ = StepReset;
-                return false;
-            }
-
-            if (key2Bits_ >= 16) {
-                return decodeFord();
-            }
+            teLast_ = duration;
             break;
         }
         }
         return false;
     }
 
+    // Faithful port of the upstream ProtoPirate ford_v0 encoder
+    // (subghz_protocol_encoder_ford_v0_get_upload): the key is transmitted
+    // INVERTED (~key1/~key2), after a lead-in + 4 preamble pairs + a sync gap,
+    // in a specific differential-Manchester convention. One burst is emitted;
+    // emulate() repeats it.
     std::vector<PPPulse> generatePulseData(const PPDecodeResult& r) override {
-        std::vector<PPPulse> pulses;
-        auto& t = getTiming();
+        std::vector<PPPulse> p;
+        auto& t = getTiming();                 // te_short=250, te_long=500
+        const int32_t S = (int32_t)t.te_short;
+        const int32_t L = (int32_t)t.te_long;
 
-        // 4 preamble long-pulse pairs
-        for (int i = 0; i < 4; i++) {
-            pulses.push_back({(int32_t)(t.te_long * 2)});
-            pulses.push_back({-(int32_t)(t.te_long * 2)});
-        }
+        uint64_t txk1 = ~r.data;               // transmit the inverse
+        uint16_t txk2 = (uint16_t)(~(uint16_t)r.data2);
 
-        // Short + gap
-        pulses.push_back({(int32_t)t.te_short});
-        pulses.push_back({-3500});
-
-        // Encode key1 (63 bits) + key2 (16 bits) differential Manchester
-        uint8_t prev = 0;
-        auto encodeBit = [&](uint8_t bit) {
-            if (bit != prev) {
-                pulses.push_back({bit ? (int32_t)t.te_long : -(int32_t)t.te_long});
-            } else {
-                pulses.push_back({prev ? (int32_t)t.te_short : -(int32_t)t.te_short});
-                pulses.push_back({prev ? (int32_t)t.te_short : -(int32_t)t.te_short});
-            }
-            prev = bit;
+        bool prev = false;
+        auto emit = [&](bool curr) {
+            if (!prev && !curr)     { p.push_back({ S}); p.push_back({-S}); }
+            else if (!prev && curr) { p.push_back({ L}); }
+            else if (prev && !curr) { p.push_back({-L}); }
+            else                    { p.push_back({-S}); p.push_back({ S}); }
+            prev = curr;
         };
 
-        for (int i = 62; i >= 0; i--) encodeBit((r.data >> i) & 1);
-        for (int i = 15; i >= 0; i--) encodeBit((r.data2 >> i) & 1);
+        // Lead-in + 4 preamble pairs + sync gap
+        p.push_back({ S}); p.push_back({-L});
+        for (int i = 0; i < 4; i++) { p.push_back({ L}); p.push_back({-L}); }
+        p.push_back({ S}); p.push_back({-3500});
 
-        pulses.push_back({-4000});
-        return pulses;
+        // First key1 bit (62) has a special lead-in
+        bool first = (txk1 >> 62) & 1;
+        if (first) { p.push_back({ L}); }
+        else       { p.push_back({ S}); p.push_back({-L}); }
+        prev = first;
+        for (int bit = 61; bit >= 0; --bit) emit((txk1 >> bit) & 1);
+        for (int bit = 15; bit >= 0; --bit) emit((txk2 >> bit) & 1);
+
+        p.push_back({-4000});
+        return p;
     }
 
     // ---- Forward-code generation (authorized testing) ----
@@ -204,10 +160,10 @@ public:
         buf[7] = (ob7 & 0xAA) | (buf[6] & 0x55);
         buf[6] = (buf[6] & 0xAA) | (ob7 & 0x55);
 
-        // Advance the 20-bit counter, keep the button nibble.
-        uint8_t button = (buf[5] >> 4) & 0x0F;
-        uint32_t newCnt = (in.counter + (uint32_t)delta) & 0xFFFFF;
-        buf[5] = (uint8_t)((button << 4) | ((newCnt >> 16) & 0x0F));
+        // Advance the 19-bit counter, keep the button field (buf[5] bits 6..3).
+        uint8_t button = (buf[5] >> 3) & 0x0F;
+        uint32_t newCnt = (in.counter + (uint32_t)delta) & 0x7FFFF;
+        buf[5] = (uint8_t)(((button & 0x0F) << 3) | ((newCnt >> 16) & 0x07));
         buf[6] = (uint8_t)((newCnt >> 8) & 0xFF);
         buf[7] = (uint8_t)(newCnt & 0xFF);
 
@@ -240,20 +196,74 @@ public:
 private:
     uint64_t key1_ = 0;
     uint16_t key2_ = 0;
-    uint16_t key1Bits_ = 0;
-    uint16_t key2Bits_ = 0;
-    uint8_t prevBit_ = 0;
-    uint8_t phase_ = 0;
-    uint8_t burstCount_ = 0;
-    bool collectingKey2_ = false;
+    uint32_t dataLow_ = 0;
+    uint32_t dataHigh_ = 0;
+    uint16_t bitCount_ = 0;
 
-    enum {
-        StepReset = 0,
-        StepCheckPreamble,
-        StepWaitSync,
-        StepDecodeKey1,
-        StepDecodeKey2,
-    };
+    enum { StepReset = 0, StepPreamble, StepPreambleCheck, StepGap, StepData };
+
+    // Standard Flipper Manchester decoder (lib/toolbox/manchester_decoder).
+    enum { ME_ShortLow = 0, ME_ShortHigh = 2, ME_LongLow = 4,
+           ME_LongHigh = 6, ME_Reset = 8 };
+    enum { MS_Start1 = 0, MS_Mid1 = 1, MS_Mid0 = 2, MS_Start0 = 3 };
+    uint8_t manchState_ = MS_Mid1;
+
+    static int manchEvent(uint32_t dur, bool level, uint32_t te_short,
+                          uint32_t te_long, uint32_t te_delta) {
+        // Matches upstream pp_manchester_event (protocols_common.h).
+        if (DURATION_DIFF(dur, te_short) < te_delta)
+            return level ? ME_ShortLow : ME_ShortHigh;
+        if (DURATION_DIFF(dur, te_long) < te_delta)
+            return level ? ME_LongLow : ME_LongHigh;
+        return ME_Reset;
+    }
+
+    bool manchAdvance(int event, bool& bit) {
+        static const uint8_t transitions[4] = {0x01, 0x91, 0x9B, 0xFB};
+        if (event == ME_Reset) { manchState_ = MS_Mid1; return false; }
+        uint8_t ns = (uint8_t)((transitions[manchState_] >> event) & 0x3);
+        if (ns == manchState_) { manchState_ = MS_Mid1; return false; }
+        bool result = false;
+        if (ns == MS_Mid0) { bit = false; result = true; }
+        else if (ns == MS_Mid1) { bit = true; result = true; }
+        manchState_ = ns;
+        return result;
+    }
+
+    void addBit(bool bit) {
+        uint32_t low = dataLow_;
+        dataLow_ = (dataLow_ << 1) | (bit ? 1u : 0u);
+        dataHigh_ = (dataHigh_ << 1) | ((low >> 31) & 1u);
+        bitCount_++;
+    }
+
+    // Returns true when a full 80-bit frame is decoded (key1=~, key2=~).
+    bool processData() {
+        if (bitCount_ == 64) {
+            uint64_t combined = ((uint64_t)dataHigh_ << 32) | dataLow_;
+            key1_ = ~combined;
+            dataLow_ = 0; dataHigh_ = 0;
+            return false;
+        }
+        if (bitCount_ == 80) {
+            key2_ = (uint16_t)(~(uint16_t)(dataLow_ & 0xFFFF));
+            uint32_t serial, counter; uint8_t button; bool crcValid;
+            decodeFields(key1_, key2_, serial, button, counter, crcValid);
+            result_.data = key1_;
+            result_.data2 = key2_;
+            result_.dataBits = 64;
+            result_.protocolName = PROTOCOL_NAME;
+            result_.serial = serial;
+            result_.button = button;
+            result_.counter = counter;
+            result_.crc = (uint8_t)(key2_ & 0xFF);
+            result_.crcValid = crcValid;
+            result_.canEmulate = true;
+            result_.encrypted = false;
+            return true;
+        }
+        return false;
+    }
 
     /// GF(2) CRC matrix (64 bytes, exact values from original ford_v0.c)
     static constexpr uint8_t CRC_MATRIX[64] = {
@@ -330,8 +340,8 @@ public:
                        ((uint32_t)buf[3] << 16) | ((uint32_t)buf[4] << 24);
         serial = ((sle & 0xFF) << 24) | (((sle >> 8) & 0xFF) << 16) |
                  (((sle >> 16) & 0xFF) << 8) | ((sle >> 24) & 0xFF);
-        button = (buf[5] >> 4) & 0x0F;
-        counter = ((uint32_t)(buf[5] & 0x0F) << 16) |
+        button = (buf[5] >> 3) & 0x0F;
+        counter = ((uint32_t)(buf[5] & 0x07) << 16) |
                   ((uint32_t)buf[6] << 8) | buf[7];
         crcValid = verifyCrc(key1, key2);
         return true;
@@ -396,11 +406,11 @@ private:
                           (((serial_le >> 16) & 0xFF) << 8) |
                           ((serial_le >> 24) & 0xFF);
 
-        // Button: high nibble of buf[5]
-        uint8_t button = (buf[5] >> 4) & 0x0F;
+        // Button: buf[5] bits 6..3 (matches upstream decode_ford_v0)
+        uint8_t button = (buf[5] >> 3) & 0x0F;
 
-        // Counter: 20-bit from buf[5..7]
-        uint32_t counter = ((uint32_t)(buf[5] & 0x0F) << 16) |
+        // Counter: 19-bit from buf[5] bits 2..0 + buf[6..7]
+        uint32_t counter = ((uint32_t)(buf[5] & 0x07) << 16) |
                            ((uint32_t)buf[6] << 8) |
                            buf[7];
 
