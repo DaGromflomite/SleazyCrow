@@ -223,6 +223,31 @@ void taskProcessor(void* pvParameters)
                             memcpy(buffer + sizeof(BinarySignalSendError), task.filename->c_str(), msg.filenameLength);
                             clients.notifyAllBinary(NotificationType::SignalSendingError, buffer, sizeof(BinarySignalSendError) + msg.filenameLength);
                         }
+                    } else if (task.transmissionType == Device::TransmissionType::Binary && task.data) {
+                        // Binary (raw OOK bit-pattern) transmission
+                        int repeat = task.repeat ? *task.repeat : 1;
+                        float frequency = task.config.frequency ? *task.config.frequency : 433.92f;
+                        bool ok = CC1101Worker::transmitBinary(
+                            frequency, task.pulseDuration, *task.data, task.module,
+                            MODULATION_ASK_OOK, 2.380371f, repeat, 10);
+                        ESP_LOGI(TAG, "Binary TX freq=%.3f pulse=%dus bits=%zu repeat=%d -> %d",
+                                 frequency, task.pulseDuration, task.data->length(), repeat, ok);
+                        if (ok) {
+                            BinarySignalSent msg;
+                            msg.module = task.module;
+                            msg.filenameLength = 0;
+                            static uint8_t buffer[sizeof(BinarySignalSent)];
+                            memcpy(buffer, &msg, sizeof(BinarySignalSent));
+                            clients.notifyAllBinary(NotificationType::SignalSent, buffer, sizeof(BinarySignalSent));
+                        } else {
+                            BinarySignalSendError msg;
+                            msg.module = task.module;
+                            msg.errorCode = 1;
+                            msg.filenameLength = 0;
+                            static uint8_t buffer[sizeof(BinarySignalSendError)];
+                            memcpy(buffer, &msg, sizeof(BinarySignalSendError));
+                            clients.notifyAllBinary(NotificationType::SignalSendingError, buffer, sizeof(BinarySignalSendError));
+                        }
                     } else {
                         // Raw transmission
                         ESP_LOGI(TAG, "Raw transmission not implemented yet");

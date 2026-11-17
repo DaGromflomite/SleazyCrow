@@ -999,14 +999,38 @@ std::vector<int> CC1101Worker::getCountOfOnOffBits(const std::string &bits)
 
 bool CC1101Worker::transmitBinary(float frequency, int pulseDuration, const std::string &bits, int module, int modulation, float deviation, int repeatCount, int wait)
 {
-    moduleCC1101State[module].backupConfig().setTransmitConfig(frequency, modulation, deviation).init();
-    std::vector<int> countOfOnOffBits = getCountOfOnOffBits(bits);
+    if (bits.empty() || pulseDuration <= 0) {
+        return false;
+    }
+
+    // Build a signed pulse list from the bit pattern: a run of '1' chars = carrier
+    // ON for (runLen * pulseDuration) us; a run of '0' chars = OFF for the same.
+    // transmitRawData() takes +duration = pin HIGH, -duration = pin LOW.
+    std::vector<int> pulses;
+    size_t i = 0;
+    while (i < bits.size()) {
+        char c = bits[i];
+        size_t run = 1;
+        while (i + run < bits.size() && bits[i + run] == c) run++;
+        int dur = (int)(run * (size_t)pulseDuration);
+        pulses.push_back((c == '0') ? -dur : dur);
+        i += run;
+    }
+
+    // Enter async OOK TX mode via the PROVEN preset path (same as transmitSub).
+    // The old implementation used setTransmitConfig().init(), which never put the
+    // radio into TX mode, so the pin toggled into a dead radio and nothing radiated.
+    moduleCC1101State[module].backupConfig();
+    const uint8_t* presetBytes = getPresetByteArray("Ook650");
+    if (presetBytes != nullptr) {
+        moduleCC1101State[module].setTxWithPreset(frequency, presetBytes, 44);
+    } else {
+        moduleCC1101State[module].setTx(frequency);
+    }
+    delay(10);
 
     for (int r = 0; r < repeatCount; r++) {
-        for (int i = 0; i < countOfOnOffBits.size(); i++) {
-            digitalWrite(moduleCC1101State[module].getOutputPin(), i % 2 == 0 ? HIGH : LOW);
-            delayMicroseconds(countOfOnOffBits[i] * pulseDuration);
-        }
+        transmitRawData(pulses, module);
         delay(wait);
     }
 

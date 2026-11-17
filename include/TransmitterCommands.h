@@ -112,9 +112,48 @@ private:
     }
     
     // Binary data transmission
+    // Payload: [frequency:4 float LE (MHz)][pulseDuration:1 (us/unit)][bits:variable ASCII]
     static bool handleTransmitBinary(const uint8_t* data, size_t len) {
-        // TODO: Implement binary transmission
-        return true;
+        if (len < 6) {
+            uint8_t errBuffer[2] = {MSG_SIGNAL_SEND_ERROR, 1}; // 1=insufficient data
+            ClientsManager::getInstance().notifyAllBinary(NotificationType::SignalSendingError, errBuffer, 2);
+            return false;
+        }
+
+        float frequency;
+        memcpy(&frequency, data, 4);
+        uint8_t pulseDuration = data[4];
+        std::string bits(reinterpret_cast<const char*>(data + 5), len - 5);
+
+        // Basic sanity: a bit pattern must contain at least one transition-worth of data
+        if (pulseDuration == 0 || bits.empty()) {
+            uint8_t errBuffer[2] = {MSG_SIGNAL_SEND_ERROR, 6}; // 6=invalid params
+            ClientsManager::getInstance().notifyAllBinary(NotificationType::SignalSendingError, errBuffer, 2);
+            return false;
+        }
+
+        // Find an idle module to transmit on.
+        int module = CC1101Worker::findFirstIdleModule();
+        if (module < 0) {
+            uint8_t errBuffer[2] = {MSG_SIGNAL_SEND_ERROR, 4}; // 4=no idle module
+            ClientsManager::getInstance().notifyAllBinary(NotificationType::SignalSendingError, errBuffer, 2);
+            return false;
+        }
+
+        Device::TaskTransmissionBuilder builder(Device::TransmissionType::Binary);
+        builder.setModule(module);
+        builder.setData(bits);
+        builder.setFrequency(frequency);
+        builder.setPulseDuration((int)pulseDuration);
+        builder.setRepeat(3);
+        Device::TaskTransmission task = builder.build();
+
+        bool sent = ControllerAdapter::sendTask(std::move(task));
+        if (!sent) {
+            uint8_t errBuffer[2] = {MSG_SIGNAL_SEND_ERROR, 3}; // 3=failed to post task
+            ClientsManager::getInstance().notifyAllBinary(NotificationType::SignalSendingError, errBuffer, 2);
+        }
+        return sent;
     }
     
     // Start jamming
