@@ -4,9 +4,11 @@
 
 **Sleazy Crow** is a community fork of [Senape3000's EvilCrowRF-V2](https://github.com/Senape3000/EvilCrowRF-V2)
 firmware and Android app for the [Evil Crow RF V2](https://github.com/joelsernamoreno/EvilCrowRF-V2) hardware.
-It keeps everything the original does and focuses on stability and reliability fixes.
+It keeps everything the original does, fixes a lot of reliability problems, and adds
+some new tools on top.
 
-> ⚠ **Beta, meant for testing.** If it doesn't work on your Evil Crow, go back to
+> ⚠ **Unstable test build (v2.1.0-unstable).** This channel moves fast and some
+> features are still being tested. If it doesn't work on your Evil Crow, go back to
 > [Senape3000's official firmware](https://senape3000.github.io/EvilCrowRF-V2/web-flasher/) and please
 > [report what happened](https://github.com/DaGromflomite/SleazyCrow/issues/new).
 
@@ -19,6 +21,25 @@ It keeps everything the original does and focuses on stability and reliability f
 ## What's different from the original
 
 See [`changelog.json`](changelog.json) for the full list. Highlights:
+
+**New in this build (v2.1.0-unstable):**
+
+- **"Is a car following me?" detector.** The Crow listens for the tyre-pressure
+  sensors on cars around you and flags one that keeps showing up. It now reads 9
+  sensor types, covering most common US makes (Ford, Toyota/Subaru, Hyundai/Kia,
+  GM/Chevy, Honda, Nissan/Infiniti, Jeep/Dodge/RAM, plus Schrader and TRW). Each
+  one was tested on the bench with real radio signals.
+- **Car key-fob reader now supports Chrysler, Dodge, Jeep, and RAM.** Built and
+  checked against a real 2019 RAM fob.
+- **Fixed a serious bug:** the 2.4 GHz jammer could get stuck on and freeze both
+  radios (including the car detector) until you unplugged the Crow. It stops
+  cleanly now.
+- **"Transmit Binary" works.** You can send a raw on/off pattern on a frequency you
+  pick. The button used to do nothing.
+- If the key-fob reader hears a signal it can't identify, it now saves it and shows
+  "Unknown" instead of quietly dropping it, so you know it heard something.
+
+**Earlier fixes (still here):**
 
 - Bluetooth no longer drops ~12 s after connecting on Android.
 - No boot crash on newer Arduino cores; toolchain pinned so every build is identical.

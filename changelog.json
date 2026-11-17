@@ -1,6 +1,49 @@
 {
   "firmware": [
     {
+      "version": "2.1.0",
+      "date": "2026-11-16",
+      "tag": "v2.1.0-unstable",
+      "changes": [
+        {
+          "type": "feature",
+          "text": "[UNSTABLE] The 'is a car following me?' TPMS detector now reads 9 tyre-sensor types, covering most common US makes: Ford, Toyota/Subaru, Hyundai/Kia, GM/Chevy, Honda, Nissan/Infiniti, Jeep/Dodge/RAM, plus Schrader and TRW. Each one was tested on the bench with real radio signals."
+        },
+        {
+          "type": "fix",
+          "text": "TPMS no longer shows fake 'phantom' sensors. A weak-checksum bug let bad bit alignments pass as real cars; the decoder now locks onto the start of the signal, so it only reports sensors that are really there."
+        },
+        {
+          "type": "fix",
+          "text": "IMPORTANT: the 2.4 GHz jammer could get stuck ON and freeze both radios (including TPMS) until you unplugged the Crow. It now stops cleanly every time."
+        },
+        {
+          "type": "feature",
+          "text": "ProtoPirate now decodes Chrysler / Dodge / Jeep / RAM key fobs. Built and checked against a real 2019 RAM fob."
+        },
+        {
+          "type": "feature",
+          "text": "Transmit Binary works now (send a raw on/off pattern on a frequency you pick). It used to do nothing."
+        },
+        {
+          "type": "improvement",
+          "text": "ProtoPirate: a signal it captures but can't identify is now saved and shown as 'Unknown' instead of silently vanishing, so you can tell it actually heard something."
+        },
+        {
+          "type": "fix",
+          "text": "ProtoPirate 'Load .sub' was throwing away half of every signal; fixed so loaded files feed the decoders correctly."
+        },
+        {
+          "type": "fix",
+          "text": "Flashing the firmware is reliable now (a steady upload speed instead of one that sometimes failed partway)."
+        },
+        {
+          "type": "improvement",
+          "text": "App: the TPMS sensor list now has a scroll bar, and new sensor types show their make name."
+        }
+      ]
+    },
+    {
       "version": "2.0.0",
       "date": "2026-11-13",
       "tag": "v2.0.0-unstable",
