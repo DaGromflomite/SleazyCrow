@@ -174,6 +174,69 @@ public:
         return pulses;
     }
 
+    // ---- Forward-code generation (authorized testing) ----
+    // Ford V0 is unencrypted: a reversible obfuscation (XOR + a symmetric
+    // byte-swap) over a 20-bit counter, with a GF(2) CRC. The counter is
+    // advanced in the deobfuscated frame, then the obfuscation and CRC are
+    // re-applied (both steps are their own inverse).
+    bool supportsForward() const override { return true; }
+    bool generateForward(const PPDecodeResult& in, int32_t delta,
+                         PPDecodeResult& out) override {
+        uint64_t key1 = in.data;
+        uint16_t key2 = (uint16_t)in.data2;
+
+        uint8_t buf[13] = {0};
+        for (int i = 0; i < 8; ++i) buf[i] = (uint8_t)(key1 >> (56 - i * 8));
+        buf[8] = (uint8_t)(key2 >> 8);
+
+        // buf[11] = parity of the BS byte (buf[8], unchanged by forwarding)
+        uint8_t tmp = buf[8], parity = 0, parity_any = (buf[8] != 0);
+        while (tmp) { parity ^= (tmp & 1); tmp >>= 1; }
+        buf[11] = parity_any ? parity : 0;
+
+        // Deobfuscate exactly as decodeFord → buf[5..7] hold button+counter.
+        uint8_t xor_byte; int limit;
+        if (buf[11]) { xor_byte = buf[7]; limit = 7; }
+        else         { xor_byte = buf[6]; limit = 6; }
+        for (int idx = 1; idx < limit; ++idx) buf[idx] ^= xor_byte;
+        if (buf[11] == 0) buf[7] ^= xor_byte;
+        uint8_t ob7 = buf[7];
+        buf[7] = (ob7 & 0xAA) | (buf[6] & 0x55);
+        buf[6] = (buf[6] & 0xAA) | (ob7 & 0x55);
+
+        // Advance the 20-bit counter, keep the button nibble.
+        uint8_t button = (buf[5] >> 4) & 0x0F;
+        uint32_t newCnt = (in.counter + (uint32_t)delta) & 0xFFFFF;
+        buf[5] = (uint8_t)((button << 4) | ((newCnt >> 16) & 0x0F));
+        buf[6] = (uint8_t)((newCnt >> 8) & 0xFF);
+        buf[7] = (uint8_t)(newCnt & 0xFF);
+
+        // Re-obfuscate: undo the swap (symmetric), then re-apply the XOR.
+        uint8_t d6 = buf[6], d7 = buf[7];
+        buf[7] = (d7 & 0xAA) | (d6 & 0x55);
+        buf[6] = (d6 & 0xAA) | (d7 & 0x55);
+        uint8_t xb;
+        if (buf[11]) { xb = buf[7]; for (int i = 1; i < 7; ++i) buf[i] ^= xb; }
+        else { xb = buf[6]; for (int i = 1; i < 6; ++i) buf[i] ^= xb; buf[7] ^= xb; }
+
+        uint64_t newKey1 = 0;
+        for (int i = 0; i < 8; ++i) newKey1 |= (uint64_t)buf[i] << (56 - i * 8);
+
+        // Recompute CRC (received byte = computed ^ 0x80), BS byte unchanged.
+        uint8_t cbuf[16] = {0};
+        for (int i = 0; i < 8; ++i) cbuf[i] = (uint8_t)(newKey1 >> (56 - i * 8));
+        cbuf[8] = (uint8_t)(key2 >> 8);
+        uint8_t crc = (uint8_t)(computeCrc(cbuf) ^ 0x80);
+        uint16_t newKey2 = (uint16_t)(((key2 >> 8) << 8) | crc);
+
+        out = in;
+        out.data = newKey1;
+        out.data2 = newKey2;
+        out.counter = newCnt;
+        out.canEmulate = true;
+        return true;
+    }
+
 private:
     uint64_t key1_ = 0;
     uint16_t key2_ = 0;
@@ -239,6 +302,42 @@ private:
         return (calculated == received);
     }
 
+public:
+    /// Decode Ford fields directly from key1/key2 (data-level, no RF). Used by
+    /// decodeFord() and by the forward-code self-test to verify the obfuscation
+    /// and CRC math without the Manchester encoder.
+    static bool decodeFields(uint64_t key1, uint16_t key2, uint32_t& serial,
+                             uint8_t& button, uint32_t& counter, bool& crcValid) {
+        uint8_t buf[13] = {0};
+        for (int i = 0; i < 8; ++i) buf[i] = (uint8_t)(key1 >> (56 - i * 8));
+        buf[8] = (uint8_t)(key2 >> 8);
+        buf[9] = (uint8_t)(key2 & 0xFF);
+
+        uint8_t tmp = buf[8], parity = 0, parity_any = (buf[8] != 0);
+        while (tmp) { parity ^= (tmp & 1); tmp >>= 1; }
+        buf[11] = parity_any ? parity : 0;
+
+        uint8_t xor_byte; int limit;
+        if (buf[11]) { xor_byte = buf[7]; limit = 7; }
+        else         { xor_byte = buf[6]; limit = 6; }
+        for (int idx = 1; idx < limit; ++idx) buf[idx] ^= xor_byte;
+        if (buf[11] == 0) buf[7] ^= xor_byte;
+        uint8_t ob7 = buf[7];
+        buf[7] = (ob7 & 0xAA) | (buf[6] & 0x55);
+        buf[6] = (buf[6] & 0xAA) | (ob7 & 0x55);
+
+        uint32_t sle = ((uint32_t)buf[1]) | ((uint32_t)buf[2] << 8) |
+                       ((uint32_t)buf[3] << 16) | ((uint32_t)buf[4] << 24);
+        serial = ((sle & 0xFF) << 24) | (((sle >> 8) & 0xFF) << 16) |
+                 (((sle >> 16) & 0xFF) << 8) | ((sle >> 24) & 0xFF);
+        button = (buf[5] >> 4) & 0x0F;
+        counter = ((uint32_t)(buf[5] & 0x0F) << 16) |
+                  ((uint32_t)buf[6] << 8) | buf[7];
+        crcValid = verifyCrc(key1, key2);
+        return true;
+    }
+
+private:
     /// Decode Ford V0 (exact port of decode_ford_v0)
     bool decodeFord() {
         uint8_t buf[13] = {0};

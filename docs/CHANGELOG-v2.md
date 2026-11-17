@@ -26,6 +26,9 @@ vehicles/fobs the operator owns or is permitted to test.
   - **StarLine** (KeeLoq): decrypt hop with the device key → advance the counter
     field → re-encrypt. Verified.
   - **Fiat V0** (cleartext counter): bump the counter in the frame. Verified.
+  - **KIA V3/V4** (KeeLoq): rewired off its hardcoded key onto the shared
+    keystore; added the missing TX encoder; decrypt → advance counter → re-encrypt.
+    Verified (crypto + the new encoder round-trips our own decoder).
 - **Module + BLE commands** `0x0C`–`0x11`: emulate-forward, add/clear/reload/count
   keystore keys, and an on-device self-test.
 - **On-device self-test** (`0x11`): builds a synthetic frame with a known key,
@@ -37,11 +40,16 @@ vehicles/fobs the operator owns or is permitted to test.
 - **Verification:** KeeLoq cipher proven a true inverse over 100,000 random pairs
   and the StarLine encode→decode→forward→decode pipeline over 20,000 cases
   (host Python model), then confirmed on real hardware via the self-test.
-- **Honest status:** Ford V0, VAG, and KIA V3/V4 decode but do **not** yet
-  generate forward codes — each needs a validated per-make encoder (and a real
-  fob of that make to confirm) before its forward path is trusted. The hook is in
-  place to add them "as they become available." Subaru/PSA/KIA V5-V6 are
-  decode-only. See the table in the forward-codes guide.
+- **Ford V0:** the forward **math** is implemented and self-tested (advance the
+  20-bit counter, re-apply the reversible XOR + byte-swap + GF(2) CRC; it decodes
+  back to counter+1 with a valid CRC). But Ford's Manchester TX encoder has a
+  **pre-existing preamble bug** (it disagrees with its own decoder), so Ford
+  forward can't transmit a valid frame until that's fixed against a real Ford
+  capture. Not guessed.
+- **VAG** has no encoder in our port (stubbed "behind a feature flag") and its
+  AUT64 keys are never loaded, so forward needs the upstream VAG encoder ported
+  and a real fob to validate — held rather than guessed.
+- Subaru/PSA/KIA V5-V6 are decode-only. See the table in the forward-codes guide.
 
 ---
 
