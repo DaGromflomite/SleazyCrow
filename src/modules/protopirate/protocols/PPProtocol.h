@@ -88,6 +88,33 @@ public:
         return {};  // Default: no TX support
     }
 
+    // ------------------------------------------------------------------
+    // FORWARD-CODE GENERATION (authorized security testing only)
+    //
+    // Produce the NEXT valid rolling code by advancing the counter and
+    // re-running the protocol's cipher with a loaded manufacturer/device
+    // key. Only protocols whose algorithm is verified AND whose key is
+    // present in the keystore return true. Default: unsupported.
+    //
+    // Intended for authorized penetration testing and research against
+    // vehicles/fobs the operator owns or is explicitly permitted to test.
+    // ------------------------------------------------------------------
+
+    /// True if this protocol can synthesize a forward (next) rolling code.
+    virtual bool supportsForward() const { return false; }
+
+    /// Advance the rolling counter by `counterDelta` and re-encrypt.
+    /// @param in          A previously decoded result (with recovered key)
+    /// @param counterDelta How many steps to advance the counter (>=1)
+    /// @param out         Filled with the re-encoded forward frame
+    /// @return true if a valid forward code was generated
+    virtual bool generateForward(const PPDecodeResult& in,
+                                 int32_t counterDelta,
+                                 PPDecodeResult& out) {
+        (void)in; (void)counterDelta; (void)out;
+        return false;  // Default: no forward-code support
+    }
+
     /// Get hash of current decoded data (for dedup)
     uint8_t getHash() const {
         return pp_hash_data(result_.data, result_.dataBits);
