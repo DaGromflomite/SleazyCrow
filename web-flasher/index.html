@@ -142,6 +142,15 @@
   </section>
 
   <section>
+    <h2>Request a feature</h2>
+    <p>Got an idea for Sleazy Crow (firmware or app)? Tell us what you want and why. The button opens a pre-filled GitHub issue.</p>
+    <div class="actions">
+      <a class="btn" id="feature" href="https://github.com/DaGromflomite/SleazyCrow/issues/new" target="_blank" rel="noopener">Request a feature</a>
+    </div>
+    <p class="muted">See what's already requested on the <a href="https://github.com/DaGromflomite/SleazyCrow/issues?q=is%3Aissue+%5Bfeature%5D" target="_blank" rel="noopener">issues page</a> first, and add a 👍 there if your idea is already listed.</p>
+  </section>
+
+  <section>
     <h2>Go back to the official firmware</h2>
     <p>Any time, open <a href="https://senape3000.github.io/EvilCrowRF-V2/web-flasher/">Senape3000's official EvilCrow RF V2 web flasher</a>, connect, and choose erase. An ESP32 can always be reflashed over USB.</p>
   </section>
@@ -198,6 +207,29 @@ esptool --chip esp32 --baud 921600 write-flash 0x1000 bootloader.bin 0x8000 part
     document.getElementById("report").href = "https://github.com/DaGromflomite/SleazyCrow/issues/new"
       + "?title=" + encodeURIComponent("[test {{VERSION}}] ")
       + "&body=" + encodeURIComponent(body);
+
+    // Pre-fill a feature-request issue.
+    var featureBody = [
+      "**What feature would you like?**",
+      "",
+      "**Why / what would you use it for?**",
+      "",
+      "**Which part:**",
+      "- [ ] Crow firmware (Sub-GHz / nRF24 / TPMS / SD)",
+      "- [ ] Phone app",
+      "- [ ] Detection suite (BLE / WiFi / trackers / surveillance)",
+      "- [ ] Web flasher / docs",
+      "",
+      "**Your Crow** (board / chip revision, if relevant):",
+      "**Sleazy Crow version you're on:** {{VERSION}}",
+      "",
+      "**Anything else** (links, similar tools, example files):",
+      ""
+    ].join("\n");
+    document.getElementById("feature").href = "https://github.com/DaGromflomite/SleazyCrow/issues/new"
+      + "?title=" + encodeURIComponent("[feature] ")
+      + "&labels=enhancement"
+      + "&body=" + encodeURIComponent(featureBody);
   })();
 </script>
 <script type="module" src="esp-web-tools/install-button.js"></script>
