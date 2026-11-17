@@ -43,7 +43,7 @@ arbitrary vehicles.
 | **Ford V0** | Obfuscation + GF(2) CRC | ✅ Yes | ✅ Full RF roundtrip self-test (decoder + encoder re-ported from upstream; a real decode bug was fixed in the process) |
 | **VAG Type 1 (AUT64, 300µs)** | AUT64 (keystore) | ✅ Yes | ✅ Full RF roundtrip self-test (`aut64 dP/RFP`) with a valid key; needs the real AUT64 key loaded for live use |
 | **VAG Type 2 (XTEA, 300µs)** | XTEA (built-in key) | ✅ Yes | ✅ Full RF roundtrip self-test; encoder ported, a real decode bug fixed (short-pulse Manchester mapping) |
-| VAG Types 3/4 (AUT64, 500µs) | AUT64 (keystore) | ⏳ Encoder ported (faithful) | Forward crypto + the 500µs encoder are done and faithful to upstream. The self-test roundtrip can't pass because the **upstream decoder itself** can't handle the merged sync→data boundary (3rd sync LOW joins a LOW-starting first bit) — same limitation in upstream, not a port bug. Needs a real type-3/4 fob to validate the air framing |
+| **VAG Types 3/4 (AUT64, 500µs)** | AUT64 (keystore) | ✅ Yes | ✅ Full RF roundtrip self-test, verified on hardware (ESP32-PICO-D4), 4/4 types 0xC0–0xC3 (`t3/4 RFP`). The decode bug was the custom Manchester FSM: the 500µs sync framing carries an implied leading `1` bit and needs the exact Flipper `manchester_advance`, so the type 3/4 path now uses a faithful port (`PPVag::manchAdvanceFlipper`) instead of the type 1/2 machine. Adjacent same-level half-bits merge on-air into one long pulse, which that FSM decodes correctly. Note: real 500µs frames carry a type byte with MSB=1 (0xC0–0xC3); a type-0x00 frame can't roundtrip (implied-bit=1), same as upstream |
 
 **VAG note:** VAG **types 1 (AUT64) and 2 (XTEA)** — both the 300µs format —
 fully work: forward + transmit encoder + full RF roundtrip, verified on-device
