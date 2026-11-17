@@ -1024,7 +1024,8 @@ bool ProtoPirateModule::forwardSelfTest(char* msg, size_t msgLen) {
             const uint8_t pb[8] = {3, 0, 5, 6, 1, 4, 7, 2};
             const uint8_t sb[16] = {0xE, 0x4, 0xD, 0x1, 0x2, 0xF, 0xB, 0x8,
                                     0x3, 0xA, 0x6, 0xC, 0x5, 0x9, 0x0, 0x7};
-            for (int i = 0; i < 8; i++) { sk.key[i] = (uint8_t)(0x11 * (i + 1)); sk.pbox[i] = pb[i]; }
+            // AUT64 key bytes MUST be nibbles (< 16) per the cipher's validation.
+            for (int i = 0; i < 8; i++) { sk.key[i] = (uint8_t)(i + 1); sk.pbox[i] = pb[i]; }
             for (int i = 0; i < 16; i++) sk.sbox[i] = sb[i];
             PPVag::setAut64Key(0, sk);
             uint8_t tb[8] = {1, 2, 3, 4, 5, 6, 7, 0x20}, ob[8];
@@ -1033,9 +1034,35 @@ bool ProtoPirateModule::forwardSelfTest(char* msg, size_t msgLen) {
             PPVag::cryptBlock(tb, 0, false);
             bool autInv = (memcmp(tb, ob, 8) == 0);
 
-            snprintf(vag, sizeof(vag), "VAG(t2) data %s/RF %s (aut64 inv %s)",
-                     t2data ? "P" : "F", t2rf ? "P" : "F", autInv ? "ok" : "BUG");
-            allOk = allOk && t2data && t2rf;   // gate on the working XTEA path
+            // AUT64 (type 1) data forward + full RF roundtrip, now that the key
+            // is valid: build frame -> forward(+1) -> encoder -> feed -> decode.
+            uint8_t ad[8] = {0x11, 0x22, 0x33, 0x44, 0x34, 0x12, 0x00, 0x20};
+            uint16_t ak2 = 0;
+            uint64_t ak1 = PPVag::encodeBlock(ad, 0xC0, 0x2A, 0, ak2);
+            PPDecodeResult ain;
+            memset(&ain, 0, sizeof(ain));
+            ain.protocolName = PPVag::PROTOCOL_NAME;
+            ain.data = ak1; ain.data2 = ak2; ain.counter = 0x1234;
+            ain.keyIndex = 0; ain.bsMagic = 1;
+            bool audata = false, aurf = false;
+            PPDecodeResult aout;
+            if (proto->generateForward(ain, 1, aout)) {
+                audata = (PPVag::decodeBlockCnt(aout.data, (uint16_t)aout.data2, 0)
+                          == 0x1235);
+                PPVag ad2;
+                auto apl = proto->generatePulseData(aout);
+                for (auto& p : apl) {
+                    bool lvl = p.duration > 0;
+                    if (ad2.feed(lvl, (uint32_t)(lvl ? p.duration : -p.duration))) break;
+                }
+                aurf = (ad2.getResult().counter == 0x1235);
+            }
+
+            snprintf(vag, sizeof(vag),
+                     "VAG t2 d%s/RF%s inv%s | aut64 d%s/RF%s",
+                     t2data ? "P" : "F", t2rf ? "P" : "F", autInv ? "ok" : "BUG",
+                     audata ? "P" : "F", aurf ? "P" : "F");
+            allOk = allOk && t2data && t2rf && autInv && audata && aurf;
         }
     }
 
