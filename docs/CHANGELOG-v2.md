@@ -8,6 +8,43 @@ Baseline: everything below is on top of the published **v1.2.0-beta** firmware +
 
 ---
 
+## Post-2.1.0 unstable — ProtoPirate forward rolling-code generation (2026-11-17)
+
+**Authorized security testing only.** Full guide: `docs/PROTOPIRATE-FORWARD-CODES.md`.
+
+Restores ProtoPirate to full utility on the Evil Crow hardware: it can now
+synthesize the **next valid rolling code** (advance the counter, re-encrypt with
+a loaded manufacturer key, transmit) for authorized penetration testing against
+vehicles/fobs the operator owns or is permitted to test.
+
+- **Central keystore** (`pp::Keystore`) shared by every rolling-code decoder.
+  Keys load from the SD file `/DATA/KEYS/keeloq_mfcodes.txt` (`name:learning:hexkey`)
+  at boot, and testers can add keys live from the app. No keys are hard-coded;
+  the operator supplies the key for the make they're authorized to test.
+- **Forward-code engine** on the protocol base class (`supportsForward()` +
+  `generateForward()`), with two reference implementations:
+  - **StarLine** (KeeLoq): decrypt hop with the device key → advance the counter
+    field → re-encrypt. Verified.
+  - **Fiat V0** (cleartext counter): bump the counter in the frame. Verified.
+- **Module + BLE commands** `0x0C`–`0x11`: emulate-forward, add/clear/reload/count
+  keystore keys, and an on-device self-test.
+- **On-device self-test** (`0x11`): builds a synthetic frame with a known key,
+  advances the counter, and checks it decodes to counter+1 — proving the compiled
+  firmware's cipher and forward path with no RF. Result on hardware:
+  `StarLine 65→66 PASS | Fiat 43981→43982 PASS | ALL PASS`.
+- **App:** a **"Transmit NEXT code (rolling)"** button on rolling-code results
+  (counter-advance picker + authorized-use notice), plus keystore add/reload.
+- **Verification:** KeeLoq cipher proven a true inverse over 100,000 random pairs
+  and the StarLine encode→decode→forward→decode pipeline over 20,000 cases
+  (host Python model), then confirmed on real hardware via the self-test.
+- **Honest status:** Ford V0, VAG, and KIA V3/V4 decode but do **not** yet
+  generate forward codes — each needs a validated per-make encoder (and a real
+  fob of that make to confirm) before its forward path is trusted. The hook is in
+  place to add them "as they become available." Subaru/PSA/KIA V5-V6 are
+  decode-only. See the table in the forward-codes guide.
+
+---
+
 ## v2.1.0-unstable — release summary (2026-11-16)
 
 Published to the `v2-unstable` channel. The headline work this round, all tested on real

@@ -1,0 +1,114 @@
+# ProtoPirate — Forward Rolling-Code Generation
+
+**Authorized security testing only.** This feature generates the *next valid*
+rolling code for a vehicle key fob, for use in **authorized penetration tests
+and security research against vehicles/fobs you own or are explicitly permitted
+to test.** Do not use it against vehicles you do not own or have written
+permission to test. Generating codes for someone else's vehicle is vehicle theft
+and is illegal in essentially every jurisdiction.
+
+---
+
+## What it does (and what it can't)
+
+A rolling-code fob sends an encrypted "hop" each press. The hop is the fob's
+secret counter, encrypted with a device key that is derived from a
+**manufacturer key** plus the fob's serial. A captured hop only unlocks the car
+*once* (before the real fob is next used), because the car expects the counter
+to keep climbing.
+
+Forward-code generation does what a real fob does: it takes the recovered
+counter, **advances it**, re-encrypts, and transmits — producing a code the car
+will accept on the next press.
+
+**This requires the manufacturer key.** Without it, the firmware cannot recover
+the counter or produce a valid forward code — it returns "no key" (TX error 8).
+Capturing a signal does **not** reveal the key; you supply the key for the make
+you are authorized to test (your security team, the fob's datasheet, or a
+published key for that family).
+
+**It cannot break a cipher it doesn't have the key for.** This is a key-management
+tool for authorized testing, not a cryptographic attack that mints codes for
+arbitrary vehicles.
+
+---
+
+## Supported protocols
+
+| Protocol | Scheme | Forward code | Verified |
+|---|---|---|---|
+| **StarLine** | KeeLoq (keystore) | ✅ Yes | ✅ On-device self-test (cnt N→N+1) |
+| **Fiat V0** | Cleartext counter | ✅ Yes | ✅ On-device self-test |
+| Ford V0 | Obfuscated + GF(2) CRC | ⏳ Decoder only | Encoder needs real-fob validation |
+| VAG | AUT64 | ⏳ Decoder only | Pending validated encoder |
+| KIA V3/V4 | KeeLoq | ⏳ Decoder only | TX encoder not yet written |
+| Subaru | Bit-rotation (no key) | ➖ N/A | Counter isn't a clean rolling counter |
+| PSA / KIA V5/V6 | — | ➖ Decode only | — |
+
+The engine is **extensible**: any protocol can add forward support by
+implementing `supportsForward()` + `generateForward()` on its decoder class
+(`src/modules/protopirate/protocols/`). The two verified protocols above are the
+reference implementations — KeeLoq (decrypt → advance counter field →
+re-encrypt) and cleartext (bump the counter in the frame). New protocols are
+added "as they become available," per the project plan, and each should ship a
+self-test case before its forward button is trusted.
+
+> **Honesty note:** "Decoder only" means the Crow *reads* that fob but does not
+> yet synthesize a forward code for it. We will not ship a forward generator for
+> a make until its encoder round-trips in the on-device self-test **and** has
+> been validated against a real fob of that make. No guesses.
+
+---
+
+## Loading manufacturer keys
+
+### From the SD card (bulk)
+
+Create `/DATA/KEYS/keeloq_mfcodes.txt` on the Crow's SD card. One key per line:
+
+```
+# name:learning:16-hex-key        ('#' lines are comments)
+MyAlarm:normal:0123456789ABCDEF
+TestBrand:simple:FEDCBA9876543210
+```
+
+`learning` is one of: `simple`, `normal`, `magic_xor1`, `magic_serial1`,
+`magic_serial2`, `magic_serial3`, `unknown` (or the numeric KeeLoq learning
+type). The file loads automatically at boot; the keystore is shared by every
+rolling-code decoder.
+
+### From the app (one key)
+
+ProtoPirate screen → add key → name, 64-bit key, learning type. Keys added this
+way live until reboot; put permanent keys in the SD file.
+
+---
+
+## Using it
+
+1. **Load the manufacturer key** for the make you're authorized to test (above).
+2. **Capture** a press from the fob (ProtoPirate decode). A supported rolling
+   protocol shows the recovered counter.
+3. Open the result → **Transmit NEXT code (rolling)** → choose how far to advance
+   the counter (+1 is normal) and the radio module → **Transmit next**.
+4. The Crow emits a valid forward code on the capture's frequency.
+
+### On-device self-test
+
+ProtoPirate → run forward self-test (BLE sub-command `0x11`). It builds a
+synthetic frame with a known key, advances the counter, and checks the result
+decodes to counter+1 — proving the compiled firmware's cipher and forward path
+without any RF or real vehicle. Expected: `StarLine N→N+1 PASS | Fiat N→N+1 PASS
+| ALL PASS`.
+
+---
+
+## For reviewers / buyers
+
+- The KeeLoq cipher round-trips (encrypt/decrypt are exact inverses) — verified
+  over 100,000 random pairs and a 20,000-case end-to-end pipeline in
+  `tools`/host tests, and again on real hardware via the self-test.
+- Forward generation never fabricates a key; it only advances a counter and
+  re-encrypts with a key the operator loaded.
+- Every forward-capable protocol is gated behind a self-test, and the honest
+  status of each make is in the table above.
