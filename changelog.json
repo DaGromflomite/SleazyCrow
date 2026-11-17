@@ -10,6 +10,10 @@
           "text": "Key-fob next-code now works for every make it supports: StarLine, Fiat, Ford, Hyundai/Kia (V3/V4) and the VW/Audi/Seat/Skoda (VAG) family. VAG Type 3/4 was the last one that didn't read back correctly; it's fixed and checked on the real hardware (all four VAG makes pass the read -> next-code -> re-read test)."
         },
         {
+          "type": "feature",
+          "text": "Chrysler/Dodge/Jeep/RAM (FCA) key fobs now DECODE fully - serial, button and counter - instead of just being flagged. The full keyless decoder was ported from upstream and verified on hardware (read-back roundtrips for both Lock and Unlock). Next-code is also ported (keyless, no manufacturer key), but FCA's on-air counter is a small phase field, so whether a generated next-code is accepted by a real vehicle is unverified - treat FCA next-code as experimental until checked against a real fob sequence."
+        },
+        {
           "type": "fix",
           "text": "Fixed VAG Type 3/4 key-fob decoding. The 500us VAG signal was being read with the wrong decoder and came out garbled. It now uses the correct method and lines up every time. This was proven first in a stand-alone test over 20,000 random fobs, then run on the Crow itself."
         },

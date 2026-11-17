@@ -20,7 +20,7 @@ For testing on fobs and vehicles you own or are allowed to test.
 | Fiat | Yes | Yes |
 | Hyundai · Kia (V3/V4) | Yes | Yes — needs the maker key |
 | StarLine (aftermarket alarm) | Yes | Yes — needs the maker key |
-| Chrysler · Dodge · Jeep · RAM (FCA) | Yes | Not yet |
+| Chrysler · Dodge · Jeep · RAM (FCA) | Yes (full: serial, button, counter) | Experimental* |
 | Peugeot · Citroën (PSA) | Yes | Not yet |
 | Kia (V0 / V1 / V2 / V5 / V6) | Yes | Not yet |
 | Subaru | Yes | Not yet |
@@ -29,6 +29,16 @@ For testing on fobs and vehicles you own or are allowed to test.
 
 "Not yet" means the protocol doesn't hand us a clean rolling counter to roll forward,
 so there is no next-code feature for it. That is a limit of the protocol, not a bug.
+
+**\* FCA next-code is experimental.** The full decoder (serial, button, counter) is
+ported from upstream and verified on hardware — reading a Ram/Dodge/Jeep/Chrysler fob
+works. Next-code is also ported (keyless, no manufacturer key needed), and the
+encode→decode roundtrip passes on the device. But FCA's on-air counter is a small
+6-bit field that behaves more like a phase than a true rolling counter, and the real
+rolling value sits inside the decoded block. Upstream advances the 6-bit field; we do
+the same, but **whether that produces a code a real vehicle accepts is unverified** —
+it needs a capture of a few consecutive presses from a real fob to confirm. Until then,
+treat FCA next-code as experimental.
 
 ## Which keys ship in the firmware
 

@@ -11,6 +11,7 @@
 // StreamingPulsePayload — the real .sub parse + transmit building blocks.
 #include "modules/CC1101_driver/CC1101_Worker.h"
 #include "modules/protopirate/protocols/PPVag.h"
+#include "modules/protopirate/protocols/PPChryslerFca.h"
 
 // The whole diagnostic only exists in the bench build; the release build gets an
 // empty run() (see the #else at the end of this file).
@@ -497,6 +498,34 @@ void SelfTest::run() {
         Serial.printf("   VAG Type 3/4 roundtrip: %d/4  -> %s\n", passes,
                       passes == 4 ? "PASS (decode sync/merge fixed)"
                                   : "FAIL (check PPVag manchAdvanceFlipper)");
+    }
+
+    // ---- T-FCA: Chrysler/FCA (keyless) encode -> decode roundtrip -----------
+    // Proves the full ported decoder recovers a synthesized frame on hardware.
+    line();
+    Serial.println("[T-FCA] Chrysler/Dodge/Jeep/RAM encode->decode roundtrip (keyless)");
+    {
+        const uint8_t plain[9] = {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0, 0x11};
+        int passes = 0;
+        for (uint8_t btn = 1; btn <= 2; btn++) {
+            PPDecodeResult cap = PPChryslerFca::makeTestFrame(plain, 0x10, btn);
+            PPChryslerFca enc, dec;
+            auto pls = enc.generatePulseData(cap);
+            for (auto& p : pls) {
+                bool lvl = p.duration > 0;
+                if (dec.feed(lvl, (uint32_t)(lvl ? p.duration : -p.duration))) break;
+            }
+            // Recovered frame must match the capture (serial + raw payload).
+            bool ok = (dec.getResult().data == cap.data) &&
+                      (dec.getResult().data2 == cap.data2);
+            if (ok) passes++;
+            Serial.printf("   button %u (%s): %s\n", btn,
+                          btn == 1 ? "Lock" : "Unlock", ok ? "PASS" : "FAIL");
+        }
+        Serial.printf("   FCA decode roundtrip: %d/2  -> %s\n", passes,
+                      passes == 2 ? "PASS (full decoder ported)" : "FAIL");
+        Serial.println("   (next-code is ported but the rolling-counter model is NOT yet");
+        Serial.println("    verified against a real vehicle — treat FCA next-code as experimental)");
     }
 
     line();
