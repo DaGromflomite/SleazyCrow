@@ -58,6 +58,7 @@ struct TaskTransmission: public TaskBase
     std::unique_ptr<std::string> data;
     TransmissionConfig config;
     int pathType = 0; // path type
+    int pulseDuration = 100; // us per unit, for Binary transmissions
 
     TaskTransmission(TransmissionType t) : TaskBase(TaskType::Transmission), transmissionType(t), config(), pathType(0) {
     }
@@ -130,6 +131,12 @@ class TaskTransmissionBuilder
     TaskTransmissionBuilder& setPathType(int pt)
     {
         task.pathType = pt;
+        return *this;
+    }
+
+    TaskTransmissionBuilder& setPulseDuration(int pd)
+    {
+        task.pulseDuration = pd;
         return *this;
     }
 

@@ -153,6 +153,8 @@ public:
                            float rxBandwidth, float dataRate, const std::string& preset);
     static bool stopRecord(int module);
     static bool transmit(int module, const std::string& filename, int repeat, int pathType);
+    // Raw OOK bit-pattern transmit (used by the 0x06 transmit-binary command).
+    static bool transmitBinary(float frequency, int pulseDuration, const std::string& bits, int module, int modulation, float deviation, int repeatCount, int wait);
     static bool goIdle(int module);
     static bool startAnalyzer(int module, float startFreq, float endFreq, float step, uint32_t dwellTime);
     static bool stopAnalyzer(int module);
@@ -218,7 +220,6 @@ private:
     
     // Transmission helpers (moved from Transmitter)
     static std::string transmitSub(const std::string& filename, int module, int repeat, int pathType);
-    static bool transmitBinary(float frequency, int pulseDuration, const std::string& bits, int module, int modulation, float deviation, int repeatCount, int wait);
     static bool transmitRaw(int module, float frequency, int modulation, float deviation, std::string& data, int repeat);
     static bool transmitData(PulsePayload& payload, int module);
     
