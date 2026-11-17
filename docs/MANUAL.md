@@ -136,9 +136,16 @@ Read a car key fob, and for the supported makes build and send the next rolling 
 4. Press the fob. If it's a make the Crow knows, a card shows the make, button and rolling
    counter. If it isn't, it shows **Unknown** with the raw data, so you still know it heard
    something.
-5. **Next code (supported makes only):** load the maker key first — in **Settings** or from a
-   text file on the SD card — then use the next-code / transmit option on the decoded card.
-   No keys ship with the firmware; reading a fob does not reveal its key.
+5. **Next code:** one make works straight away; the rest need a key you load.
+   - **Works out of the box — VAG Type-2 (XTEA):** VW, Audi, Seat and Škoda fobs that use
+     this format. The key is built into the firmware, so read and next-code both just work.
+   - **Needs a key you load — StarLine, Fiat, Ford, Hyundai/Kia (V3/V4), and VAG AUT64
+     (types 1/3/4):** these use maker keys that aren't published in the clear, so none ship.
+     Add the key for a make you're authorized to test (in **Settings**, on the SD card at
+     `/DATA/KEYS/keeloq_mfcodes.txt`, or compiled into the firmware), then that make's
+     next-code works too.
+   - **Reading always works with no key** for every supported make. Reading a fob never
+     reveals its key.
 
 For testing on fobs and vehicles you own or are allowed to test.
 
@@ -158,7 +165,15 @@ Send a set of saved `.sub` files in order.
 ## 10. Sub-GHz → Jamming
 
 On the Record tab, the **Jamming** toggle (instead of Recording) floods a sub-GHz
-frequency. Only on gear you own, where it's legal. Start it, and stop it the same way.
+frequency. Start it, and stop it the same way as a recording.
+
+> **Warning.** Jamming is illegal in most countries, including the US (FCC) and the
+> EU. It doesn't just block the one thing you're aiming at — it can knock out car key
+> fobs, garage and gate remotes, alarms, medical and safety devices, and other radios
+> on or near that frequency, for everyone in range. Only use it on equipment you own,
+> in a setting you control (a shielded bench or an RF-isolated room), where doing so is
+> legal. Never use it in public, on the road, or against anything you don't own. You are
+> responsible for how you use it.
 
 ---
 
@@ -173,7 +188,10 @@ frequency. Only on gear you own, where it's legal. Start it, and stop it the sam
 
 ## 12. NRF → Jammer (2.4 GHz)
 
-Flood a 2.4 GHz band. For testing on your own gear, where it's legal.
+Flood a 2.4 GHz band. The same warning as sub-GHz jamming (section 10) applies: it's
+illegal in most places and it knocks out Wi-Fi, Bluetooth, and other 2.4 GHz devices for
+everyone nearby, not just your target. Only on gear you own, in a setting you control,
+where it's legal.
 
 1. Tap the **Jammer** tab.
 2. Pick a **mode**: Full Spectrum, Wi-Fi, BLE, Bluetooth, USB Wireless, Video, RC, Single
@@ -246,18 +264,3 @@ The app will also tell you on its own when a newer firmware or app version is ou
 - **Something's broken** — flash back to **v1.2.0-beta** from the web flasher and
   [open an issue](https://github.com/DaGromflomite/SleazyCrow/issues/new) with what
   happened.
-
----
-
-## 18. The honest status (beta)
-
-Every function here has been run on the bench with real radios. Two things still need a
-specific target to fully prove, and both are waiting on hardware, not a fix:
-
-- The **2.4 GHz spectrum view** needs a strong, close 2.4 GHz source to show up reliably on
-  the bench.
-- **MouseJack** needs a real vulnerable wireless dongle to show the catch-and-inject part.
-
-And two features are marked beta until they meet the real world: the **car-follower
-detector** on an actual drive, and the **key-fob next-code** against a real vehicle. Build
-and bench tests pass; the road test is the last step, and that's yours to do.

@@ -30,11 +30,32 @@ For testing on fobs and vehicles you own or are allowed to test.
 "Not yet" means the protocol doesn't hand us a clean rolling counter to roll forward,
 so there is no next-code feature for it. That is a limit of the protocol, not a bug.
 
+## Which keys ship in the firmware
+
+- **Built in and working out of the box: VAG Type-2 (XTEA).** This key is public, so it's
+  compiled into the firmware. It covers **VW, Audi, Seat and Škoda** key fobs that use the
+  VAG Type-2 (XTEA) rolling code — read and next-code both work with no setup.
+- **Everything else needs a key you load.** The other next-code makes — StarLine, Fiat,
+  Ford, Hyundai/Kia (V3/V4), and the VAG AUT64 types (1, 3, 4) — use KeeLoq or AUT64
+  manufacturer keys. Those keys are **not published in the clear anywhere** (every upstream
+  — RocketGod's ProtoPirate, the Flipper firmwares — keeps them in an encrypted keystore on
+  purpose), so none ship by default. You add the key for a make you're authorized to test,
+  and then that make's next-code works too.
+- **Reading always works without a key.** Capturing a fob and showing the make, button and
+  counter needs no key at all — that works for every supported make right now.
+
+## Loading your own keys
+
+Two ways, and they stack:
+- **On the SD card** — put them in `/DATA/KEYS/keeloq_mfcodes.txt` (format in
+  [`examples/keeloq_mfcodes.example.txt`](examples/keeloq_mfcodes.example.txt)).
+- **Compiled into the firmware** — paste them into `include/pp_embedded_keys.h` and rebuild,
+  so they ship with the firmware and load at boot.
+
+Only load keys for fobs and vehicles you own or are allowed to test.
+
 ## Notes
 
-- **Keys are never shipped.** For the encrypted makes (KeeLoq, AUT64) you load the
-  correct device/maker key yourself. Without it there is no next code — the math can't
-  roll forward.
 - **Bench-checked, not car-checked.** Every "Yes" above is proven on the device with a
   capture → next-code → re-read test that lands on the right counter. It has not been
   fired at a real vehicle. That last step needs a fob and car you're allowed to test.
