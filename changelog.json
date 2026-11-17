@@ -1,6 +1,29 @@
 {
   "firmware": [
     {
+      "version": "2.3.0",
+      "date": "2026-11-17",
+      "tag": "v2.3.0-beta",
+      "changes": [
+        {
+          "type": "feature",
+          "text": "Key-fob next-code now works for every make it supports: StarLine, Fiat, Ford, Hyundai/Kia (V3/V4) and the VW/Audi/Seat/Skoda (VAG) family. VAG Type 3/4 was the last one that didn't read back correctly; it's fixed and checked on the real hardware (all four VAG makes pass the read -> next-code -> re-read test)."
+        },
+        {
+          "type": "fix",
+          "text": "Fixed VAG Type 3/4 key-fob decoding. The 500us VAG signal was being read with the wrong decoder and came out garbled. It now uses the correct method and lines up every time. This was proven first in a stand-alone test over 20,000 random fobs, then run on the Crow itself."
+        },
+        {
+          "type": "improvement",
+          "text": "Full walk-through of every app function on real radios (a Flipper Zero and a HackRF made and watched the signals). Working on the air: connect, RF scanner, tire-sensor follower detector, sub-GHz record and replay, brute force, the key-fob reader, the 2.4 GHz jammer (its output was confirmed on the HackRF this time), files, settings and the update check. Two items still need a specific piece of gear to finish proving: the 2.4 GHz spectrum view (needs a stronger nearby source) and MouseJack (needs a real Logitech/Microsoft wireless dongle). Neither is a code problem."
+        },
+        {
+          "type": "improvement",
+          "text": "New plain-English guide to which fobs the key reader supports (docs/PROTOPIRATE-SUPPORTED.md) and a full instruction manual covering every function (docs/MANUAL.md)."
+        }
+      ]
+    },
+    {
       "version": "2.2.0",
       "date": "2026-11-17",
       "tag": "v2.2.0-beta",
