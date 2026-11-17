@@ -1028,6 +1028,8 @@ bool ProtoPirateModule::forwardSelfTest(char* msg, size_t msgLen) {
             for (int i = 0; i < 8; i++) { sk.key[i] = (uint8_t)(i + 1); sk.pbox[i] = pb[i]; }
             for (int i = 0; i < 16; i++) sk.sbox[i] = sb[i];
             PPVag::setAut64Key(0, sk);
+            PPVag::setAut64Key(1, sk);
+            PPVag::setAut64Key(2, sk);  // all slots valid (case 3/4 tries 2,1,0)
             uint8_t tb[8] = {1, 2, 3, 4, 5, 6, 7, 0x20}, ob[8];
             memcpy(ob, tb, 8);
             PPVag::cryptBlock(tb, 0, true);
@@ -1058,10 +1060,33 @@ bool ProtoPirateModule::forwardSelfTest(char* msg, size_t msgLen) {
                 aurf = (ad2.getResult().counter == 0x1235);
             }
 
+            // Type-3/4 full RF roundtrip (AUT64, 500us format).
+            uint8_t t34d[8] = {0x11, 0x22, 0x33, 0x44, 0x34, 0x12, 0x00, 0x20};
+            uint16_t t34k2 = 0;
+            uint64_t t34k1 = PPVag::encodeBlock(t34d, 0xC0, 0x2B, 0, t34k2);
+            PPDecodeResult t34in;
+            memset(&t34in, 0, sizeof(t34in));
+            t34in.protocolName = PPVag::PROTOCOL_NAME;
+            t34in.data = t34k1; t34in.data2 = t34k2; t34in.counter = 0x1234;
+            t34in.keyIndex = 0; t34in.bsMagic = 3;
+            bool t34rf = false;
+            PPDecodeResult t34out;
+            if (proto->generateForward(t34in, 1, t34out)) {
+                PPVag d34;
+                auto pls = proto->generatePulseData(t34out);
+                for (auto& p : pls) {
+                    bool lvl = p.duration > 0;
+                    if (d34.feed(lvl, (uint32_t)(lvl ? p.duration : -p.duration))) break;
+                }
+                t34rf = (d34.getResult().counter == 0x1235);
+            }
+
+            // Type 3/4 (500us) is informational: its encoder is ported but the
+            // decode's sync/merge boundary isn't nailed yet, so it doesn't gate.
             snprintf(vag, sizeof(vag),
-                     "VAG t2 d%s/RF%s inv%s | aut64 d%s/RF%s",
-                     t2data ? "P" : "F", t2rf ? "P" : "F", autInv ? "ok" : "BUG",
-                     audata ? "P" : "F", aurf ? "P" : "F");
+                     "VAG t2 d%s/RF%s | aut64 t1 d%s/RF%s | t3/4 RF%s(wip)",
+                     t2data ? "P" : "F", t2rf ? "P" : "F",
+                     audata ? "P" : "F", aurf ? "P" : "F", t34rf ? "P" : "F");
             allOk = allOk && t2data && t2rf && autInv && audata && aurf;
         }
     }

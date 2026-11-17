@@ -300,7 +300,7 @@ public:
         case StepData2: {
             int manchEvent = -1;
             if (duration >= 380 && duration <= 620) {
-                manchEvent = level ? 0 : 1;
+                manchEvent = level ? 1 : 0;  // HIGH short = ShortHigh (same fix as type 1/2)
             } else if (duration >= 880 && duration <= 1120) {
                 manchEvent = level ? 2 : 3;
             }
@@ -337,24 +337,36 @@ public:
     // Type 1/2 = 300us Manchester (prefix differs). Type 3/4 (500us) is TODO.
     std::vector<PPPulse> generatePulseData(const PPDecodeResult& r) override {
         std::vector<PPPulse> out;
-        int vt = (r.keyIndex == 0xFF) ? 2 : (int)r.bsMagic;  // 1/2 = 300us
-        if (vt != 1 && vt != 2) return out;  // type 3/4 encoder not ported yet
-
-        uint16_t prefix = (vt == 1) ? 0xAF3F : 0xAF1C;
+        int vt = (r.keyIndex == 0xFF) ? 2 : (int)r.bsMagic;
         std::vector<PPPulse> raw;
-        auto E = [&](bool lvl, int32_t dur) {
-            raw.push_back({ lvl ? dur : -dur });
-        };
-        auto MB = [&](int bit) { E(bit != 0, 300); E(bit == 0, 300); };
+        auto E = [&](bool lvl, int32_t dur) { raw.push_back({ lvl ? dur : -dur }); };
 
-        for (int i = 0; i < 220; i++) { E(true, 300); E(false, 300); }  // preamble
-        E(false, 300); E(true, 300);                                     // sync
-        for (int i = 15; i >= 0; i--) MB((prefix >> i) & 1);            // type prefix
-        uint64_t k1i = ~r.data;
-        for (int i = 63; i >= 0; i--) MB((int)((k1i >> i) & 1));         // ~key1
-        uint16_t k2i = (uint16_t)(~(uint16_t)r.data2);
-        for (int i = 15; i >= 0; i--) MB((k2i >> i) & 1);               // ~key2
-        E(false, 6000);                                                 // end gap
+        if (vt == 1 || vt == 2) {
+            // 300us format: inverted key, with a type prefix.
+            uint16_t prefix = (vt == 1) ? 0xAF3F : 0xAF1C;
+            auto MB = [&](int bit) { E(bit != 0, 300); E(bit == 0, 300); };
+            for (int i = 0; i < 220; i++) { E(true, 300); E(false, 300); }
+            E(false, 300); E(true, 300);
+            for (int i = 15; i >= 0; i--) MB((prefix >> i) & 1);
+            uint64_t k1i = ~r.data;
+            for (int i = 63; i >= 0; i--) MB((int)((k1i >> i) & 1));
+            uint16_t k2i = (uint16_t)(~(uint16_t)r.data2);
+            for (int i = 15; i >= 0; i--) MB((k2i >> i) & 1);
+            E(false, 6000);
+        } else if (vt == 3 || vt == 4) {
+            // 500us format: NOT inverted, sync sequence, no prefix.
+            auto MB = [&](int bit) { E(bit != 0, 500); E(bit == 0, 500); };
+            for (int i = 0; i < 45; i++) { E(true, 500); E(false, 500); }  // preamble
+            E(true, 1000); E(false, 500);                                   // lead
+            for (int i = 0; i < 3; i++) { E(true, 750); E(false, 750); }    // sync pairs
+            uint64_t k1 = r.data;
+            for (int i = 63; i >= 0; i--) MB((int)((k1 >> i) & 1));
+            uint16_t k2 = (uint16_t)r.data2;
+            for (int i = 15; i >= 0; i--) MB((k2 >> i) & 1);
+            E(false, 10000);
+        } else {
+            return out;
+        }
 
         // Merge consecutive same-level pulses (real RF behaviour).
         for (auto& p : raw) {
