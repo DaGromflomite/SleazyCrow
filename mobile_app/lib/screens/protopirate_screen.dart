@@ -470,6 +470,7 @@ class _ProtoPirateScreenState extends State<ProtoPirateScreen>
                 _ProtoBadge('Kia'),
                 _ProtoBadge('Fiat'),
                 _ProtoBadge('Ford'),
+                _ProtoBadge('Chrysler/FCA'),
                 _ProtoBadge('StarLine'),
                 _ProtoBadge('Scher-Khan'),
                 _ProtoBadge('VAG'),
