@@ -120,6 +120,10 @@ void BleAdapter::begin() {
     NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
     pAdvertising->addServiceUUID(SERVICE_UUID);
     pAdvertising->setScanResponse(true);
+    // Reconnect fix: advertise fast (20-40 ms, units of 0.625 ms) so the phone
+    // re-acquires the device quickly after a reboot instead of timing out.
+    pAdvertising->setMinInterval(0x20);
+    pAdvertising->setMaxInterval(0x40);
     pAdvertising->start();
     ESP_LOGD(TAG, "NimBLE advertising started");
     
