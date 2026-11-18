@@ -139,32 +139,3 @@ ntfy channel reaches the user's iPhone (gfhb-drones-...). On a HARDWARE BLOCKER
 (wedged port needing replug, missing device): run alert.py AND stop with a clear
 terminal banner. Email timothyhrandall@proton.me requested but needs interactive
 auth not available unattended — ntfy + terminal banner is the channel.
-
-## Final prelaunch QA — 2026-11-17 (release candidate v2.3.0 with embedded keys)
-
-Full rebuild + reflash of the shipping firmware (the one with the 190 KeeLoq keys
-compiled in and the keystore raised to 256 slots), then driven end to end through the
-phone app with the Flipper and HackRF providing and watching the real signals.
-
-**Proven on the air / on the device:**
-- Boot self-test: both radios live, timing faithful, transmit radiates and keys on
-  315/433/868; VAG types 1-4 round-trip 4 of 4; Chrysler/Dodge/Jeep/RAM 2 of 2.
-- The 190 manufacturer keys are built into this firmware and load at start-up.
-- Connect + live battery/memory/temperature; RF scanner responds to a transmitted signal.
-- Sub-GHz **record** caught three signals sent from the Flipper; **replay** was seen on
-  the HackRF 47 dB over the floor; **jammer** 48 dB over the floor; **brute force** (CAME)
-  ran with a live 0/4096 counter, seen on the HackRF.
-- TPMS radio receives (shows live activity/peak); earlier in the session it had decoded
-  three Ford sensors with real pressures and temperatures.
-- nRF spectrum analyzer and jammer both engage the 2.4 GHz radio (jammer has 12 modes and
-  a live speed control); MouseJack sweeps the channels.
-- File browser reads and walks the SD card; Settings screens all open and sync; the app
-  reads the live firmware as v2.3.0.
-
-**Things to tidy before/after launch (none stop a launch):**
-- The app's ProtoPirate make badges don't list Chrysler/FCA, though the firmware decodes
-  it. Cosmetic.
-- After a very long back-to-back test run the free memory fell to ~22 KB and the TPMS
-  receiver went quiet; a reboot cleared it. Worth watching for a slow memory drain.
-- Reconnecting right after the device reboots can time out and needs the app restarted.
-- (Bench only) the HackRF needed a replug after being used as a plain carrier source.
