@@ -607,28 +607,48 @@ class BleProvider extends ChangeNotifier {
         if (FlutterBluePlus.isScanningNow) await FlutterBluePlus.stopScan();
       } catch (_) {/* ignore */}
 
-      // Reconnect fix (GATT_CONNECTION_TIMEOUT after the Crow reboots):
-      // Android can keep a stale/half-open GATT handle to a device that has since
-      // restarted, so the next connect() times out until the app is restarted.
-      // Tear down any lingering link first, then retry once on a timeout so the
-      // user doesn't have to kill the app.
-      Future<void> _attemptConnect() async {
+      // Reconnect hardening (GATT_CONNECTION_TIMEOUT after the Crow reboots):
+      // Android keeps a stale/half-open GATT client to a device that has since
+      // restarted, so a plain connect() times out until the app is restarted.
+      // It can also still believe it is connected (the device-side supervision
+      // timeout hasn't fired yet). So on EVERY attempt we first tear down any
+      // lingering link, wait for it to settle, then connect — and we retry a few
+      // times with a growing backoff so a transient stale handle clears itself
+      // without the user touching Bluetooth or killing the app.
+      const int maxAttempts = 4;
+      Object? lastErr;
+      for (int attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
-          await device.disconnect();
-        } catch (_) {/* nothing to tear down */}
-        await Future.delayed(const Duration(milliseconds: 300));
-        await device.connect(timeout: const Duration(seconds: 15));
+          // Clear any stale/half-open connection first.
+          try {
+            await device.disconnect();
+          } catch (_) {/* nothing to tear down */}
+          // Give Android's stack time to drop the old handle (longer each try).
+          await Future.delayed(Duration(milliseconds: 250 + 250 * attempt));
+          await device.connect(timeout: const Duration(seconds: 12));
+          lastErr = null;
+          break; // connected
+        } catch (e) {
+          lastErr = e;
+          final msg = e.toString().toLowerCase();
+          final retriable = msg.contains('timeout') ||
+              msg.contains('timed out') ||
+              msg.contains('133') ||
+              msg.contains('gatt') ||
+              msg.contains('not ready') ||
+              msg.contains('busy') ||
+              msg.contains('congested');
+          if (!retriable || attempt == maxAttempts) break;
+          _log('warn',
+              'Connect attempt $attempt/$maxAttempts failed (${e.toString()}); '
+              'clearing stale link and retrying');
+          statusMessage = 'reconnecting'; // Key for localization
+          notifyListeners();
+          await Future.delayed(Duration(milliseconds: 500 * attempt)); // backoff
+        }
       }
-      try {
-        await _attemptConnect();
-      } catch (e) {
-        final msg = e.toString().toLowerCase();
-        final isTimeout = msg.contains('timeout') || msg.contains('timed out') ||
-            msg.contains('133') || msg.contains('gatt');
-        if (!isTimeout) rethrow;
-        _log('warn', 'Connect timed out — clearing stale link and retrying once');
-        await Future.delayed(const Duration(milliseconds: 800));
-        await _attemptConnect(); // one clean retry; if this throws, outer catch handles it
+      if (lastErr != null) {
+        throw lastErr; // handled by the outer catch (shows the user-facing error)
       }
       connectedDevice = device;
       
