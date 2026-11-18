@@ -209,6 +209,13 @@ void TpmsModule::decodeTask(void* param) {
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 
+    // Heap-leak fix: vTaskDelete(nullptr) terminates this task WITHOUT unwinding
+    // the C++ stack, so the destructors of the local heap-backed vectors below
+    // would never run — leaking ~10 KB (chunk reserves 2048*4B, seg too) on every
+    // TPMS start/stop. Free their storage explicitly first.
+    { std::vector<unsigned long>().swap(chunk); }
+    { std::vector<unsigned long>().swap(seg); }
+
     self->taskHandle_ = nullptr;
     vTaskDelete(nullptr);
 }
