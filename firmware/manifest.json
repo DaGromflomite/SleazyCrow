@@ -1,6 +1,6 @@
 {
   "name": "Sleazy Crow",
-  "version": "1.2.0-beta",
+  "version": "2.3.0-beta",
   "new_install_prompt_erase": true,
   "builds": [
     {
