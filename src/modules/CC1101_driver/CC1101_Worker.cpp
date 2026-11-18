@@ -44,6 +44,9 @@ TaskHandle_t CC1101Worker::workerTaskHandle = nullptr;
 CC1101State CC1101Worker::moduleStates[CC1101_NUM_MODULES] = {CC1101State::Idle, CC1101State::Idle};
 int CC1101Worker::detectionMinRssi[CC1101_NUM_MODULES] = {-50, -50};
 bool CC1101Worker::detectionIsBackground[CC1101_NUM_MODULES] = {false, false};
+#if defined(SELFTEST_ON_BOOT) && SELFTEST_ON_BOOT
+uint32_t CC1101Worker::g_selftestEmitUs = 0;
+#endif
 CC1101Worker::RecordingConfig CC1101Worker::recordingConfigs[CC1101_NUM_MODULES];
 CC1101Worker::JammingConfig CC1101Worker::jammingConfigs[CC1101_NUM_MODULES];
 SignalDetectedCallback CC1101Worker::signalDetectedCallback = nullptr;
@@ -1230,8 +1233,9 @@ std::string CC1101Worker::transmitSub(const std::string& filename, int module, i
         streamingPayload.close();
     }
 #if defined(SELFTEST_ON_BOOT) && SELFTEST_ON_BOOT
+    g_selftestEmitUs = (uint32_t)(micros() - __emitStart);
     Serial.printf("   [FIX] transmitSub emit time: %u us  (path: %s, %u pulses)\n",
-                  (unsigned)(micros() - __emitStart),
+                  (unsigned)g_selftestEmitUs,
                   (!preloadOverflow && !pulses.empty()) ? "IN-RAM" : "STREAM",
                   (unsigned)pulses.size());
 #endif
