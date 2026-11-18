@@ -66,7 +66,7 @@
 <main>
   <img class="banner" src="banner.png" alt="Sleazy Crow" onerror="this.remove()">
   <h1>Sleazy Crow <code>v{{VERSION}}</code></h1>
-  <p class="sub">Community fork of <a href="https://github.com/Senape3000/EvilCrowRF-V2">Senape3000's EvilCrowRF-V2</a> firmware for the Evil Crow RF V2, with Bluetooth stability and reliability fixes.</p>
+  <p class="sub">Community fork of <a href="https://github.com/Senape3000/EvilCrowRF-V2">Senape3000's EvilCrowRF-V2</a> firmware for the Evil Crow RF V2 — a pocket sub-GHz and 2.4 GHz radio tool, driven from an Android app over Bluetooth, with reliability fixes and its own features on top.</p>
 
   <section class="warn">
     <strong>⚠ BETA: meant for testing.</strong>
@@ -74,6 +74,20 @@
     <b>report back how it went, good or bad</b>. If it doesn't work on your Evil Crow, go back to
     <a href="https://senape3000.github.io/EvilCrowRF-V2/web-flasher/">Senape3000's official firmware</a>.
     Flashing with "erase" wipes the device's internal settings. Files on the SD card are not touched.
+  </section>
+
+  <section>
+    <h2>What it does</h2>
+    <p>Everything runs from the phone app over Bluetooth. Full step-by-step guide in the
+      <a href="https://github.com/DaGromflomite/SleazyCrow/blob/main/docs/MANUAL.md">instruction manual</a>.</p>
+    <ul>
+      <li><b>Sub-GHz (300–928 MHz), two radios</b> — scan the air to find busy frequencies; record a signal and save it; replay it or send a raw pattern; brute-force fixed-code garages and gates (standard or de Bruijn).</li>
+      <li><b>Car key fobs (ProtoPirate)</b> — read a fob's make, button and rolling counter, and for the supported makes build and send the next valid code. Reading needs no setup; the public maker keys are built in, so next-code works out of the box for VAG, StarLine, Hyundai/Kia, Fiat, Ford and Chrysler/Dodge/Jeep/RAM. <i>Authorized testing only.</i></li>
+      <li><b>"Is a car following me?"</b> — listen for the tire-pressure sensors on nearby cars and flag one whose IDs keep showing up across trips. Shows make, pressure and temperature.</li>
+      <li><b>2.4 GHz (nRF24)</b> — spectrum view, jammer (on gear you own, where legal), and a MouseJack scan for vulnerable wireless mice and keyboards.</li>
+      <li><b>Files and updates</b> — manage the SD card over Bluetooth, pull signals from the community libraries, and update firmware over the air.</li>
+    </ul>
+    <p class="muted">This is a radio <b>test tool</b>. Listening is legal most places; transmitting and jamming are regulated and jamming is illegal in most countries. Only transmit on gear you own or are authorized in writing to test, and know your local law. See the manual's legal notice.</p>
   </section>
 
   <section>
