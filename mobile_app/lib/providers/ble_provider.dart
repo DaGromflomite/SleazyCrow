@@ -606,7 +606,30 @@ class BleProvider extends ChangeNotifier {
       try {
         if (FlutterBluePlus.isScanningNow) await FlutterBluePlus.stopScan();
       } catch (_) {/* ignore */}
-      await device.connect(timeout: const Duration(seconds: 15));
+
+      // Reconnect fix (GATT_CONNECTION_TIMEOUT after the Crow reboots):
+      // Android can keep a stale/half-open GATT handle to a device that has since
+      // restarted, so the next connect() times out until the app is restarted.
+      // Tear down any lingering link first, then retry once on a timeout so the
+      // user doesn't have to kill the app.
+      Future<void> _attemptConnect() async {
+        try {
+          await device.disconnect();
+        } catch (_) {/* nothing to tear down */}
+        await Future.delayed(const Duration(milliseconds: 300));
+        await device.connect(timeout: const Duration(seconds: 15));
+      }
+      try {
+        await _attemptConnect();
+      } catch (e) {
+        final msg = e.toString().toLowerCase();
+        final isTimeout = msg.contains('timeout') || msg.contains('timed out') ||
+            msg.contains('133') || msg.contains('gatt');
+        if (!isTimeout) rethrow;
+        _log('warn', 'Connect timed out — clearing stale link and retrying once');
+        await Future.delayed(const Duration(milliseconds: 800));
+        await _attemptConnect(); // one clean retry; if this throws, outer catch handles it
+      }
       connectedDevice = device;
       
       // Set up connection state monitoring (cancel previous subscription on reconnect)
