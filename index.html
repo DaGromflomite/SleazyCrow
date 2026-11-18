@@ -65,8 +65,8 @@
 <body>
 <main>
   <img class="banner" src="banner.png" alt="Sleazy Crow" onerror="this.remove()">
-  <h1>Sleazy Crow <code>v1.2.0-beta</code></h1>
-  <p class="sub">Community fork of <a href="https://github.com/Senape3000/EvilCrowRF-V2">Senape3000's EvilCrowRF-V2</a> firmware for the Evil Crow RF V2, with Bluetooth stability and reliability fixes.</p>
+  <h1>Sleazy Crow <code>v2.3.0-beta</code></h1>
+  <p class="sub">Community fork of <a href="https://github.com/Senape3000/EvilCrowRF-V2">Senape3000's EvilCrowRF-V2</a> firmware for the Evil Crow RF V2 — a pocket sub-GHz and 2.4 GHz radio tool, driven from an Android app over Bluetooth, with reliability fixes and its own features on top.</p>
 
   <section class="warn">
     <strong>⚠ BETA: meant for testing.</strong>
@@ -76,12 +76,18 @@
     Flashing with "erase" wipes the device's internal settings. Files on the SD card are not touched.
   </section>
 
-  <section class="warn" id="unstable-link">
-    <strong>🧪 Want to try v2? Unstable test build available</strong>
-    <b>v2.0.0-unstable</b> (TPMS "car following me" detector, Sub-GHz playlists, crash fixes, in-app updates).
-    It is an <b>unstable test build</b>: some features are not tested on real hardware yet.
-    The page lists exactly what works and what is untested. Stable users: stay on this page.
-    <div class="actions"><a class="btn" style="color: var(--on-accent)" href="unstable/">Open the UNSTABLE v2 flasher</a></div>
+  <section>
+    <h2>What it does</h2>
+    <p>Everything runs from the phone app over Bluetooth. Full step-by-step guide in the
+      <a href="https://github.com/DaGromflomite/SleazyCrow/blob/main/docs/MANUAL.md">instruction manual</a>.</p>
+    <ul>
+      <li><b>Sub-GHz (300–928 MHz), two radios</b> — scan the air to find busy frequencies; record a signal and save it; replay it or send a raw pattern; brute-force fixed-code garages and gates (standard or de Bruijn).</li>
+      <li><b>Car key fobs (ProtoPirate)</b> — read a fob's make, button and rolling counter, and for the supported makes build and send the next valid code. Reading needs no setup; the public maker keys are built in, so next-code works out of the box for VAG, StarLine, Hyundai/Kia, Fiat, Ford and Chrysler/Dodge/Jeep/RAM. <i>Authorized testing only.</i></li>
+      <li><b>"Is a car following me?"</b> — listen for the tire-pressure sensors on nearby cars and flag one whose IDs keep showing up across trips. Shows make, pressure and temperature.</li>
+      <li><b>2.4 GHz (nRF24)</b> — spectrum view, jammer (on gear you own, where legal), and a MouseJack scan for vulnerable wireless mice and keyboards.</li>
+      <li><b>Files and updates</b> — manage the SD card over Bluetooth, pull signals from the community libraries, and update firmware over the air.</li>
+    </ul>
+    <p class="muted">This is a radio <b>test tool</b>. Listening is legal most places; transmitting and jamming are regulated and jamming is illegal in most countries. Only transmit on gear you own or are authorized in writing to test, and know your local law. See the manual's legal notice.</p>
   </section>
 
   <section>
@@ -106,14 +112,29 @@
     <p>The app controls the Crow over Bluetooth. It installs as its own app ("Sleazy Crow"),
     next to the official EvilCrow RF app, so you can keep both. (The official app also works with this firmware.)</p>
     <div class="actions">
-      <a class="btn" href="https://github.com/DaGromflomite/SleazyCrow/releases/download/v1.2.0-beta/SleazyCrow-v1.2.0-beta.apk">Download SleazyCrow-v1.2.0-beta.apk</a>
+      <a class="btn" href="https://github.com/DaGromflomite/SleazyCrow/releases/download/v2.3.0-beta/SleazyCrow-v2.3.0-beta.apk">Download SleazyCrow-v2.3.0-beta.apk</a>
     </div>
     <ol>
-      <li>On your Android phone, tap the download button above to get <code>SleazyCrow-v1.2.0-beta.apk</code>.</li>
+      <li>On your Android phone, tap the download button above to get <code>SleazyCrow-v2.3.0-beta.apk</code>.</li>
       <li>Open the downloaded file (from the notification or your Files app).</li>
       <li>If Android warns about installing from this source, tap <b>Settings</b> and allow
           "Install unknown apps" for your browser or Files app, then go back and install.</li>
       <li>Open <b>Sleazy Crow</b> and allow the Bluetooth and location permissions when asked.</li>
+    </ol>
+    <h3>Prefer to install from a computer?</h3>
+    <p><b>Easiest — copy the file over USB:</b></p>
+    <ol>
+      <li>On the computer, download <code>SleazyCrow-v2.3.0-beta.apk</code> (the button above, or the releases page).</li>
+      <li>Connect the phone by USB and set it to <b>File transfer</b> mode (swipe down and tap the USB notification to choose it).</li>
+      <li>Copy <code>SleazyCrow-v2.3.0-beta.apk</code> onto the phone, e.g. into its <b>Download</b> folder.</li>
+      <li>On the phone, open <b>Files</b>, tap the <code>.apk</code>, allow "Install unknown apps" if asked, then install.</li>
+    </ol>
+    <p><b>For developers — <code>adb</code>:</b></p>
+    <ol>
+      <li>Install Android <b>platform-tools</b> (adb) on the computer.</li>
+      <li>On the phone, enable <b>Developer options &rarr; USB debugging</b>.</li>
+      <li>Connect by USB, accept the "Allow USB debugging" prompt, then run:
+          <code>adb install SleazyCrow-v2.3.0-beta.apk</code></li>
     </ol>
     <p class="muted">All releases and checksums are on the
     <a href="https://github.com/DaGromflomite/SleazyCrow/releases">Sleazy Crow releases page</a>.</p>
@@ -137,7 +158,7 @@
   <section>
     <h2>Request a feature</h2>
     <p>Got an idea for Sleazy Crow (firmware or app)? Tell us what you want and why. The button opens a pre-filled GitHub issue.</p>
-    <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:12px">
+    <div class="actions">
       <a class="btn" id="feature" href="https://github.com/DaGromflomite/SleazyCrow/issues/new" target="_blank" rel="noopener">Request a feature</a>
     </div>
     <p class="muted">See what's already requested on the <a href="https://github.com/DaGromflomite/SleazyCrow/issues?q=is%3Aissue+%5Bfeature%5D" target="_blank" rel="noopener">issues page</a> first, and add a 👍 there if your idea is already listed.</p>
@@ -154,15 +175,15 @@
     <pre>esptool --chip esp32 erase-flash
 esptool --chip esp32 --baud 921600 write-flash 0x1000 bootloader.bin 0x8000 partitions.bin 0xe000 boot_app0.bin 0x10000 firmware.bin</pre>
     <p>Or the single merged image:</p>
-    <pre>esptool --chip esp32 --baud 921600 write-flash 0x0 sleazycrow-fw-v1.2.0-beta-full.bin</pre>
+    <pre>esptool --chip esp32 --baud 921600 write-flash 0x0 sleazycrow-fw-v2.3.0-beta-full.bin</pre>
     <div class="tablewrap">
     <table>
       <tr><th>File</th><th>Offset</th><th>MD5</th></tr>
       <tr><td><a href="firmware/bootloader.bin">bootloader.bin</a></td><td>0x1000</td><td><code>b846a71832caddd0dd2cd6981a327c43</code></td></tr>
       <tr><td><a href="firmware/partitions.bin">partitions.bin</a></td><td>0x8000</td><td><code>cbdc2ee2c371ae973f10c7f473ae8387</code></td></tr>
       <tr><td><a href="firmware/boot_app0.bin">boot_app0.bin</a></td><td>0xe000</td><td><code>e6327541e2dc394ca2c3b3280ac0f39f</code></td></tr>
-      <tr><td><a href="firmware/firmware.bin">firmware.bin</a></td><td>0x10000</td><td><code>70863b0c08deb7b2e34615fa14579f68</code></td></tr>
-      <tr><td><a href="firmware/sleazycrow-fw-v1.2.0-beta-full.bin">sleazycrow-fw-v1.2.0-beta-full.bin</a></td><td>0x0</td><td><code>21a7ec31b6de103f93fd8e97b73640f2</code></td></tr>
+      <tr><td><a href="firmware/firmware.bin">firmware.bin</a></td><td>0x10000</td><td><code>bc763f3b2faeb9969714972fe3633f17</code></td></tr>
+      <tr><td><a href="firmware/sleazycrow-fw-v2.3.0-beta-full.bin">sleazycrow-fw-v2.3.0-beta-full.bin</a></td><td>0x0</td><td><code>2f5a16ce784bfd7e3e48a0f193dec2dd</code></td></tr>
     </table>
     </div>
     <p class="muted">Built from <a href="https://github.com/DaGromflomite/SleazyCrow">DaGromflomite/SleazyCrow</a> commit <code>local</code> with PlatformIO (Arduino core 3.2.1 / ESP-IDF 5.4.2, NimBLE-Arduino 1.4.3). DIO 40 MHz, 4 MB. Accepts all ESP32 chip revisions.</p>
@@ -180,7 +201,7 @@ esptool --chip esp32 --baud 921600 write-flash 0x1000 bootloader.bin 0x8000 part
   // Pre-fill the GitHub issue so testers report the same fields.
   (function () {
     var body = [
-      "**Sleazy Crow version:** 1.2.0-beta",
+      "**Sleazy Crow version:** 2.3.0-beta",
       "",
       "**Chip / board revision** (from the flasher or esptool log, if you saw it):",
       "**Where you bought your Crow:**",
@@ -202,7 +223,7 @@ esptool --chip esp32 --baud 921600 write-flash 0x1000 bootloader.bin 0x8000 part
       "```"
     ].join("\n");
     document.getElementById("report").href = "https://github.com/DaGromflomite/SleazyCrow/issues/new"
-      + "?title=" + encodeURIComponent("[test 1.2.0-beta] ")
+      + "?title=" + encodeURIComponent("[test 2.3.0-beta] ")
       + "&body=" + encodeURIComponent(body);
 
     // Pre-fill a feature-request issue.
@@ -218,12 +239,11 @@ esptool --chip esp32 --baud 921600 write-flash 0x1000 bootloader.bin 0x8000 part
       "- [ ] Web flasher / docs",
       "",
       "**Your Crow** (board / chip revision, if relevant):",
-      "**Sleazy Crow version you're on:** 1.2.0-beta",
+      "**Sleazy Crow version you're on:** 2.3.0-beta",
       "",
       "**Anything else** (links, similar tools, example files):",
       ""
-    ].join("
-");
+    ].join("\n");
     document.getElementById("feature").href = "https://github.com/DaGromflomite/SleazyCrow/issues/new"
       + "?title=" + encodeURIComponent("[feature] ")
       + "&labels=enhancement"
