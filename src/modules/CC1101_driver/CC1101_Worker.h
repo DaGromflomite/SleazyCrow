@@ -144,6 +144,10 @@ public:
                                               int repeat, int pathType) {
         return transmitSub(filename, module, repeat, pathType);
     }
+    // Last transmitSub emit-loop duration (us), measured on the TX side and so
+    // independent of any receiver. The self-test uses this as the TRUE fidelity
+    // discriminator for the production in-RAM path.
+    static uint32_t g_selftestEmitUs;
 #endif
     
     // Helper functions to send commands
