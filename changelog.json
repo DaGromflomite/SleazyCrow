@@ -22,8 +22,32 @@
           "text": "Full walk-through of every app function on real radios (a Flipper Zero and a HackRF made and watched the signals). Working on the air: connect, RF scanner, tire-sensor follower detector, sub-GHz record and replay, brute force, the key-fob reader, the 2.4 GHz jammer (its output was confirmed on the HackRF this time), files, settings and the update check. Two items still need a specific piece of gear to finish proving: the 2.4 GHz spectrum view (needs a stronger nearby source) and MouseJack (needs a real Logitech/Microsoft wireless dongle). Neither is a code problem."
         },
         {
+          "type": "feature",
+          "text": "The public car-fob maker keys are now built into the firmware. The decrypted KeeLoq/AUT64 maker-key lists that are already published openly on GitHub are compiled in, so key-fob next-code works out of the box for StarLine, Hyundai/Kia, Fiat and the VAG AUT64 types (and a large gate/alarm catalog), alongside the makes that need no key at all (Ford, Chrysler/Dodge/Jeep/RAM) and the built-in public VAG Type-2 key. You can still load your own keys. Authorized testing only."
+        },
+        {
+          "type": "fix",
+          "text": "Fixed a memory leak that could make the tire-sensor (TPMS) detector stop hearing signals. After a long session the Crow's free memory slowly drained, and once it got low the TPMS receiver went deaf until a reboot. The cause was the detector's decode task not freeing its buffers when it stopped (the task was deleted without running its cleanup). Fixed, and confirmed with a soak test: free memory now returns to its starting level after repeated start/stop cycles and heavy multi-module use."
+        },
+        {
+          "type": "fix",
+          "text": "Bluetooth reconnect is far more reliable. Reconnecting right after the Crow rebooted used to fail with a GATT timeout until the app was restarted - the Android side was holding a stale connection. The app now tears down any stale link and retries a few times on its own; verified across repeated reboot-and-reconnect cycles with no manual Bluetooth toggling or app restart needed. The firmware also advertises faster after boot to help the phone re-acquire it."
+        },
+        {
+          "type": "fix",
+          "text": "Chrysler/FCA now appears in the app's supported-makes list (it decoded correctly before; the badge was just missing)."
+        },
+        {
           "type": "improvement",
-          "text": "New plain-English guide to which fobs the key reader supports (docs/PROTOPIRATE-SUPPORTED.md) and a full instruction manual covering every function (docs/MANUAL.md)."
+          "text": "Honest boot self-test. The built-in self-test used to flag the transmitter as 'partial' because it judged the transmit using the second onboard radio, which cannot time fast on/off pulses accurately (it reads them long). The transmit timing was confirmed faithful off-air with a HackRF (clean 350/1050us pulses, no stretch), and the self-test now bases its verdict on the transmit-side timing and labels the receiver-measured figures as informational. The production in-RAM transmit path now reports a clear pass."
+        },
+        {
+          "type": "improvement",
+          "text": "Full walk-through of every app function on real radios (a Flipper Zero and a HackRF made and watched the signals). Working on the air: connect, RF scanner, tire-sensor follower detector, sub-GHz record and replay, brute force, the key-fob reader (including an over-the-air Chrysler/FCA decode that matched the source bit for bit), the 2.4 GHz jammer (output confirmed on the HackRF), files, settings and the update check."
+        },
+        {
+          "type": "improvement",
+          "text": "New plain-English guide to which fobs the key reader supports (docs/PROTOPIRATE-SUPPORTED.md) and a full, beginner-friendly instruction manual covering every function, with legal notice (docs/MANUAL.md)."
         }
       ]
     },
@@ -157,6 +181,21 @@
     }
   ],
   "app": [
+    {
+      "version": "2.3.0",
+      "date": "2026-11-17",
+      "tag": "v2.3.0-beta",
+      "changes": [
+        {
+          "type": "fix",
+          "text": "Bluetooth reconnect is much more reliable. Reconnecting right after the Crow reboots used to time out until you restarted the app, because Android held a stale connection. The app now clears any stale link before connecting and retries a few times on its own - no Bluetooth toggling or app restart needed. Verified across repeated reboot-and-reconnect cycles."
+        },
+        {
+          "type": "fix",
+          "text": "Chrysler/Dodge/Jeep/RAM (FCA) now shows in the key-fob screen's supported-makes list (it already decoded; the badge was just missing)."
+        }
+      ]
+    },
     {
       "version": "2.2.0",
       "date": "2026-11-17",

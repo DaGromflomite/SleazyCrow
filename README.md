@@ -39,10 +39,12 @@ walkthrough of each one in the [instruction manual](docs/MANUAL.md).
   NICE, Holtek, FAAC, BFT and more), in order or as a de Bruijn sequence.
 - **Key-fob reader (ProtoPirate)** — read a car key fob, show the make and button, and for
   the supported makes build and send the next valid rolling code. **Reading works for every
-  supported make with no setup.** For next-code, **VW/Audi/Seat/Škoda (VAG Type-2) works out
-  of the box** — its key is public and built in. The other next-code makes (StarLine, Fiat,
-  Ford, Hyundai/Kia, VAG AUT64) need a maker key you load for a vehicle you're authorized to
-  test; those keys aren't published in the clear, so none ship by default. Full breakdown in
+  supported make with no setup.** For next-code, the maker keys that are already public on
+  GitHub (the decrypted KeeLoq/AUT64 lists) are now built into the firmware, so next-code is
+  available out of the box for VW/Audi/Seat/Škoda (VAG), StarLine, Hyundai/Kia, Fiat and the
+  big gate/alarm catalog, alongside the makes that need no key at all (Ford, Chrysler/Dodge/
+  Jeep/RAM). You can still load your own keys for a make that isn't covered. Only use this on
+  fobs and vehicles you own or have written permission to test. Full breakdown in
   [docs/PROTOPIRATE-SUPPORTED.md](docs/PROTOPIRATE-SUPPORTED.md).
 - **Playlists** — line up several `.sub` files and send them in order with one tap.
 - **Download library** — pull signals straight from the Flipper Sub-GHz DB and UberGuidoZ's
@@ -69,17 +71,44 @@ walkthrough of each one in the [instruction manual](docs/MANUAL.md).
 
 See [`changelog.json`](changelog.json) for the full list. Highlights:
 
-**New in this build (v2.3.0-beta):**
+**New in this build (v2.3.0-beta).** This round was about making the whole thing solid and
+proving it on real hardware. What got fixed and added:
 
-- **The key-fob next-code feature now works for every make it supports** — StarLine, Fiat,
-  Ford, Hyundai/Kia (V3/V4) and the VW/Audi/Seat/Škoda (VAG) family. VAG Type 3/4 was the
-  last one that read back wrong; it's fixed and checked on the real hardware (all four VAG
-  makes pass). Details in [`docs/PROTOPIRATE-FORWARD-CODES.md`](docs/PROTOPIRATE-FORWARD-CODES.md).
-- **Every app function was run on real radios** and written up in
-  [`docs/QA-STATUS.md`](docs/QA-STATUS.md). The 2.4 GHz jammer's output was confirmed on a
-  HackRF this round.
+- **Car key-fob next-code now works for every supported make.** VAG Type 3/4 was the last one
+  that read back wrong; it's fixed and checked on the hardware (all four VW/Audi/Seat/Škoda
+  makes pass). Chrysler/Dodge/Jeep/RAM decoding was added and confirmed over the air, bit for
+  bit. Details in [`docs/PROTOPIRATE-FORWARD-CODES.md`](docs/PROTOPIRATE-FORWARD-CODES.md).
+- **The public maker keys are now built in.** The decrypted KeeLoq/AUT64 maker-key lists that
+  are already public on GitHub ship with the firmware, so next-code works out of the box for
+  StarLine, Hyundai/Kia, Fiat, the VAG AUT64 types and the gate/alarm catalog — not just the
+  keyless makes. You can still load your own. Authorized testing only; see the manual's legal
+  notice.
+- **Fixed a memory leak that could make the tire-sensor detector go deaf.** After a long
+  session the Crow's free memory slowly drained and, once it got low, the TPMS receiver
+  stopped hearing anything until a reboot. Tracked it to the detector's decode task not
+  releasing its buffers when it stopped; fixed, and confirmed with a soak test — memory now
+  returns to its starting level after heavy use.
+- **Bluetooth reconnect is much more reliable.** Connecting again right after the Crow reboots
+  used to time out until you restarted the app. The app now clears the stale connection and
+  retries on its own; tested across repeated reboots with no manual steps needed.
+- **Chrysler/FCA now shows in the app's supported-makes list** (it decoded fine before, the
+  badge was just missing).
+- **Every app function was run on real radios** — capture, replay, jammer, brute force,
+  scanner, key-fob decode (including an over-the-air read), tire-sensor detection — with a
+  Flipper Zero providing signals and a HackRF confirming transmissions. Written up in
+  [`docs/QA-STATUS.md`](docs/QA-STATUS.md).
+- **Honest diagnostics.** The built-in boot self-test used to flag the transmitter as "partial"
+  because it was judging the transmit with the second onboard radio, which can't time fast
+  pulses accurately. The transmit timing was confirmed faithful off-air with a HackRF, and the
+  self-test now reports it correctly.
 - **New plain-English docs:** a [supported-fobs list](docs/PROTOPIRATE-SUPPORTED.md) and a
-  full [instruction manual](docs/MANUAL.md).
+  full, beginner-friendly [instruction manual](docs/MANUAL.md).
+
+Known limits in this beta: the tire-sensor follower detector hasn't been tried next to a real
+car on an actual drive yet, and key-fob next-code hasn't been fired at a real vehicle — both
+are proven on the bench, not in the field. The `.sub` transmit path is faithful for normal
+signals; very large raw-sweep files that don't fit in memory fall back to a slower path with
+slightly stretched timing (on the list to improve).
 
 **New in v2.2.0-beta:**
 
