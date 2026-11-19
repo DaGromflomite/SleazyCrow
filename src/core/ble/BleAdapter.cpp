@@ -463,6 +463,14 @@ void BleAdapter::streamFileData(const uint8_t* header, size_t headerSize, File& 
     
     // Stream remaining file data in chunks
     while (file.available() && totalSent < fileSize) {
+        // Abort if the client vanished mid-download: otherwise the inbound worker
+        // keeps looping the whole file (read + yield per chunk) against a gone
+        // client for seconds, during which new commands pile into the 16-slot
+        // queue and get dropped ("Inbound queue full"). Bail out immediately.
+        if (!deviceConnected) {
+            ESP_LOGW(TAG, "Download aborted at %zu/%zu bytes: client disconnected", totalSent, fileSize);
+            break;
+        }
         size_t bytesToRead = (fileSize - totalSent > MAX_CHUNK_SIZE) ? MAX_CHUNK_SIZE : (fileSize - totalSent);
         size_t bytesRead = file.read(readBuffer, bytesToRead);
         
@@ -828,7 +836,22 @@ void BleAdapter::ServerCallbacks::onConnect(NimBLEServer* pServer, ble_gap_conn_
 void BleAdapter::ServerCallbacks::onDisconnect(NimBLEServer* pServer) {
     instance->deviceConnected = false;
     ESP_LOGI(TAG, "BLE Client disconnected");
-    
+
+    // Drain any queued-but-unprocessed inbound command packets. The client that
+    // sent them is gone, so they are stale; leaving them queued (a) holds heap and
+    // (b) keeps the 16-slot queue full, so the NEXT client's commands are dropped
+    // with "Inbound queue full, packet dropped" until a reboot. Seen after abrupt
+    // disconnects (app force-closed / swiped away mid-command). Free each buffer.
+    if (BleAdapter::inboundQueue != nullptr) {
+        BleAdapter::InboundMsg stale;
+        int drained = 0;
+        while (xQueueReceive(BleAdapter::inboundQueue, &stale, 0) == pdTRUE) {
+            if (stale.data != nullptr) free(stale.data);
+            drained++;
+        }
+        if (drained) ESP_LOGW(TAG, "Drained %d stale inbound packet(s) on disconnect", drained);
+    }
+
     // Restart advertising — NimBLE handles this more efficiently than Bluedroid
     vTaskDelay(pdMS_TO_TICKS(500));
     NimBLEDevice::startAdvertising();
