@@ -44,36 +44,11 @@ class TransmitFileDialog {
       return false;
     }
     
-    // Check if dialog needs to be shown
-    final shouldShow = await shouldShowDialog();
-    if (!shouldShow) {
-      // Skip dialog and transmit immediately
-      try {
-        await bleProvider.transmitFromFile(filePath, pathType: pathType);
-        if (context.mounted) {
-          final notificationProvider = Provider.of<NotificationProvider>(context, listen: false);
-          notificationProvider.showSuccess(AppLocalizations.of(context)!.signalTransmissionStarted(fileName));
-        }
-        return true;
-      } catch (e) {
-        if (context.mounted) {
-          final notificationProvider = Provider.of<NotificationProvider>(context, listen: false);
-          notificationProvider.showError(AppLocalizations.of(context)!.transmissionError(e.toString()));
-        }
-        return false;
-      }
-    }
-    
-    // Show confirmation dialog with a large tap/hold transmit button.
-    bool dontShowAgain = false;
+    // The big tap-to-transmit / tap-to-stop toggle below is the ONLY transmit
+    // control, and it is ALWAYS shown. There is deliberately no "don't show
+    // again" option: the stop button must never be hidden or bypassed, or
+    // transmit silently reverts to a one-shot send with no way to stop it.
     bool transmitting = false;
-
-    Future<void> savePref() async {
-      if (dontShowAgain) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool(_dontShowAgainKey, true);
-      }
-    }
 
     final result = await showDialog<bool>(
       context: context,
@@ -99,11 +74,6 @@ class TransmitFileDialog {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    AppLocalizations.of(context)!.transmitSignalConfirm,
-                    style: const TextStyle(color: AppColors.primaryText),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
                     '${AppLocalizations.of(context)!.file}: $fileName',
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
@@ -111,6 +81,11 @@ class TransmitFileDialog {
                     ),
                   ),
                   const SizedBox(height: 16),
+                  Text(
+                    AppLocalizations.of(context)!.transmitSignalConfirm,
+                    style: const TextStyle(color: AppColors.primaryText),
+                  ),
+                  const SizedBox(height: 12),
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
@@ -146,7 +121,6 @@ class TransmitFileDialog {
                         setState(() => transmitting = false);
                       } else {
                         // Start continuous transmission
-                        await savePref();
                         setState(() => transmitting = true);
                         bleProvider.startRepeatTransmit(filePath,
                             pathType: pathType);
@@ -193,22 +167,6 @@ class TransmitFileDialog {
                         ],
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  CheckboxListTile(
-                    value: dontShowAgain,
-                    onChanged: (value) {
-                      setState(() {
-                        dontShowAgain = value ?? false;
-                      });
-                    },
-                    title: Text(
-                      AppLocalizations.of(context)!.dontShowAgain,
-                      style: const TextStyle(color: AppColors.primaryText),
-                    ),
-                    contentPadding: EdgeInsets.zero,
-                    activeColor: AppColors.primaryAccent,
-                    checkColor: AppColors.primaryBackground,
                   ),
                 ],
               ),

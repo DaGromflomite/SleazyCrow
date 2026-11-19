@@ -411,43 +411,17 @@ void TpmsModule::processPacket(const std::vector<unsigned long>& pulses, float T
 #endif
     TpmsDecoded d;
     if (!demodPulses(pulses, d, T)) return;
-    // Every ID must repeat before it is reported. Generic (no-CRC) IDs are
-    // random on a corrupted frame, and even CRC-checked ones aren't safe: the
-    // decoder tries every bit alignment against 8-bit checksums, so a garbled
-    // frame passes by chance now and then (seen OTA: a wrong Schrader ID with a
-    // valid CRC). Real sensors send several identical repeats per burst, so
-    // require the exact same ID twice within 15 s.
     uint32_t now = millis();
     if (d.protocol != 0) lastValidatedAt_ = now;
-    bool confirmed = false;
-    for (int k = 0; k < kPendingMax; k++) {
-        if (pendingIds_[k] == d.id && now - pendingAt_[k] < 15000) {
-            confirmed = true;
-            break;
-        }
-    }
-    if (!confirmed) {
-        pendingIds_[pendingNext_] = d.id;
-        pendingAt_[pendingNext_] = now;
-        pendingNext_ = (pendingNext_ + 1) % kPendingMax;
-        return;
-    }
-    if (d.protocol == 0) {
-        // Confirmed generic: hold it ~1 s; if a CRC-validated frame arrives in
-        // the same burst, this was a corrupted repeat of that sensor (a garbled
-        // first frame repeats identically every burst -- seen OTA).
-        for (int k = 0; k < kHeldMax; k++) {
-            if (heldIds_[k] == d.id) return;          // already held
-        }
-        for (int k = 0; k < kHeldMax; k++) {
-            if (heldIds_[k] == 0) { heldIds_[k] = d.id; heldAt_[k] = now; break; }
-        }
-        return;
-    }
+
+    // IMMEDIATE: show EVERY decoded sensor the instant it is heard — validated
+    // OR generic, no repeat gate and no hold. The detector's job is maximum
+    // visibility for testing, so every sensor appears on its first frame.
+    // seenRecently() only stops one ID from spamming the list; a brand-new
+    // sensor is always surfaced at once.
     if (seenRecently(d.id)) return;
     if (seen_ < 0xFFFF) seen_++;
-    emitHit(d.id, d.pressureKpa, d.tempC, (int8_t)rssi, d.protocol,
-            d.protocol ? 1 : 0);
+    emitHit(d.id, d.pressureKpa, d.tempC, (int8_t)rssi, d.protocol, d.protocol ? 1 : 0);
 }
 
 void TpmsModule::releaseHeld() {

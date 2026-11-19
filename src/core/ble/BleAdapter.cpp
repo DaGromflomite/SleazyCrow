@@ -817,8 +817,12 @@ void BleAdapter::ServerCallbacks::onConnect(NimBLEServer* pServer) {
 // 30-50 ms (24-40 * 1.25 ms), slave latency 0, supervision timeout 6 s (600 * 10 ms).
 void BleAdapter::ServerCallbacks::onConnect(NimBLEServer* pServer, ble_gap_conn_desc* desc) {
     instance->deviceConnected = true;
-    pServer->updateConnParams(desc->conn_handle, 24, 40, 0, 600);
-    ESP_LOGI(TAG, "BLE conn params requested: interval 30-50ms, latency 0, supervision 6s");
+    // A/B TEST (connection reliability): calling updateConnParams the instant the
+    // central connects — before it finishes service discovery / MTU exchange — is a
+    // known trigger for GATT status 133 on Android. This build does NOT request it;
+    // the central's default params are used. If the 133 rate drops, re-add as a
+    // timer-deferred update ~3s after connect instead of inline here.
+    ESP_LOGI(TAG, "BLE connected (conn-params NOT force-updated inline - 133 A/B test)");
 }
 
 void BleAdapter::ServerCallbacks::onDisconnect(NimBLEServer* pServer) {
