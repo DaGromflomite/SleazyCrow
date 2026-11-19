@@ -5,17 +5,27 @@
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
     
-    <!-- Android 12+ (API 31+) specific Bluetooth permissions -->
-    <!-- No "neverForLocation" flag: with it, Android filters some BLE beacons
-         out of scan results, which would hide trackers (AirTag/Tile/iBeacon)
-         from the Detect screen. Location permission is requested anyway. -->
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <!-- Android 12+ (API 31+) specific Bluetooth permissions.
+         BLUETOOTH_SCAN is flagged neverForLocation: the app only scans to find
+         and connect the Crow (a named Nordic-UART peripheral), never to derive
+         location. With this flag, Android 12+ needs NO location permission and
+         NO Location Services (GPS) toggle to scan — which is exactly what blocked
+         testers who kept GPS off or declined the location prompt (bench-repro'd
+         on stock Android: scan hit LocationOffWarning and found nothing). The old
+         tracker Detect screen that once needed unfiltered beacon scans was
+         removed, so nothing depends on location-bearing scan results. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+                     android:usesPermissionFlags="neverForLocation"
+                     tools:targetApi="s" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
-    
-    <!-- Legacy Bluetooth permissions for older Android versions -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Location is only needed for BLE scanning on Android 11 and older; capped
+         at API 30 so Android 12+ never requests it (scan is neverForLocation). -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
+                     android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"
+                     android:maxSdkVersion="30" />
 
     <!-- WiFi scanning (Flock/ALPR/camera detection over WiFi). On Android 13+
          NEARBY_WIFI_DEVICES replaces the location requirement for scan results;

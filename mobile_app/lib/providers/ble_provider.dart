@@ -38,6 +38,15 @@ class BleProvider extends ChangeNotifier {
   String? _otaPreRebootVersion;
   Timer? _otaReconnectTimer;
 
+  // Unexpected-drop auto-reconnect (e.g. the Crow reboots). With autoConnect the
+  // OS re-establishes the GATT link, but the app must re-discover services and
+  // re-subscribe to be usable again — so on an unexpected disconnect we re-run the
+  // full (tested) connect path. A user-tapped disconnect must stay disconnected.
+  bool _userInitiatedDisconnect = false;
+  Timer? _autoReconnectTimer;
+  int _autoReconnectAttempts = 0;
+  static const int _maxAutoReconnectAttempts = 12;
+
   // Callback for logging
   Function(String level, String message, {String? details})? _logCallback;
 
@@ -459,10 +468,18 @@ class BleProvider extends ChangeNotifier {
       await Permission.bluetoothAdvertise.request();
     }
     
-    // Location permission (required for scanning)
-    if (await Permission.location.isDenied) {
-      await Permission.location.request();
-    }
+    // Location is only genuinely needed for BLE scanning on Android 11 and older
+    // (API <= 30). On Android 12+ the scan is flagged "neverForLocation" in the
+    // manifest, so NO location permission and NO Location Services toggle are
+    // required to find/connect the Crow. We still request it best-effort for old
+    // devices, but we never block connecting on it. (This was the cause of
+    // "can't connect at all" for testers who had Location Services off or denied
+    // the location prompt — bench-reproduced on stock Android.)
+    try {
+      if (await Permission.location.isDenied) {
+        await Permission.location.request();
+      }
+    } catch (_) {/* location not applicable on this Android version */}
 
     // Nearby WiFi devices (Android 13+): needed for the WiFi detector (Flock,
     // ALPR, cameras). Optional — Bluetooth and the Crow work without it.
@@ -472,11 +489,11 @@ class BleProvider extends ChangeNotifier {
       }
     } catch (_) {/* not applicable on this Android version */}
     
-    // Check if all permissions are granted
-    bool allGranted = await Permission.bluetooth.isGranted &&
-                      await Permission.bluetoothScan.isGranted &&
-                      await Permission.bluetoothConnect.isGranted &&
-                      await Permission.location.isGranted;
+    // Check if the permissions we actually need are granted. Location is NOT
+    // required on Android 12+ (scan is neverForLocation), so it must not gate
+    // readiness — otherwise a user who declines location can never connect.
+    bool allGranted = await Permission.bluetoothScan.isGranted &&
+                      await Permission.bluetoothConnect.isGranted;
     
     if (!allGranted) {
       statusMessage = 'Some permissions denied. Bluetooth may not work properly.';
@@ -541,9 +558,11 @@ class BleProvider extends ChangeNotifier {
   }
 
   Future<bool> _checkScanPermissions() async {
-    return await Permission.bluetooth.isGranted &&
-           await Permission.bluetoothScan.isGranted &&
-           await Permission.location.isGranted;
+    // Android 12+: scanning needs BLUETOOTH_SCAN/CONNECT only. The manifest flags
+    // the scan neverForLocation, so no location permission or Location Services
+    // toggle is required (this unblocks testers who keep GPS off).
+    return await Permission.bluetoothScan.isGranted &&
+           await Permission.bluetoothConnect.isGranted;
   }
   
   // Filter scan results to show only supported devices
@@ -625,7 +644,16 @@ class BleProvider extends ChangeNotifier {
           } catch (_) {/* nothing to tear down */}
           // Give Android's stack time to drop the old handle (longer each try).
           await Future.delayed(Duration(milliseconds: 250 + 250 * attempt));
-          await device.connect(timeout: const Duration(seconds: 12));
+          // Android background auto-connect. The direct (autoConnect:false) path is
+          // what throws the first-attempt GATT status-133 on many Android BT stacks;
+          // autoConnect hands the connection to the OS, which retries at the link
+          // layer and avoids the 133. MTU can't be negotiated during autoConnect, so
+          // pass null and request it after the link is up (done below). Bounded by a
+          // wait on the connection state so a dead attempt still falls to a retry.
+          await device.connect(autoConnect: true, mtu: null);
+          await device.connectionState
+              .firstWhere((s) => s == BluetoothConnectionState.connected)
+              .timeout(const Duration(seconds: 18));
           lastErr = null;
           break; // connected
         } catch (e) {
@@ -655,11 +683,21 @@ class BleProvider extends ChangeNotifier {
       // Set up connection state monitoring (cancel previous subscription on reconnect)
       _connectionStateSubscription?.cancel();
       _connectionStateSubscription = device.connectionState.listen((state) {
-        bool isConnected = state == BluetoothConnectionState.connected;
-        print('Connection state changed: $isConnected');
-        if (!isConnected) {
+        final nowConnected = state == BluetoothConnectionState.connected;
+        print('Connection state changed: $nowConnected');
+        if (!nowConnected) {
           print('Device disconnected, resetting state');
+          // Capture intent before _resetConnectionState clears everything.
+          final bool wasUserInitiated = _userInitiatedDisconnect;
+          _userInitiatedDisconnect = false;
+          final bool otaPending = _otaRebootPending;
           _resetConnectionState();
+          // Unexpected drop (Crow reboot / RF glitch): bring the link back on our
+          // own, with full service re-discovery. OTA has its own reconnect path,
+          // and a user-tapped disconnect must stay disconnected.
+          if (!wasUserInitiated && !otaPending) {
+            _scheduleAutoReconnect(device);
+          }
         }
       });
       
@@ -694,6 +732,7 @@ class BleProvider extends ChangeNotifier {
         
         if (txCharacteristic != null && rxCharacteristic != null) {
           isConnected = true;
+          _autoReconnectAttempts = 0; // healthy link; clear any reconnect backoff
           statusMessage = 'Connected to ${device.name}';
           _log('info', 'Successfully connected to device', details: 'Device: ${device.name} (${device.id})');
           
@@ -784,6 +823,35 @@ class BleProvider extends ChangeNotifier {
     }
   }
 
+  /// Auto-reconnect after an unexpected drop (e.g. the Crow rebooted). Re-runs the
+  /// full connect path so services are re-discovered and notifications re-subscribed
+  /// — autoConnect only restores the raw GATT link, not our characteristic handles.
+  /// Bounded + backed off so a powered-off Crow doesn't loop forever; the user can
+  /// always tap Connect.
+  void _scheduleAutoReconnect(BluetoothDevice device) {
+    _autoReconnectTimer?.cancel();
+    if (_autoReconnectAttempts >= _maxAutoReconnectAttempts) {
+      _log('warn', 'Auto-reconnect gave up after $_autoReconnectAttempts tries');
+      statusMessage = 'disconnected';
+      notifyListeners();
+      return;
+    }
+    _autoReconnectAttempts++;
+    statusMessage = 'reconnecting';
+    notifyListeners();
+    final delay = Duration(milliseconds: 1500 + 300 * _autoReconnectAttempts);
+    _autoReconnectTimer = Timer(delay, () async {
+      if (isConnected || _userInitiatedDisconnect) return;
+      try {
+        await connectToDevice(device);
+        _autoReconnectAttempts = 0; // recovered
+      } catch (e) {
+        _log('warn', 'Auto-reconnect attempt $_autoReconnectAttempts failed: $e');
+        _scheduleAutoReconnect(device); // keep trying (bounded)
+      }
+    });
+  }
+
   void _resetConnectionState() {
     _completeTxBurst();
     _completeTxIdle(); // a playlist waiting on the radio must not hang
@@ -843,6 +911,10 @@ class BleProvider extends ChangeNotifier {
   }
 
   Future<void> disconnect() async {
+    // Mark this as user-intended so the connection listener does NOT auto-reconnect.
+    _userInitiatedDisconnect = true;
+    _autoReconnectTimer?.cancel();
+    _autoReconnectAttempts = 0;
     if (connectedDevice != null) {
       try {
         _log('info', 'Disconnecting from device', details: 'Device: ${connectedDevice!.name}');
@@ -5266,6 +5338,7 @@ class BleProvider extends ChangeNotifier {
     _connectionStateSubscription?.cancel();
     _rxValueSubscription?.cancel();
     _otaReconnectTimer?.cancel();
+    _autoReconnectTimer?.cancel();
     disconnect();
     super.dispose();
   }
