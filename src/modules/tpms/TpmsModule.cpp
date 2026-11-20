@@ -77,6 +77,9 @@ bool TpmsModule::start(int module, float freqMHz) {
     if (active_) return true;
     module_ = module;
     freqMHz_ = freqMHz;
+    numRadios_ = 1;
+    modules_[0] = module;
+    freqs_[0] = freqMHz;
     packets_ = 0;
     seen_ = 0;
     edges_ = 0;
@@ -105,6 +108,49 @@ bool TpmsModule::start(int module, float freqMHz) {
     return true;
 }
 
+bool TpmsModule::startBoth(float freqA, float freqB) {
+    if (active_) return true;
+    numRadios_ = 2;
+    modules_[0] = 0; freqs_[0] = freqA;
+    modules_[1] = 1; freqs_[1] = freqB;
+    module_ = 0; freqMHz_ = freqA;    // primary, for legacy single-field status
+    packets_ = 0;
+    seen_ = 0;
+    edges_ = 0;
+    recentCount_ = 0;
+    memset(pendingIds_, 0, sizeof(pendingIds_));
+    pendingNext_ = 0;
+    memset(heldIds_, 0, sizeof(heldIds_));
+    lastValidatedAt_ = 0;
+
+    if (!CC1101Worker::startTpmsRX(modules_[0], freqs_[0])) {
+        ESP_LOGE(TAG, "startTpmsRX failed on module %d (%.2f MHz)", modules_[0], freqs_[0]);
+        numRadios_ = 1;
+        return false;
+    }
+    if (!CC1101Worker::startTpmsRX(modules_[1], freqs_[1])) {
+        ESP_LOGE(TAG, "startTpmsRX failed on module %d (%.2f MHz)", modules_[1], freqs_[1]);
+        CC1101Worker::stopTpmsRX(modules_[0]);
+        numRadios_ = 1;
+        return false;
+    }
+
+    active_ = true;
+    BaseType_t r = xTaskCreatePinnedToCore(
+        decodeTask, "TpmsDecode", 4096, this, 2, &taskHandle_, 1 /* core 1 */);
+    if (r != pdPASS) {
+        active_ = false;
+        CC1101Worker::stopTpmsRX(modules_[0]);
+        CC1101Worker::stopTpmsRX(modules_[1]);
+        numRadios_ = 1;
+        ESP_LOGE(TAG, "decode task create failed");
+        return false;
+    }
+    ESP_LOGI(TAG, "TPMS both-band started (mod0 %.2f + mod1 %.2f MHz)", freqs_[0], freqs_[1]);
+    sendStatus();
+    return true;
+}
+
 void TpmsModule::stop() {
     if (!active_) {
         sendStatus();
@@ -114,7 +160,8 @@ void TpmsModule::stop() {
     for (int i = 0; i < 30 && taskHandle_ != nullptr; i++) {
         vTaskDelay(pdMS_TO_TICKS(10));
     }
-    CC1101Worker::stopTpmsRX(module_);
+    for (int i = 0; i < numRadios_; i++) CC1101Worker::stopTpmsRX(modules_[i]);
+    numRadios_ = 1;
     ESP_LOGI(TAG, "TPMS sniffer stopped (%u packets, %u sensors)", packets_, seen_);
     sendStatus();
 }
@@ -122,21 +169,30 @@ void TpmsModule::stop() {
 // ---------------------------------------------------------------------------
 void TpmsModule::decodeTask(void* param) {
     TpmsModule* self = static_cast<TpmsModule*>(param);
-    const int module = self->module_;
-    portMUX_TYPE& mux = CC1101Worker::getSamplesMux(module);
-    ReceivedSamples& rxData = CC1101Worker::getSamples(module);
+    const int nr = self->numRadios_;
+    // Per-radio decode state; each radio watches its own band and alternates
+    // FSK/OOK independently. processPacket/releaseHeld/recentIds_ etc. are SHARED
+    // but touched only by THIS single task, so no locking is needed.
+    struct RadioState {
+        int module; float freq; bool ookMode;
+        uint32_t modTimer; uint32_t lastData;
+        std::vector<unsigned long> seg;
+    } rs[2];
+    for (int i = 0; i < nr; i++) {
+        rs[i].module   = self->modules_[i];
+        rs[i].freq     = self->freqs_[i];
+        rs[i].ookMode  = false;           // start FSK, alternate to OOK
+        rs[i].modTimer = millis();
+        rs[i].lastData = millis();
+        rs[i].seg.reserve(kMaxSegment);
+    }
     std::vector<unsigned long> chunk;
-    std::vector<unsigned long> seg;
     chunk.reserve(MAX_SAMPLES_BUFFER);
-    seg.reserve(kMaxSegment);
     uint32_t statusTimer = millis();
-    uint32_t modTimer = millis();
-    uint32_t lastData = millis();
 #ifdef TPMS_PULSE_DEBUG
     uint32_t dbgHist[24] = {0};
     int dbgMaxRun = 0;
 #endif
-    bool ookMode = false;   // start FSK (Toyota/Ford/Hyundai), alternate to OOK
 
     // WHY STREAMING: in CC1101 async RX with no carrier-sense squelch, GDO0
     // toggles on noise continuously. The old code waited for 100 ms of line
@@ -148,49 +204,55 @@ void TpmsModule::decodeTask(void* param) {
     // first ID half-bit stays in the run); noise can't sustain such a run, a
     // TPMS frame does. Simulated: 200/200 jittered frames found in noise, 0
     // false runs in 1M noise pulses.
-    auto flush = [&](float T) {
-        if ((int)seg.size() >= kMinSegment) self->processPacket(seg, T, -50);
-        seg.clear();
+    auto flush = [&](RadioState& r) {
+        float T = r.ookMode ? kHalfBitOokUs : kHalfBitFskUs;
+        if ((int)r.seg.size() >= kMinSegment) self->processPacket(r.seg, T, -50);
+        r.seg.clear();
     };
 
     while (self->active_) {
-        float T = ookMode ? kHalfBitOokUs : kHalfBitFskUs;
-        // Alternate modulation every ~4 s so we hear both TPMS families:
-        // FSK (Toyota/Ford/Hyundai ~52us) and OOK (Schrader/GM/BMW ~120us).
-        if (millis() - modTimer >= 4000) {
-            modTimer = millis();
-            flush(T);
-            ookMode = !ookMode;
-            CC1101Worker::retuneTpms(self->module_, self->freqMHz_, ookMode);
-            continue;
-        }
-
-        chunk.clear();
-        taskENTER_CRITICAL(&mux);
-        chunk.assign(rxData.samples.begin(), rxData.samples.end());
-        rxData.samples.clear();     // keep lastReceiveTime: next edge stays valid
-        taskEXIT_CRITICAL(&mux);
-
-        if (!chunk.empty()) {
-            lastData = millis();
-            self->edges_ += chunk.size();
-            for (unsigned long d : chunk) {
-#ifdef TPMS_PULSE_DEBUG
-                { int bk = d / 13; if (bk > 23) bk = 23; dbgHist[bk]++; }
-                if ((int)seg.size() + 1 > dbgMaxRun) dbgMaxRun = seg.size() + 1;
-#endif
-                float r = (float)d / T;
-                int n = (int)lroundf(r);
-                bool fits = n >= 1 && n <= 8 && fabsf(r - (float)n) <= 0.40f;
-                if (fits) {
-                    if ((int)seg.size() < kMaxSegment) seg.push_back(d);
-                    else flush(T);
-                } else {
-                    flush(T);
-                }
+        for (int i = 0; i < nr; i++) {
+            RadioState& r = rs[i];
+            float T = r.ookMode ? kHalfBitOokUs : kHalfBitFskUs;
+            // Alternate modulation every ~4 s so each band hears both TPMS
+            // families: FSK (Toyota/Ford/Hyundai ~52us) and OOK (Schrader ~120us).
+            if (millis() - r.modTimer >= 4000) {
+                r.modTimer = millis();
+                flush(r);
+                r.ookMode = !r.ookMode;
+                CC1101Worker::retuneTpms(r.module, r.freq, r.ookMode);
+                continue;
             }
-        } else if (!seg.empty() && millis() - lastData > 20) {
-            flush(T);                // line went quiet (OOK squelch) after a run
+
+            portMUX_TYPE& mux = CC1101Worker::getSamplesMux(r.module);
+            ReceivedSamples& rxData = CC1101Worker::getSamples(r.module);
+            chunk.clear();
+            taskENTER_CRITICAL(&mux);
+            chunk.assign(rxData.samples.begin(), rxData.samples.end());
+            rxData.samples.clear();     // keep lastReceiveTime: next edge stays valid
+            taskEXIT_CRITICAL(&mux);
+
+            if (!chunk.empty()) {
+                r.lastData = millis();
+                self->edges_ += chunk.size();
+                for (unsigned long d : chunk) {
+#ifdef TPMS_PULSE_DEBUG
+                    { int bk = d / 13; if (bk > 23) bk = 23; dbgHist[bk]++; }
+                    if ((int)r.seg.size() + 1 > dbgMaxRun) dbgMaxRun = r.seg.size() + 1;
+#endif
+                    float ratio = (float)d / T;
+                    int n = (int)lroundf(ratio);
+                    bool fits = n >= 1 && n <= 8 && fabsf(ratio - (float)n) <= 0.40f;
+                    if (fits) {
+                        if ((int)r.seg.size() < kMaxSegment) r.seg.push_back(d);
+                        else flush(r);
+                    } else {
+                        flush(r);
+                    }
+                }
+            } else if (!r.seg.empty() && millis() - r.lastData > 20) {
+                flush(r);            // line went quiet (OOK squelch) after a run
+            }
         }
 
         self->releaseHeld();
@@ -198,7 +260,7 @@ void TpmsModule::decodeTask(void* param) {
         if (millis() - statusTimer >= 2000) {
             statusTimer = millis();
 #ifdef TPMS_PULSE_DEBUG
-            Serial.printf("TPMSDBG %s maxrun=%d hist13us:", ookMode ? "OOK" : "FSK", dbgMaxRun);
+            Serial.printf("TPMSDBG maxrun=%d hist13us:", dbgMaxRun);
             for (int k = 0; k < 24; k++) { Serial.printf(" %lu", (unsigned long)dbgHist[k]); dbgHist[k] = 0; }
             Serial.println();
             dbgMaxRun = 0;
@@ -214,7 +276,7 @@ void TpmsModule::decodeTask(void* param) {
     // would never run — leaking ~10 KB (chunk reserves 2048*4B, seg too) on every
     // TPMS start/stop. Free their storage explicitly first.
     { std::vector<unsigned long>().swap(chunk); }
-    { std::vector<unsigned long>().swap(seg); }
+    for (int i = 0; i < nr; i++) { std::vector<unsigned long>().swap(rs[i].seg); }
 
     self->taskHandle_ = nullptr;
     vTaskDelete(nullptr);
@@ -485,7 +547,7 @@ void TpmsModule::emitHit(uint32_t sensorId, uint16_t pressureKpa, int8_t tempC,
 void TpmsModule::sendStatus() {
     BinaryTpmsStatus st;
     st.active = active_ ? 1 : 0;
-    st.module = (uint8_t)module_;
+    st.module = (numRadios_ == 2) ? 2 : (uint8_t)module_;  // 2 = both-band mode
     st.freqx100 = (uint16_t)lroundf(freqMHz_ * 100.0f);
     st.seen = seen_;
     st.packets = packets_;

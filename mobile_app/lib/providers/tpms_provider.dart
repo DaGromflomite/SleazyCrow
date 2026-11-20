@@ -98,7 +98,15 @@ class TpmsProvider extends ChangeNotifier {
   /// Highest activity reading this session (shows the radio was alive).
   int peakActivity = 0;
   /// Frequency the user picked (x100): 31500 (US) or 43392 (EU / some newer cars).
+  /// Sentinel freqX100 meaning "both bands at once" — one CC1101 per band
+  /// (module 0 @ 315, module 1 @ 433.92), so there's no choice between makes.
+  static const int kBothBands = 99999;
   int selectedFreqX100 = 31500;
+
+  /// Human label for the selected band (handles both-bands mode).
+  String get bandLabel => selectedFreqX100 == kBothBands
+      ? '315 + 433.92 MHz'
+      : '${(selectedFreqX100 / 100.0).toStringAsFixed(2)} MHz';
   static const String _prefsFreq = 'tpms_freq_x100';
 
   final Map<int, TpmsSensor> _session = {}; // ids this session
@@ -196,10 +204,16 @@ class TpmsProvider extends ChangeNotifier {
     activity = null;
     peakActivity = 0;
     _sessionStart = DateTime.now();
-    freqMHz = freqX100 / 100.0;
+    final bool both = freqX100 == kBothBands;
+    freqMHz = both ? 0.0 : freqX100 / 100.0;
     scanning = true;
     notifyListeners();
-    await ble.startTpmsScan(freqX100: freqX100);
+    if (both) {
+      // Both bands at once: firmware starts module 0 @ 315 + module 1 @ 433.92.
+      await ble.startTpmsScan(module: 2);
+    } else {
+      await ble.startTpmsScan(freqX100: freqX100);
+    }
   }
 
   Future<void> stop() async {
@@ -313,7 +327,7 @@ class TpmsProvider extends ChangeNotifier {
         sensitivity = TpmsSensitivity.values[si];
       }
       final fq = prefs.getInt(_prefsFreq);
-      if (fq == 31500 || fq == 43392) selectedFreqX100 = fq!;
+      if (fq == 31500 || fq == 43392 || fq == kBothBands) selectedFreqX100 = fq!;
       _history
         ..clear()
         ..addAll(_decodeMap(prefs.getString(_prefsKey)));
