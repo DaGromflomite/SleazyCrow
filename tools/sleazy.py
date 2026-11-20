@@ -12,6 +12,9 @@ published release are produced the same way.
   python tools/sleazy.py icons                     app icons + favicon from branding/
   python tools/sleazy.py package [--apk PATH]      dist/release (assets) + dist/site (flasher)
   python tools/sleazy.py notes                     dist/release-notes.md
+  python tools/sleazy.py publish                   deploy flasher (gh-pages) + cut the
+                                                   release WITH the APK, together (run
+                                                   package --apk first)
 
 Versioning: the firmware reports only MAJOR.MINOR.PATCH to the app, so every beta bumps
 PATCH (1.2.0-beta, 1.2.1-beta, ...). The "-beta" label lives in the version string, the
@@ -27,7 +30,9 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -506,6 +511,85 @@ Checksums: each file has a matching `.md5`.
     print("wrote dist/release-notes.md")
 
 
+# ── publish (flasher + APK release, together) ─────────────────────────────────
+
+def _run(cmd, cwd=ROOT, check=True, **kw):
+    print("+ " + " ".join(str(c) for c in cmd))
+    return subprocess.run(cmd, cwd=cwd, check=check, **kw)
+
+
+def _push_remote() -> str:
+    """The git remote whose URL points at REPO_OWNER/REPO_NAME (where releases live).
+    Matches the repo EXACTLY (…/SleazyCrow or …/SleazyCrow.git) so a sibling remote
+    like …/SleazyCrow-dev-backup is never picked."""
+    out = subprocess.run(["git", "remote", "-v"], cwd=ROOT,
+                         capture_output=True, text=True).stdout
+    pat = re.compile(rf"[:/]{re.escape(REPO_OWNER)}/{re.escape(REPO_NAME)}(?:\.git)?$")
+    for line in out.splitlines():
+        if "(push)" not in line:
+            continue
+        parts = line.split()
+        if len(parts) >= 2 and pat.search(parts[1]):
+            return parts[0]
+    die(f"no git remote points at {REPO_OWNER}/{REPO_NAME}.git — add one, e.g. "
+        f"`git remote add sleazy https://github.com/{REPO_OWNER}/{REPO_NAME}.git`")
+
+
+def cmd_publish(args) -> None:
+    """Deploy the web flasher (gh-pages) AND cut the GitHub release with the APK,
+    as ONE step, so the flasher's 'Download APK' link always resolves. Run
+    `package --apk <path>` first to build dist/site + dist/release."""
+    site, rel = DIST / "site", DIST / "release"
+    if not site.exists() or not rel.exists():
+        die("dist/site or dist/release missing — run `package --apk <apk>` first")
+    fw_str, _ = fw_version()
+    tag = f"v{fw_str}"
+    repo = f"{REPO_OWNER}/{REPO_NAME}"
+    assets = sorted(str(p) for p in rel.iterdir() if p.is_file())
+    apks = [a for a in assets if a.endswith(".apk")]
+    if not apks:
+        die("no .apk in dist/release — re-run `package --apk <apk>` so testers get the app")
+    remote = _push_remote()
+
+    # 1. Deploy flasher to gh-pages (temp worktree; old versioned bins preserved).
+    wt = Path(tempfile.mkdtemp(prefix="sleazy-ghp-"))
+    try:
+        _run(["git", "worktree", "prune"], check=False)
+        _run(["git", "fetch", remote, "gh-pages"])
+        _run(["git", "worktree", "add", "-B", "gh-pages", str(wt), f"{remote}/gh-pages"])
+        for item in site.rglob("*"):
+            if item.is_file():
+                dst = wt / item.relative_to(site)
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(item, dst)
+        _run(["git", "add", "-A"], cwd=wt)
+        if subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=wt).returncode != 0:
+            _run(["git", "commit", "-q", "-m", f"Deploy web flasher {tag}"], cwd=wt)
+            _run(["git", "push", remote, "gh-pages"], cwd=wt)
+            print(f"  flasher pushed to {remote}/gh-pages")
+        else:
+            print("  flasher already current on gh-pages")
+    finally:
+        _run(["git", "worktree", "remove", str(wt), "--force"], check=False)
+        _run(["git", "worktree", "prune"], check=False)
+
+    # 2. GitHub release with the SAME version's APK + firmware (create or update).
+    notes = DIST / "release-notes.md"
+    note_args = (["--notes-file", str(notes)] if notes.exists()
+                 else ["--notes", f"Sleazy Crow {tag}"])
+    exists = subprocess.run(["gh", "release", "view", tag, "--repo", repo],
+                            capture_output=True).returncode == 0
+    if exists:
+        _run(["gh", "release", "upload", tag, *assets, "--clobber", "--repo", repo])
+        print(f"  updated release {tag} assets (APK re-uploaded)")
+    else:
+        pre = ["--prerelease"] if ("-beta" in fw_str or "-unstable" in fw_str) else []
+        _run(["gh", "release", "create", tag, *assets, "--repo", repo,
+              "--title", f"Sleazy Crow {tag}", *pre, *note_args])
+        print(f"  created release {tag} with APK + firmware")
+    print(f"PUBLISHED {tag}: flasher and APK release are in sync.")
+
+
 def cmd_status(_args) -> None:
     fw_str, nums = fw_version()
     app_str, build = app_version()
@@ -528,6 +612,7 @@ def main() -> None:
     sub.add_parser("icons").set_defaults(fn=cmd_icons)
     p = sub.add_parser("package"); p.add_argument("--apk"); p.set_defaults(fn=cmd_package)
     sub.add_parser("notes").set_defaults(fn=cmd_notes)
+    sub.add_parser("publish").set_defaults(fn=cmd_publish)
     args = ap.parse_args()
     args.fn(args)
 
