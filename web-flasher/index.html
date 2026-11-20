@@ -60,10 +60,27 @@
   td code { word-break: break-all; }
   .tablewrap { overflow-x: auto; }
   footer.muted { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 24px; }
+  .thanks { background: linear-gradient(135deg, rgba(255,79,163,.14), rgba(46,230,214,.10)); border: 1px solid var(--pink); border-radius: 16px; padding: 20px 22px; margin: 0 0 22px; text-align: center; }
+  .thanks h2 { margin: 0 0 6px; font-size: 1.3rem; }
+  .thanks p { margin: 6px auto; max-width: 52ch; color: var(--text); }
+  .thanks .names { display: flex; flex-wrap: wrap; gap: 12px 22px; justify-content: center; margin-top: 14px; }
+  .thanks .name { font-weight: 800; font-size: 1.5rem; letter-spacing: .4px; line-height: 1.1; }
+  .thanks .n1 { color: var(--pink); text-shadow: 0 0 14px rgba(255,79,163,.6); }
+  .thanks .n2 { color: var(--cyan); text-shadow: 0 0 14px rgba(46,230,214,.6); }
+  .thanks .n3 { color: var(--gold); text-shadow: 0 0 14px rgba(252,188,75,.6); }
 </style>
 </head>
 <body>
 <main>
+  <section class="thanks">
+    <h2>💜 Thank you to our testers</h2>
+    <p>This project would have stalled badly without you. Your patience, your bug reports, and your real-world testing are the reason Sleazy Crow works. Huge thanks to:</p>
+    <div class="names">
+      <span class="name n1">404SkillNotFound</span>
+      <span class="name n2">GCash121</span>
+      <span class="name n3">Wreck</span>
+    </div>
+  </section>
   <img class="banner" src="banner.png" alt="Sleazy Crow" onerror="this.remove()">
   <h1>Sleazy Crow <code>v{{VERSION}}</code></h1>
   <p class="sub">Community fork of <a href="https://github.com/Senape3000/EvilCrowRF-V2">Senape3000's EvilCrowRF-V2</a> firmware for the Evil Crow RF V2 — a pocket sub-GHz and 2.4 GHz radio tool, driven from an Android app over Bluetooth, with reliability fixes and its own features on top.</p>
