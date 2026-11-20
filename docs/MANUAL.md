@@ -145,10 +145,29 @@ one" part and warns you.
 
 **Steps.**
 1. Tap the **TPMS** tab at the top of the Home screen.
-2. Pick the **band**:
-   - **315 MHz** — most cars sold in the US.
-   - **433.92 MHz** — most cars sold in Europe.
-   - If you do not know, run one for a while, then switch and run the other.
+2. Pick the **band** — the single most important setting, because a sensor only appears if
+   you are tuned to the frequency it actually transmits on:
+   - **315 MHz** — North America (US / Canada) and Japan.
+   - **433.92 MHz** — Europe and most of the rest of the world.
+   - **The one US exception worth knowing: Jeep, Chrysler, Dodge and RAM (FCA) use 433.92 MHz
+     even in North America.** If you are watching for an American FCA vehicle, choose 433.92,
+     not 315.
+   - If you do not know, run one band for a while, then switch and run the other.
+
+   **Which band for which make** (quick reference):
+
+   | Band | Makes it covers |
+   |---|---|
+   | **315 MHz** | Ford (US), Toyota / Lexus / Subaru / Scion (US), Honda / Acura, Nissan / Infiniti, GM / Chevy (older), and most Schrader-equipped US cars |
+   | **433.92 MHz** | **Jeep / Chrysler / Dodge / RAM (FCA — including in the US)**, Hyundai / Kia (VDO), BMW, Opel / Saab / Vauxhall, Fiat, Peugeot / Citroën, Renault, and European-market Ford / Toyota |
+
+   > **About the "Both" button — a current hardware limitation.** The app also offers a
+   > **Both** option that listens on 315 and 433.92 at once. On the current Evil Crow hardware
+   > the two radios cannot both decode at the same time: in Both mode the Crow *scans* both
+   > bands, but only the primary band (315 MHz) reliably turns signals into decoded vehicles.
+   > **For dependable results, pick the single band that matches the car you are after** (use
+   > the table above). True simultaneous dual-band decoding is a known limitation we plan to
+   > revisit in a later release.
 3. Set **Flag a follower when** — how eager the warning is. **Immediate** flags a car the
    moment it matches; the looser settings wait for more sightings before crying wolf.
 4. Tap **Scan**. The radio starts listening. The line under it — **Radio: activity N (peak
