@@ -482,39 +482,60 @@ void TpmsModule::processPacket(const std::vector<unsigned long>& pulses, float T
     TpmsDecoded d;
     if (!demodPulses(pulses, d, T)) return;
     uint32_t now = millis();
-    if (d.protocol != 0) {
-        lastValidatedAt_ = now;
-    } else if (lastValidatedAt_ != 0 && (now - lastValidatedAt_) < 2000) {
-        // Generic (unknown-protocol) fingerprint arriving INSIDE a validated
-        // burst. A single real car emits a steady burst of frames; the ones that
-        // decode to a protocol are the truth, and a minority mis-align under RX
-        // jitter and fall here with a garbage ID. Those are corrupted repeats of
-        // the SAME car, not new vehicles — surfacing them spawns phantom
-        // "followers". Suppress a generic within ~2 s of any validated decode.
-        // A genuine unknown-protocol sensor (no validated frames nearby) is not in
-        // a burst window, so it still appears immediately below.
+
+    if (d.protocol == 0) {
+        // Generic (unknown-protocol) fingerprint. Under RX timing jitter a KNOWN
+        // sensor's frame mis-aligns and lands here with a garbage ID — a phantom
+        // "follower". Two guards:
+        //   (a) inside an active validated burst (a protocol decoded in the last
+        //       2 s) it is a corrupted repeat of that car — drop it outright;
+        //   (b) otherwise HOLD it ~1.2 s instead of showing instantly. If a
+        //       validated decode of the same burst arrives in that window it
+        //       clears the hold (see below), killing the PRE-validation phantom
+        //       that used to leak before the first good frame established the
+        //       burst. If nothing validates, releaseHeld() surfaces it as a real
+        //       unknown-protocol sensor. Known-make sensors are never delayed —
+        //       they decode to a protocol and show instantly below.
+        if (lastValidatedAt_ != 0 && (now - lastValidatedAt_) < 2000) return;
+        if (!seenRecently(d.id)) holdGeneric(d.id, now);
         return;
     }
 
-    // IMMEDIATE: show EVERY decoded sensor the instant it is heard — validated,
-    // plus any generic that is NOT shadowing a validated burst (gate above). The
-    // detector's job is maximum visibility for testing, so every real sensor
-    // appears on its first frame. seenRecently() only stops one ID from spamming
-    // the list; a brand-new sensor is always surfaced at once.
+    // Validated protocol decode = ground truth for this burst. Drop any generics
+    // currently held: they are jitter-corrupted repeats of THIS car, not new
+    // vehicles, so one car can't spawn phantom followers.
+    lastValidatedAt_ = now;
+    memset(heldIds_, 0, sizeof(heldIds_));
+
+    // IMMEDIATE: show the validated sensor the instant it is heard. seenRecently()
+    // only stops one ID from spamming the list; a brand-new sensor is always
+    // surfaced on its first frame.
     if (seenRecently(d.id)) return;
     if (seen_ < 0xFFFF) seen_++;
-    emitHit(d.id, d.pressureKpa, d.tempC, (int8_t)rssi, d.protocol, d.protocol ? 1 : 0);
+    emitHit(d.id, d.pressureKpa, d.tempC, (int8_t)rssi, d.protocol, 1);
+}
+
+// Park a generic ID in the hold buffer (dedup; evict the oldest slot if full).
+// releaseHeld() emits it after kGenericHoldMs unless a validated decode clears it.
+void TpmsModule::holdGeneric(uint32_t id, uint32_t now) {
+    for (int k = 0; k < kHeldMax; k++)
+        if (heldIds_[k] == id) { heldAt_[k] = now; return; }   // already held, refresh
+    int slot = 0; uint32_t oldest = 0xFFFFFFFFu;
+    for (int k = 0; k < kHeldMax; k++) {
+        if (heldIds_[k] == 0) { slot = k; break; }
+        if (heldAt_[k] < oldest) { oldest = heldAt_[k]; slot = k; }
+    }
+    heldIds_[slot] = id; heldAt_[slot] = now;
 }
 
 void TpmsModule::releaseHeld() {
     uint32_t now = millis();
     for (int k = 0; k < kHeldMax; k++) {
-        if (heldIds_[k] == 0 || now - heldAt_[k] < 1000) continue;
+        if (heldIds_[k] == 0 || now - heldAt_[k] < kGenericHoldMs) continue;
+        // Survived the hold window without a validated decode clearing it ->
+        // a genuine unknown-protocol sensor, surface it now.
         uint32_t id = heldIds_[k];
-        uint32_t t = heldAt_[k];
         heldIds_[k] = 0;
-        uint32_t dv = lastValidatedAt_ > t ? lastValidatedAt_ - t : t - lastValidatedAt_;
-        if (lastValidatedAt_ != 0 && dv < 1000) continue;  // part of a validated burst
         if (seenRecently(id)) continue;
         if (seen_ < 0xFFFF) seen_++;
         emitHit(id, 0xFFFF, -128, -50, 0, 0);
