@@ -46,6 +46,12 @@ class BleProvider extends ChangeNotifier {
   Timer? _autoReconnectTimer;
   int _autoReconnectAttempts = 0;
   static const int _maxAutoReconnectAttempts = 12;
+  // True while a connect/reconnect attempt is in flight. The attempt tears down
+  // any stale link with device.disconnect(), which fires the connection-state
+  // listener — without this guard the listener would schedule ANOTHER
+  // auto-reconnect for our own teardown, a recursive storm that flashed the
+  // "connection problem" warning forever and forced an app restart.
+  bool _connecting = false;
 
   // Callback for logging
   Function(String level, String message, {String? details})? _logCallback;
@@ -614,12 +620,13 @@ class BleProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> connectToDevice(BluetoothDevice device) async {
+  Future<void> connectToDevice(BluetoothDevice device, {bool background = false}) async {
+    _connecting = true;
     try {
-      statusMessage = 'connecting'; // Key for localization
+      if (!background) statusMessage = 'connecting'; // Key for localization
       _log('info', 'Attempting to connect to device', details: 'Device: ${device.name} (${device.id})');
       print('Connecting to device: ${device.name} (${device.id})');
-      notifyListeners();
+      if (!background) notifyListeners();
       
       // A running BLE scan blocks connection setup on Android. Stop it first.
       try {
@@ -634,7 +641,10 @@ class BleProvider extends ChangeNotifier {
       // lingering link, wait for it to settle, then connect — and we retry a few
       // times with a growing backoff so a transient stale handle clears itself
       // without the user touching Bluetooth or killing the app.
-      const int maxAttempts = 4;
+      // A background (auto-reconnect) attempt does fewer internal retries because
+      // the auto-reconnect scheduler already retries with backoff; a user-tapped
+      // connect tries harder before surfacing an error.
+      final int maxAttempts = background ? 2 : 4;
       Object? lastErr;
       for (int attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
@@ -667,8 +677,10 @@ class BleProvider extends ChangeNotifier {
           _log('warn',
               'Connect attempt $attempt/$maxAttempts failed (${e.toString()}); '
               'clearing stale link and retrying');
-          statusMessage = 'reconnecting'; // Key for localization
-          notifyListeners();
+          if (!background) {
+            statusMessage = 'reconnecting'; // Key for localization
+            notifyListeners();
+          }
           await Future.delayed(Duration(milliseconds: 500 * attempt)); // backoff
         }
       }
@@ -692,7 +704,10 @@ class BleProvider extends ChangeNotifier {
           // Unexpected drop (Crow reboot / RF glitch): bring the link back on our
           // own, with full service re-discovery. OTA has its own reconnect path,
           // and a user-tapped disconnect must stay disconnected.
-          if (!wasUserInitiated && !otaPending) {
+          // Do NOT auto-reconnect for a teardown that happens DURING an active
+          // connect attempt (_connecting) — that disconnect is ours, and letting
+          // it schedule another reconnect caused the recursive flashing storm.
+          if (!wasUserInitiated && !otaPending && !_connecting) {
             _scheduleAutoReconnect(device);
           }
         }
@@ -815,8 +830,12 @@ class BleProvider extends ChangeNotifier {
       
       notifyListeners();
     } catch (e) {
-      statusMessage = 'Connection error: ${_friendlyBleError(e)}';
-      notifyListeners();
+      if (!background) {
+        statusMessage = 'Connection error: ${_friendlyBleError(e)}';
+        notifyListeners();
+      }
+    } finally {
+      _connecting = false;
     }
   }
 
@@ -839,11 +858,13 @@ class BleProvider extends ChangeNotifier {
     final delay = Duration(milliseconds: 1500 + 300 * _autoReconnectAttempts);
     _autoReconnectTimer = Timer(delay, () async {
       if (isConnected || _userInitiatedDisconnect) return;
-      try {
-        await connectToDevice(device);
+      // connectToDevice handles its own errors (it never throws), so check the
+      // real outcome (isConnected) instead of relying on an exception.
+      await connectToDevice(device, background: true);
+      if (isConnected) {
         _autoReconnectAttempts = 0; // recovered
-      } catch (e) {
-        _log('warn', 'Auto-reconnect attempt $_autoReconnectAttempts failed: $e');
+      } else {
+        _log('warn', 'Auto-reconnect attempt $_autoReconnectAttempts failed; retrying');
         _scheduleAutoReconnect(device); // keep trying (bounded)
       }
     });
