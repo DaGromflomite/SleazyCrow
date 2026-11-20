@@ -1,6 +1,21 @@
 {
   "firmware": [
     {
+      "version": "2.3.3",
+      "date": "2026-11-19",
+      "tag": "v2.3.3-beta",
+      "changes": [
+        {
+          "type": "feature",
+          "text": "TPMS 'Both' band mode: watch 315 MHz AND 433.92 MHz at the same time, one CC1101 radio per band, so every vehicle is caught on the highway without choosing a make or band. A single decode task drains both radios and shares the de-dup/alert state; the single-band path is byte-for-byte unchanged. Pair it with 'Immediate' mode to flag every sensor the instant it appears - those two together are the proof the feature is live."
+        },
+        {
+          "type": "note",
+          "text": "Verified the TPMS decode chain end-to-end against a calibrated Ford signal reconstructed from the rtl_433 layout: it recovers full vehicle data (sensor ID, 31 psi, 15 C), confirming the decoder database is correct. A real frame that shows only a generic ID is a reception/tuning issue, not a decoder-table error."
+        }
+      ]
+    },
+    {
       "version": "2.3.2",
       "date": "2026-11-19",
       "tag": "v2.3.2-beta",
@@ -211,6 +226,21 @@
     }
   ],
   "app": [
+    {
+      "version": "2.3.3",
+      "date": "2026-11-19",
+      "tag": "v2.3.3-beta",
+      "changes": [
+        {
+          "type": "feature",
+          "text": "TPMS screen: new 'Both' band button next to 315 / 433.92. It monitors both bands simultaneously - pair with 'Immediate' to see every sensor pop the moment it is heard."
+        },
+        {
+          "type": "fix",
+          "text": "Bluetooth is now rock-solid. Fixed an auto-reconnect storm where, after any drop, the app could get stuck flashing a 'connection' warning at the bottom and need a restart. Root cause (reproduced on hardware, not guessed): an internal disconnect during a reconnect attempt re-triggered the auto-reconnect recursively, and success was mis-detected. Verified: 4 of 4 forced drops recovered cleanly at MTU 512 with no flashing and no restart."
+        }
+      ]
+    },
     {
       "version": "2.3.2",
       "date": "2026-11-19",
