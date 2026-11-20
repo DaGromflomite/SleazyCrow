@@ -463,14 +463,6 @@ void BleAdapter::streamFileData(const uint8_t* header, size_t headerSize, File& 
     
     // Stream remaining file data in chunks
     while (file.available() && totalSent < fileSize) {
-        // Abort if the client vanished mid-download: otherwise the inbound worker
-        // keeps looping the whole file (read + yield per chunk) against a gone
-        // client for seconds, during which new commands pile into the 16-slot
-        // queue and get dropped ("Inbound queue full"). Bail out immediately.
-        if (!deviceConnected) {
-            ESP_LOGW(TAG, "Download aborted at %zu/%zu bytes: client disconnected", totalSent, fileSize);
-            break;
-        }
         size_t bytesToRead = (fileSize - totalSent > MAX_CHUNK_SIZE) ? MAX_CHUNK_SIZE : (fileSize - totalSent);
         size_t bytesRead = file.read(readBuffer, bytesToRead);
         
@@ -825,33 +817,14 @@ void BleAdapter::ServerCallbacks::onConnect(NimBLEServer* pServer) {
 // 30-50 ms (24-40 * 1.25 ms), slave latency 0, supervision timeout 6 s (600 * 10 ms).
 void BleAdapter::ServerCallbacks::onConnect(NimBLEServer* pServer, ble_gap_conn_desc* desc) {
     instance->deviceConnected = true;
-    // A/B TEST (connection reliability): calling updateConnParams the instant the
-    // central connects — before it finishes service discovery / MTU exchange — is a
-    // known trigger for GATT status 133 on Android. This build does NOT request it;
-    // the central's default params are used. If the 133 rate drops, re-add as a
-    // timer-deferred update ~3s after connect instead of inline here.
-    ESP_LOGI(TAG, "BLE connected (conn-params NOT force-updated inline - 133 A/B test)");
+    pServer->updateConnParams(desc->conn_handle, 24, 40, 0, 600);
+    ESP_LOGI(TAG, "BLE conn params requested: interval 30-50ms, latency 0, supervision 6s");
 }
 
 void BleAdapter::ServerCallbacks::onDisconnect(NimBLEServer* pServer) {
     instance->deviceConnected = false;
     ESP_LOGI(TAG, "BLE Client disconnected");
-
-    // Drain any queued-but-unprocessed inbound command packets. The client that
-    // sent them is gone, so they are stale; leaving them queued (a) holds heap and
-    // (b) keeps the 16-slot queue full, so the NEXT client's commands are dropped
-    // with "Inbound queue full, packet dropped" until a reboot. Seen after abrupt
-    // disconnects (app force-closed / swiped away mid-command). Free each buffer.
-    if (BleAdapter::inboundQueue != nullptr) {
-        BleAdapter::InboundMsg stale;
-        int drained = 0;
-        while (xQueueReceive(BleAdapter::inboundQueue, &stale, 0) == pdTRUE) {
-            if (stale.data != nullptr) free(stale.data);
-            drained++;
-        }
-        if (drained) ESP_LOGW(TAG, "Drained %d stale inbound packet(s) on disconnect", drained);
-    }
-
+    
     // Restart advertising — NimBLE handles this more efficiently than Bluedroid
     vTaskDelay(pdMS_TO_TICKS(500));
     NimBLEDevice::startAdvertising();
