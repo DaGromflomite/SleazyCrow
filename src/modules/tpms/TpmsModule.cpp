@@ -409,6 +409,57 @@ bool TpmsModule::demodPulses(const std::vector<unsigned long>& pulses, TpmsDecod
         }
     }
 
+    // 2d. Toyota (proto 2): rtl_433 tpms_toyota uses DIFFERENTIAL Manchester, not
+    //     the standard Manchester the generic path below does — so real Toyota
+    //     frames are heard but never decoded without this. Anchored on the 14
+    //     half-bit preamble (0101 0101 0011 11), then the exact rtl_433
+    //     differential-Manchester bit recovery, then the Toyota byte decoder.
+    //     The 1-byte CRC + pressure1==pressure2 constraint make a false match
+    //     near-impossible, so a tolerant preamble search (<=2 half-bit slips) is
+    //     safe and robust to real-world jitter. (FSK; verified against a real
+    //     rtl_433 Toyota capture over the air.)
+    if (family != 2) {
+        static const uint8_t tpre[14] = {0,1,0,1,0,1,0,1, 0,0,1,1,1,1};
+        for (int inv = 0; inv < 2 && !out.ok; inv++) {
+            for (int s = 0; s + 14 + 144 <= nh; s++) {
+                int miss = 0;
+                for (int k = 0; k < 14; k++)
+                    if ((uint8_t)(half[s + k] ^ inv) != tpre[k]) { if (++miss > 2) break; }
+                if (miss > 2) continue;
+                // rtl_433 bitbuffer_differential_manchester_decode, on half-bits.
+                uint8_t db[80]; int nb = 0;
+                int ipos = s + 14, bit2 = 0;
+                auto G = [&](int i) { return (int)(half[i] ^ inv); };
+                while (ipos + 2 < nh && nb < 80) {           // sync phase
+                    int b1 = G(ipos), b2 = G(ipos + 1), b3 = G(ipos + 2); ipos += 2;
+                    if (b1 != b2) {
+                        if (b2 != b3) { db[nb++] = 0; }
+                        else { bit2 = b1; ipos -= 1; break; }
+                    } else { bit2 = 1 - b1; ipos -= 2; break; }
+                }
+                while (ipos + 1 < nh && nb < 80) {            // data phase
+                    int b1 = G(ipos); ipos += 1;
+                    if (b1 == bit2) break;                    // clock lost
+                    bit2 = G(ipos); ipos += 1;
+                    db[nb++] = (b1 == bit2) ? 1 : 0;
+                }
+                if (nb < 72) continue;
+                uint8_t by[9];
+                for (int B = 0; B < 9; B++) {
+                    uint8_t v = 0;
+                    for (int k = 0; k < 8; k++) v = (uint8_t)((v << 1) | (db[B * 8 + k] & 1));
+                    by[B] = v;
+                }
+                if (tpms::decodeToyota(by, 9, out) &&
+                    tpms::plausibleId(out.id, 32) &&
+                    tpms::plausibleReading(out.pressureKpa, out.tempC)) {
+                    return true;
+                }
+                out = TpmsDecoded();
+            }
+        }
+    }
+
     // 3. Manchester-decode half-bit pairs into a bit array (realign on
     //    violation), then 4. try the real protocol decoders at every bit
     //    alignment (normal + inverted). Both half-bit phases are tried: on air
