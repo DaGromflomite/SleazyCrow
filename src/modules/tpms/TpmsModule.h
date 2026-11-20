@@ -37,6 +37,10 @@ public:
 
     // Start sniffing on the given CC1101 module at freqMHz (315.0 US / 433.92 EU).
     bool start(int module = 0, float freqMHz = 315.0f);
+    // Both-antenna mode: one CC1101 per band, BOTH scanning at once — no choice
+    // between 315 and 433. Module 0 watches freqA, module 1 watches freqB; each
+    // still alternates FSK/OOK on its own band. One decode task drains both.
+    bool startBoth(float freqA = 315.0f, float freqB = 433.92f);
     void stop();
     bool isActive() const { return active_; }
 
@@ -69,6 +73,9 @@ private:
     volatile bool active_ = false;
     int           module_ = 0;
     float         freqMHz_ = 315.0f;
+    int           numRadios_ = 1;             // 1 = one band; 2 = both bands at once
+    int           modules_[2] = {0, 1};       // CC1101 module index per radio
+    float         freqs_[2]   = {315.0f, 433.92f};
     TaskHandle_t  taskHandle_ = nullptr;
 
     uint16_t packets_ = 0;   // TPMS-shaped pulse runs heard (reception confidence)

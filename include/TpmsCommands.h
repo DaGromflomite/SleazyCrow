@@ -33,14 +33,30 @@ public:
 
 private:
     static bool handleStart(const uint8_t* data, size_t len) {
-        int module = 0;
-        float freq = 315.0f;
-        if (len >= 1) module = data[0] ? 1 : 0;
-        if (len >= 3) {
-            uint16_t fx100 = (uint16_t)(data[1] | (data[2] << 8));
-            if (fx100 >= 28000 && fx100 <= 47000) freq = fx100 / 100.0f;
+        // data[0]: 0 = module0 @ 315, 1 = module1 @ 433, 2 = BOTH bands at once
+        //          (one radio per band — no choice between car makes).
+        uint8_t mode = (len >= 1) ? data[0] : 0;
+        bool ok;
+        if (mode == 2) {
+            // Both bands. Optional payload [2, freqA_x100(2), freqB_x100(2)];
+            // defaults to 315.00 (module 0) + 433.92 (module 1).
+            float fa = 315.0f, fb = 433.92f;
+            if (len >= 5) {
+                uint16_t a = (uint16_t)(data[1] | (data[2] << 8));
+                uint16_t b = (uint16_t)(data[3] | (data[4] << 8));
+                if (a >= 28000 && a <= 47000) fa = a / 100.0f;
+                if (b >= 28000 && b <= 47000) fb = b / 100.0f;
+            }
+            ok = TpmsModule::instance().startBoth(fa, fb);
+        } else {
+            int module = (mode == 1) ? 1 : 0;
+            float freq = 315.0f;
+            if (len >= 3) {
+                uint16_t fx100 = (uint16_t)(data[1] | (data[2] << 8));
+                if (fx100 >= 28000 && fx100 <= 47000) freq = fx100 / 100.0f;
+            }
+            ok = TpmsModule::instance().start(module, freq);
         }
-        bool ok = TpmsModule::instance().start(module, freq);
         uint8_t resp[] = { (uint8_t)(ok ? MSG_COMMAND_SUCCESS : MSG_COMMAND_ERROR), 0 };
         ClientsManager::getInstance().notifyAllBinary(
             NotificationType::TpmsEvent, resp, sizeof(resp));

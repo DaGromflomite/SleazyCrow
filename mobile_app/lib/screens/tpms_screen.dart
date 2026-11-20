@@ -33,7 +33,7 @@ class TpmsScreen extends StatelessWidget {
                 'Connect to the Crow first — TPMS reception uses its CC1101 radio.'),
             if (connected && tpms.scanning && tpms.packets == 0)
               _notice(
-                  'Listening on ${tpms.freqMHz.toStringAsFixed(2)} MHz. TPMS mostly '
+                  'Listening on ${tpms.bandLabel}. TPMS mostly '
                   'transmits from MOVING cars — packets appear when a vehicle is '
                   'nearby and rolling.'),
             if (tpms.liveSensors.isNotEmpty) _listActionBar(context, tpms),
@@ -121,7 +121,7 @@ class TpmsScreen extends StatelessWidget {
                         fontSize: 15)),
                 Text(
                   tpms.scanning
-                      ? 'Scanning ${tpms.freqMHz.toStringAsFixed(2)} MHz · '
+                      ? 'Scanning ${tpms.bandLabel} · '
                           '${tpms.packets} packets · ${tpms.liveSensors.length} sensors'
                       : 'Idle · ${tpms.knownFollowers.length} known followers',
                   style: const TextStyle(color: Colors.white70, fontSize: 12),
@@ -225,8 +225,10 @@ class TpmsScreen extends StatelessWidget {
                   const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
             ),
             segments: const [
-              ButtonSegment(value: 31500, label: Text('315 MHz')),
-              ButtonSegment(value: 43392, label: Text('433.92 MHz')),
+              ButtonSegment(value: 31500, label: Text('315')),
+              ButtonSegment(value: 43392, label: Text('433.92')),
+              ButtonSegment(
+                  value: TpmsProvider.kBothBands, label: Text('Both')),
             ],
             selected: {tpms.selectedFreqX100},
             onSelectionChanged: (s) => tpms.setFrequency(s.first),
