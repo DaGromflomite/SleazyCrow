@@ -417,6 +417,7 @@ bool TpmsModule::demodPulses(const std::vector<unsigned long>& pulses, TpmsDecod
     static uint8_t bitbuf[256];
     static uint8_t firstBits[256];
     int firstNb = -1;
+    int firstClean = 0;   // cleanLen of the first phase, for the generic gate
     int i0 = 0, run = 1;
     while (i0 + 1 < nh && half[i0] == half[i0 + 1] && run < 64) { i0++; run++; }
     if (run > 8) i0++;                             // skip preamble, land on an edge
@@ -433,7 +434,7 @@ bool TpmsModule::demodPulses(const std::vector<unsigned long>& pulses, TpmsDecod
             else if (a == 0 && b == 1) { bitbuf[nb++] = 0; i += 2; if (!broke) cleanLen = nb; }
             else { broke = true; i += 1; }
         }
-        if (firstNb < 0) { firstNb = nb; memcpy(firstBits, bitbuf, nb); }
+        if (firstNb < 0) { firstNb = nb; memcpy(firstBits, bitbuf, nb); firstClean = cleanLen; }
         if (nb < 64) continue;
         // Anchor to the preamble; keep the decode with the longest preamble lock
         // across both Manchester phases. A passing checksum + plausible reading at
@@ -453,6 +454,13 @@ bool TpmsModule::demodPulses(const std::vector<unsigned long>& pulses, TpmsDecod
     while (lead < firstNb && bitbuf[lead] == bitbuf[0]) lead++;
     int goff = (lead >= 12 && lead + 1 + 32 <= firstNb) ? lead + 1 : 0;
     if (goff + 32 > firstNb) return false;
+    // Jitter gate: only fingerprint when the whole 32-bit ID region came from an
+    // UNBROKEN Manchester run. RX timing jitter mis-sizes a pulse, which breaks a
+    // pair and shifts every bit after it; such a frame yields a garbage ID (a
+    // phantom "follower"). Requiring the ID to sit inside the clean leading run
+    // drops those corrupted frames instead of surfacing a ghost. (Validated
+    // protocol frames are unaffected — they decode above, before this path.)
+    if (goff + 32 > firstClean) return false;
     uint32_t id = 0;
     for (int k = 0; k < 32; k++) id = (id << 1) | bitbuf[goff + k];
     if (!tpms::plausibleId(id, 32)) return false;   // preamble / garbage pattern
@@ -474,13 +482,25 @@ void TpmsModule::processPacket(const std::vector<unsigned long>& pulses, float T
     TpmsDecoded d;
     if (!demodPulses(pulses, d, T)) return;
     uint32_t now = millis();
-    if (d.protocol != 0) lastValidatedAt_ = now;
+    if (d.protocol != 0) {
+        lastValidatedAt_ = now;
+    } else if (lastValidatedAt_ != 0 && (now - lastValidatedAt_) < 2000) {
+        // Generic (unknown-protocol) fingerprint arriving INSIDE a validated
+        // burst. A single real car emits a steady burst of frames; the ones that
+        // decode to a protocol are the truth, and a minority mis-align under RX
+        // jitter and fall here with a garbage ID. Those are corrupted repeats of
+        // the SAME car, not new vehicles — surfacing them spawns phantom
+        // "followers". Suppress a generic within ~2 s of any validated decode.
+        // A genuine unknown-protocol sensor (no validated frames nearby) is not in
+        // a burst window, so it still appears immediately below.
+        return;
+    }
 
-    // IMMEDIATE: show EVERY decoded sensor the instant it is heard — validated
-    // OR generic, no repeat gate and no hold. The detector's job is maximum
-    // visibility for testing, so every sensor appears on its first frame.
-    // seenRecently() only stops one ID from spamming the list; a brand-new
-    // sensor is always surfaced at once.
+    // IMMEDIATE: show EVERY decoded sensor the instant it is heard — validated,
+    // plus any generic that is NOT shadowing a validated burst (gate above). The
+    // detector's job is maximum visibility for testing, so every real sensor
+    // appears on its first frame. seenRecently() only stops one ID from spamming
+    // the list; a brand-new sensor is always surfaced at once.
     if (seenRecently(d.id)) return;
     if (seen_ < 0xFFFF) seen_++;
     emitHit(d.id, d.pressureKpa, d.tempC, (int8_t)rssi, d.protocol, d.protocol ? 1 : 0);
