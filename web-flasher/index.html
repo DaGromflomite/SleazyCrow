@@ -98,9 +98,10 @@
     <h2>1 · Install the firmware</h2>
     <ul>
       <li>Use <b>Chrome, Edge or Opera on a desktop/laptop</b> (Web Serial). Phones and Firefox/Safari can't flash.</li>
-      <li>Use a USB-C <b>data</b> cable, and close anything else using the Crow's serial port.</li>
+      <li>Use a USB-C <b>data</b> cable (not a charge-only one), and close anything else using the Crow's serial port.</li>
+      <li>When the browser asks, <b>pick the Crow's serial/COM port</b> — the <b>USB-SERIAL (CH340)</b> one. If several are listed, unplug the Crow, see which disappears, replug it and pick that one.</li>
       <li>Choose <b>"Erase device"</b> when asked.</li>
-      <li>If connecting fails with "wrong boot mode": some Crows can't be put into flashing mode automatically on <b>Windows</b> (CH340 USB chip). Please report it, and try macOS, Linux or ChromeOS if you can.</li>
+      <li><b>If it says "Failed to initialize" or "wrong boot mode":</b> the board couldn't enter flashing mode. Unplug and re-plug the Crow, use a <b>different USB cable and a different port</b> (a direct motherboard/rear port, not a hub), then press Install again. Some Crows (CH340 USB chip) can't auto-enter flashing mode on <b>Windows</b> — if it keeps failing, try macOS, Linux or ChromeOS. Please report it either way.</li>
     </ul>
     <div class="actions">
       <esp-web-install-button manifest="firmware/manifest.json">
