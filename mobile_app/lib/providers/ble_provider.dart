@@ -644,16 +644,13 @@ class BleProvider extends ChangeNotifier {
           } catch (_) {/* nothing to tear down */}
           // Give Android's stack time to drop the old handle (longer each try).
           await Future.delayed(Duration(milliseconds: 250 + 250 * attempt));
-          // Android background auto-connect. The direct (autoConnect:false) path is
-          // what throws the first-attempt GATT status-133 on many Android BT stacks;
-          // autoConnect hands the connection to the OS, which retries at the link
-          // layer and avoids the 133. MTU can't be negotiated during autoConnect, so
-          // pass null and request it after the link is up (done below). Bounded by a
-          // wait on the connection state so a dead attempt still falls to a retry.
-          await device.connect(autoConnect: true, mtu: null);
-          await device.connectionState
-              .firstWhere((s) => s == BluetoothConnectionState.connected)
-              .timeout(const Duration(seconds: 18));
+          // Direct connect (autoConnect:false): completes when the link is up or
+          // throws on timeout, and negotiates MTU 512 for fast transfers. The
+          // firmware's updateConnParams on connect keeps the link stable (no 133,
+          // no CONNECTION_TIMEOUT). autoConnect:true was passive — it sat on
+          // "Connecting..." without ever opening the link or negotiating MTU, which
+          // broke connect + the uber-repo upload + SD format.
+          await device.connect(timeout: const Duration(seconds: 12));
           lastErr = null;
           break; // connected
         } catch (e) {
