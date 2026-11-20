@@ -1,6 +1,17 @@
 {
   "firmware": [
     {
+      "version": "2.3.4",
+      "date": "2026-11-20",
+      "tag": "v2.3.4-beta",
+      "changes": [
+        {
+          "type": "fix",
+          "text": "TPMS: stop one real car showing up as several phantom 'followers'. Over-the-air tests proved the decoder and vehicle database are correct - a clean Ford frame decodes to full data (ID, 31 psi, 15 C). But RX timing jitter mis-sizes the occasional pulse, which slips the Manchester bit-alignment so that frame fails its checksum and falls to the generic fingerprint with a garbage ID - surfacing as an extra, detail-less 'detected' sensor. Two guards fix it: (1) a generic fingerprint is only emitted when its whole 32-bit ID came from an UNBROKEN Manchester run, dropping jitter-corrupted frames instead of inventing an ID; (2) a generic hit within 2 s of a validated decode is suppressed as a corrupted repeat of that same car. Measured in a faithful model of this exact demod: at realistic jitter one Ford car went from 1 real + up to ~36 phantoms down to just the 1 real sensor, with genuine unknown-protocol sensors still shown. Validated-protocol decodes and the single-band path are unchanged."
+        }
+      ]
+    },
+    {
       "version": "2.3.3",
       "date": "2026-11-19",
       "tag": "v2.3.3-beta",
@@ -226,6 +237,17 @@
     }
   ],
   "app": [
+    {
+      "version": "2.3.4",
+      "date": "2026-11-20",
+      "tag": "v2.3.4-beta",
+      "changes": [
+        {
+          "type": "fix",
+          "text": "TPMS follower list no longer fills with phantom duplicates of one car. The fix is in the firmware demod (jitter-corrupted frames are dropped instead of being shown as generic 'detected' sensors); the app just reflects the cleaner stream. One vehicle now shows as one sensor with its real make and reading."
+        }
+      ]
+    },
     {
       "version": "2.3.3",
       "date": "2026-11-19",
