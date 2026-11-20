@@ -1,6 +1,17 @@
 {
   "firmware": [
     {
+      "version": "2.3.5",
+      "date": "2026-11-20",
+      "tag": "v2.3.5-beta",
+      "changes": [
+        {
+          "type": "fix",
+          "text": "TPMS: close the last phantom-follower gap. v2.3.4 cut the jitter phantoms from a single car (live over-the-air: 5 phantoms down to 1), but one could still slip through if it arrived BEFORE the first validated frame of the burst - the suppression only engaged once a protocol had decoded. Now a generic (unknown-protocol) fingerprint is held ~1.2 s instead of shown instantly: if a validated decode of the same burst lands in that window it clears the hold (the generic was a corrupted repeat of that car), and a validated decode also clears any already-held generics. A genuine unknown-protocol sensor - nothing validates near it - is still surfaced after the short hold. Known makes decode to a protocol and show instantly, unchanged. Live-tested over the air on 315 MHz."
+        }
+      ]
+    },
+    {
       "version": "2.3.4",
       "date": "2026-11-20",
       "tag": "v2.3.4-beta",
@@ -237,6 +248,17 @@
     }
   ],
   "app": [
+    {
+      "version": "2.3.5",
+      "date": "2026-11-20",
+      "tag": "v2.3.5-beta",
+      "changes": [
+        {
+          "type": "fix",
+          "text": "TPMS follower list: one car now shows as exactly one sensor. Firmware-side demod refinement closes the last case where a single vehicle could still add one phantom 'detected' entry; the app reflects the cleaner stream."
+        }
+      ]
+    },
     {
       "version": "2.3.4",
       "date": "2026-11-20",

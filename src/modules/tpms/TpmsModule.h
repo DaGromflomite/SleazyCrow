@@ -90,13 +90,17 @@ private:
     uint32_t pendingIds_[kPendingMax] = {0};
     uint32_t pendingAt_[kPendingMax] = {0};
     int pendingNext_ = 0;
-    // Confirmed generic IDs held ~1 s in case a validated frame shows they
-    // were a corrupted repeat of a decoded sensor.
+    // Generic (unknown-protocol) IDs are held briefly before being shown. If a
+    // validated protocol decode arrives in the hold window it clears them (they
+    // were jitter-corrupted repeats of that car — pre-burst phantoms); otherwise
+    // releaseHeld() surfaces them as a real unknown-protocol sensor.
     static constexpr int kHeldMax = 8;
+    static constexpr uint32_t kGenericHoldMs = 1200;
     uint32_t heldIds_[kHeldMax] = {0};
     uint32_t heldAt_[kHeldMax] = {0};
     uint32_t lastValidatedAt_ = 0;
     void releaseHeld();
+    void holdGeneric(uint32_t id, uint32_t now);
     int      recentCount_ = 0;
 
     bool seenRecently(uint32_t id);
