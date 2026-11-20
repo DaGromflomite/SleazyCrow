@@ -1,6 +1,17 @@
 {
   "firmware": [
     {
+      "version": "2.3.2",
+      "date": "2026-11-19",
+      "tag": "v2.3.2-beta",
+      "changes": [
+        {
+          "type": "fix",
+          "text": "Fixed the Bluetooth connection regression from v2.3.1 that stopped Crows connecting and broke the UberGuidoZ (\"uber repo\") sub-GHz download and the SD-card format. v2.3.1 had removed the on-connect connection-parameter negotiation (trying to avoid an Android GATT-133), which let the link renegotiate to unstable parameters and drop with a connection timeout - and everything that rides the Bluetooth link (connecting, the file upload, format) went with it. The proven connection-stability call is restored. Hardware-verified on an ESP32-PICO-D4 + a stock Pixel: connect with MTU 512 and zero GATT-133, directory listing over Bluetooth, and the UberGuidoZ fetch (11,290 files) + upload (files transferred with zero failures)."
+        }
+      ]
+    },
+    {
       "version": "2.3.1",
       "date": "2026-11-19",
       "tag": "v2.3.1-beta",
@@ -200,6 +211,17 @@
     }
   ],
   "app": [
+    {
+      "version": "2.3.2",
+      "date": "2026-11-19",
+      "tag": "v2.3.2-beta",
+      "changes": [
+        {
+          "type": "fix",
+          "text": "Fixed \"tap Connect and nothing happens.\" v2.3.1 switched the app to Android background auto-connect, which sat on \"Connecting...\" forever without ever opening the link or negotiating the fast 512-byte MTU - so connecting hung and the uber-repo upload / SD format could not run. Restored the direct connect, which completes (or fails cleanly to a retry) and negotiates MTU 512 for fast transfers. Kept the v2.3.1 app fixes: the push-to-send / push-to-stop transmit control, immediate TPMS display, and no-GPS Bluetooth scanning."
+        }
+      ]
+    },
     {
       "version": "2.3.1",
       "date": "2026-11-19",
