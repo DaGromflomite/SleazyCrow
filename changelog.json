@@ -7,6 +7,10 @@
    "changes": [
     {
      "type": "fix",
+     "text": "TPMS: removed the 'Both' band option. The Crow's two radios share one data line to the main chip, and listening on both 315 and 433.92 MHz at once is more than it can keep up with, so it dropped readings on both bands. You now pick one band; the manual lists which makes (and which US police vehicles) are on which band."
+    },
+    {
+     "type": "fix",
      "text": "Fixed a crash when sending a signal file to the Crow. A fast or interrupted upload could write past the end of a buffer and scramble memory the SD card code was using, which showed up later as a crash the next time the Crow opened a file. The upload now checks its limits before every write, so a bad upload gets dropped instead of taking the device down. Run on the hardware with a deliberately abusive upload: it used to crash every time, and now it does not."
     },
     {

@@ -180,13 +180,28 @@ one" part and warns you.
    Anything marked Unconfirmed may still work on a real vehicle; it means the bench
    test has not proven it yet, and real-car confirmation is the next step.
 
-   > **About the "Both" button - a current hardware limitation.** The app also offers a
-   > **Both** option that listens on 315 and 433.92 at once. On the current Evil Crow hardware
-   > the two radios cannot both decode at the same time: in Both mode the Crow *scans* both
-   > bands, but only the primary band (315 MHz) reliably turns signals into decoded vehicles.
-   > **For dependable results, pick the single band that matches the car you are after** (use
-   > the table above). True simultaneous dual-band decoding is a known limitation we plan to
-   > revisit in a later release.
+   **Why it listens to one band at a time.** The Crow has two radios, but they share a single
+   data line back to its main chip. Listening for TPMS means pulling a non-stop stream of raw
+   radio off a sensor's band and sorting the real sensor packets out of the noise as they
+   arrive. Doing that for both bands at the same time is more than the chip can keep up with -
+   it falls behind and drops sensor readings on both bands, so you end up hearing less, not
+   more. This was tried on the hardware and it did not work, so there is no "both bands"
+   option - you pick the one band that matches the car you are watching for. If you are not
+   sure which band, run one for a while, then switch to the other.
+
+   **Police vehicles (US).** The common American cruisers split across the two bands by who
+   makes them:
+
+   | Cruiser | Band | Why |
+   |---|---|---|
+   | **Ford Police Interceptor Utility** (Explorer-based SUV - the most common US cruiser) | **315 MHz** | Ford, US |
+   | **Chevrolet Tahoe PPV / Silverado** | **315 MHz** | GM, US |
+   | **Dodge Charger / Durango Pursuit** | **433.92 MHz** | FCA stays on 433.92 even in the US |
+
+   So for Ford and Chevy cruisers use **315**, and for Dodge cruisers use **433.92**. You
+   cannot cover both at once; for a mixed fleet, run one band for a while, then the other.
+   These bands follow the maker, but a given model year can differ, so confirm against a known
+   car when you get the chance.
 3. Set **Flag a follower when** - how eager the warning is. **Immediate** flags a car the
    moment it matches; the looser settings wait for more sightings before crying wolf.
 4. Tap **Scan**. The radio starts listening. The line under it - **Radio: activity N (peak

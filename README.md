@@ -61,6 +61,18 @@ walkthrough of each one in the [instruction manual](docs/MANUAL.md).
 - **"Is a car following me?" detector** — listen for the tire sensors on nearby cars and
   flag one that keeps showing up. Reads nine sensor types across the common US makes, shows
   make, pressure and temperature, and lets you save known followers.
+- **One band at a time (315 MHz or 433.92 MHz).** A tire sensor only shows up if the Crow is
+  tuned to the band it transmits on. Most North American cars use **315 MHz**; the exception
+  worth knowing is **Jeep/Chrysler/Dodge/RAM (FCA), which use 433.92 MHz even in the US**, as
+  do European cars. For US police vehicles that means Ford (Interceptor Utility) and Chevy
+  (Tahoe PPV) are on **315**, while Dodge (Charger/Durango Pursuit) is on **433.92**.
+- **Why it can't scan both bands at once.** The Crow has two radios, but they share a single
+  data line to its main chip, and TPMS listening means pulling a non-stop stream of raw radio
+  off a band and sorting the real sensor packets out of the noise in real time. Running that
+  for both bands at the same time is more than the chip can keep up with — it falls behind and
+  drops readings on both, so you hear less, not more. It was tried on the hardware and did not
+  work, so there is no "both bands" mode; you pick the band that matches the car you're after.
+  The manual has the full make-and-police-vehicle band guide.
 
 **2.4 GHz (nRF24):**
 - **Spectrum view** — see which 2.4 GHz channels are busy.
