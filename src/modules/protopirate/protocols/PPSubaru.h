@@ -29,79 +29,81 @@ public:
         memset(keyBytes_, 0, sizeof(keyBytes_));
     }
 
+    // Faithful port of subghz_protocol_decoder_subaru_feed (ProtoPirate).
+    // The bit value comes from the LOW+HIGH *pair*, not the HIGH alone:
+    //   short LOW -> long  HIGH = 0
+    //   long  LOW -> short HIGH = 1
+    // (Our old code read the HIGH only, which produced a 1-bit-shifted key.)
     bool feed(bool level, uint32_t duration) override {
-        auto& t = getTiming();
+        const uint32_t TE_SHORT = 800, TE_LONG = 1600, TE_DELTA = 200;
+        const uint32_t GAP_US = 2800, SYNC_US = 2800, GAP_SYNC_DELTA = 800;
+        const uint16_t PREAMBLE_MIN = 0x15;
 
         switch (parserStep_) {
         case StepReset:
-            if (level) {
-                // Look for long preamble HIGH
-                if (DURATION_DIFF(duration, t.te_long) <= t.te_delta) {
-                    parserStep_ = StepCheckPreamble;
-                    headerCount_ = 1;
-                }
+            if (level && DURATION_DIFF(duration, TE_LONG) < TE_DELTA) {
+                key_ = 0; bitCount_ = 0; headerCount_ = 0;
+                teLast_ = duration;
+                parserStep_ = StepCheckPreamble;
             }
             break;
 
         case StepCheckPreamble:
-            if (!level) {
-                if (DURATION_DIFF(duration, t.te_long) <= t.te_delta) {
-                    headerCount_++;
-                } else if (headerCount_ >= 8 && duration > 2500) {
-                    // Sync gap found after enough preamble
-                    parserStep_ = StepSaveDuration;
-                    bitCount_ = 0;
-                    key_ = 0;
-                    memset(keyBytes_, 0, sizeof(keyBytes_));
-                } else {
-                    parserStep_ = StepReset;
-                }
-            } else {
-                if (DURATION_DIFF(duration, t.te_long) <= t.te_delta) {
-                    headerCount_++;
-                } else {
-                    parserStep_ = StepReset;
-                }
+            if (level) return false;
+            if (DURATION_DIFF(duration, TE_LONG) < TE_DELTA &&
+                DURATION_DIFF(teLast_, TE_LONG) < TE_DELTA) {
+                headerCount_++;
+                return false;
             }
-            break;
-
-        case StepSaveDuration:
-            if (level) {
+            if (headerCount_ >= PREAMBLE_MIN &&
+                DURATION_DIFF(duration, GAP_US) < GAP_SYNC_DELTA) {
                 teLast_ = duration;
-                parserStep_ = StepCheckDuration;
+                parserStep_ = StepFoundGap;
             } else {
-                // Long gap means end of frame
-                if (duration > 3000 && bitCount_ >= 64) {
-                    return processData();
-                }
                 parserStep_ = StepReset;
             }
             break;
 
-        case StepCheckDuration:
-            if (!level) {
-                if (DURATION_DIFF(duration, t.te_short) <= t.te_delta ||
-                    DURATION_DIFF(duration, t.te_long) <= t.te_delta) {
-                    // PWM: short HIGH = 1, long HIGH = 0
-                    uint8_t bit = (DURATION_DIFF(teLast_, t.te_short) <= t.te_delta) ? 1 : 0;
-                    if (bitCount_ < 64) {
-                        keyBytes_[bitCount_ / 8] |= (bit << (7 - (bitCount_ % 8)));
-                        key_ = (key_ << 1) | bit;
-                    }
-                    bitCount_++;
-                    parserStep_ = StepSaveDuration;
-                } else if (duration > 3000) {
-                    if (bitCount_ >= 64) {
-                        return processData();
-                    }
-                    parserStep_ = StepReset;
-                } else {
-                    parserStep_ = StepReset;
-                }
+        case StepFoundGap:
+            if (level && DURATION_DIFF(duration, SYNC_US) < GAP_SYNC_DELTA &&
+                DURATION_DIFF(teLast_, GAP_US) < GAP_SYNC_DELTA) {
+                parserStep_ = StepFoundSync;
             } else {
                 parserStep_ = StepReset;
             }
             break;
+
+        case StepFoundSync:
+            if (!level && (DURATION_DIFF(duration, TE_LONG) < TE_DELTA ||
+                           DURATION_DIFF(duration, TE_SHORT) < TE_DELTA)) {
+                teLast_ = duration;
+                parserStep_ = StepSaveDuration;
+            } else {
+                parserStep_ = StepReset;
+            }
+            break;
+
+        case StepSaveDuration: {
+            uint8_t next = StepReset;
+            if (level) {
+                int bit = -1;
+                if (DURATION_DIFF(duration, TE_LONG) < TE_DELTA) {
+                    if (DURATION_DIFF(teLast_, TE_SHORT) < TE_DELTA) bit = 0;
+                } else if (DURATION_DIFF(duration, TE_SHORT) < TE_DELTA) {
+                    if (DURATION_DIFF(teLast_, TE_LONG) < TE_DELTA) bit = 1;
+                }
+                if (bit >= 0) {
+                    key_ = (key_ << 1) | (uint64_t)bit;
+                    bitCount_++;
+                    next = StepFoundSync;
+                }
+            }
+            parserStep_ = next;
+            if (bitCount_ >= 64 && bitCount_ <= 80) {
+                return processData();
+            }
+            break;
+        }
         }
         return false;
     }
@@ -146,8 +148,9 @@ private:
     enum {
         StepReset = 0,
         StepCheckPreamble,
+        StepFoundGap,
+        StepFoundSync,
         StepSaveDuration,
-        StepCheckDuration,
     };
 
     static const char* getButtonName(uint8_t btn) {
@@ -160,48 +163,56 @@ private:
         }
     }
 
-    /// Subaru counter decryption via bit-rotation
-    uint16_t decodeCounter() {
-        uint8_t* kb = keyBytes_;
-
-        // Extract lo byte from scattered bits
-        uint8_t lo = ((kb[4] >> 4) & 0x0F) | ((kb[7] << 4) & 0xF0);
-
-        // Shift registers from key bytes
-        uint8_t ser0 = kb[3];
-        uint8_t ser1 = kb[1];
-        uint8_t ser2 = kb[2];
-
-        // Rotate left by (4 + lo) positions
-        uint8_t rotAmount = (4 + lo) & 7;
-        ser0 = (ser0 << rotAmount) | (ser0 >> (8 - rotAmount));
-        ser1 = (ser1 << rotAmount) | (ser1 >> (8 - rotAmount));
-        ser2 = (ser2 << rotAmount) | (ser2 >> (8 - rotAmount));
-
-        uint8_t t1 = ser0 ^ ser1;
-        uint8_t t2 = t1 ^ ser2;
-
-        uint8_t hi = t2;
-        return (uint16_t)((hi << 8) | lo);
-    }
-
+    // Faithful port of subaru decode_fields (ProtoPirate subaru.c):
+    // serial = key bytes [1..3]; button = byte0 low nibble; counter recovered
+    // via the scattered-bit 'lo', a (4+lo)-step 24-bit left-rotation of serial
+    // bytes, and two XOR masks that unscramble the 'hi' byte.
     bool processData() {
-        result_.data = key_;
-        result_.dataBits = 64;
-        result_.protocolName = PROTOCOL_NAME;
+        uint8_t kb[8];
+        for (int i = 0; i < 8; i++) kb[i] = (uint8_t)(key_ >> (8 * (7 - i)));
 
-        // Extract serial from key bytes
-        result_.serial = ((uint32_t)keyBytes_[0] << 16) |
-                         ((uint32_t)keyBytes_[1] << 8) |
-                         keyBytes_[2];
-        result_.button = (keyBytes_[5] >> 4) & 0x0F;
-        result_.counter = decodeCounter();
+        static const uint8_t loTab[8][3] = {
+            {4,0x40,0x01},{4,0x80,0x02},{5,0x01,0x04},{5,0x02,0x08},
+            {6,0x01,0x10},{6,0x02,0x20},{5,0x40,0x40},{5,0x80,0x80}};
+        uint8_t lo = 0;
+        for (auto& e : loTab) if ((kb[e[0]] & e[1]) == 0) lo |= e[2];
+
+        uint8_t reg_sh1 = (uint8_t)(((kb[7] & 0x0F) << 4) | (kb[5] & 0x0C) | ((kb[6] >> 6) & 0x03));
+        uint8_t reg_sh2 = (uint8_t)(((kb[6] & 0x3C) << 2) | ((kb[7] >> 4) & 0x0F));
+
+        uint8_t ser0 = kb[3], ser1 = kb[1], ser2 = kb[2];
+        uint8_t rot = (uint8_t)(4 + lo);
+        for (uint8_t i = 0; i < rot; i++) {
+            uint8_t t = ser0;
+            ser0 = (uint8_t)((ser0 << 1) | (ser1 >> 7));
+            ser1 = (uint8_t)((ser1 << 1) | (ser2 >> 7));
+            ser2 = (uint8_t)((ser2 << 1) | (t >> 7));
+        }
+        uint8_t t1 = (uint8_t)(ser1 ^ reg_sh1);
+        uint8_t t2 = (uint8_t)(ser2 ^ reg_sh2);
+
+        static const uint8_t hiTab[8][3] = {
+            {1,0x10,0x04},{1,0x20,0x08},{2,0x80,0x02},{2,0x40,0x01},
+            {1,0x01,0x40},{1,0x02,0x80},{2,0x08,0x20},{2,0x04,0x10}};
+        uint8_t hi = 0;
+        for (auto& e : hiTab) {
+            uint8_t v = (e[0] == 1) ? t1 : t2;
+            if ((v & e[1]) == 0) hi |= e[2];
+        }
+
+        result_.data = key_;
+        result_.dataBits = (uint16_t)bitCount_;
+        result_.protocolName = PROTOCOL_NAME;
+        result_.serial = ((uint32_t)kb[1] << 16) | ((uint32_t)kb[2] << 8) | kb[3];
+        result_.button = kb[0] & 0x0F;
+        result_.counter = (uint16_t)(((uint16_t)hi << 8) | lo);
         result_.crc = 0;
         result_.crcValid = true;
         result_.canEmulate = true;
         result_.encrypted = false;
 
         parserStep_ = StepReset;
+        key_ = 0; bitCount_ = 0;
         return true;
     }
 };
