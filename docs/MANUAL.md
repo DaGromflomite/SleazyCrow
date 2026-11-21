@@ -407,7 +407,68 @@ start and stop it like a recording.
 
 ---
 
-## 9. nRF: Spectrum - see the 2.4 GHz band
+## 9. Sub-GHz: RollJam - defeating a rolling code (advanced, operator run)
+
+**What it is.** RollJam is a technique, not a button on the app. Car fobs, gates and most
+garage doors use a rolling code: every press sends a fresh one-time code, so a plain
+capture-and-replay (sections 3 and 4) fails because the code you recorded is already spent by
+the time you send it. RollJam works around that by jamming the receiver while the owner
+presses the fob, so their codes never reach the car and stay unused. You capture two presses,
+replay the first so the car still opens for the owner and nothing looks wrong, and keep the
+second, still valid, to use yourself later.
+
+The Crow does not orchestrate this for you. You run it by hand out of functions the firmware
+already has: the **jammer** (section 8) on one CC1101 module, and **Record** (section 3) then
+**Replay** (section 4) on the other. The board has two radios precisely so one can jam while
+the other listens.
+
+> **Warning and legal disclaimer - read this before you go any further.** Performing RollJam
+> against anything you do not own is a crime in the US, the EU, the UK, Canada, Australia and
+> almost everywhere else. Depending on where you are it can count as jamming/interference with
+> radio communications, unauthorized access, attempted theft of a vehicle, and more, and it
+> carries heavy fines and prison time. The jamming part alone is illegal on its own. It does
+> not block only your target either: it knocks out every fob, remote, alarm and safety device
+> on or near that frequency for everyone in range, which can put people at risk. This is
+> documented here for education and for authorized security testing on hardware you own or have
+> **written** permission to test, in a space you control such as a shielded bench or an
+> RF-isolated room. Do not do it in public, on the road, or against anyone else's property.
+> Everything that happens is your responsibility, not the maintainer's. If that is not exactly
+> your situation, stop here.
+
+**Before you start.** Know the target frequency (use the RF scanner, section 1; most fobs are
+315 MHz in North America or 433.92 MHz in Europe). Have the fob and the thing it controls in
+front of you, both yours. Open the **Record** screen: each CC1101 module has its own tab, and
+each module can jam or record on its own.
+
+**Steps.**
+1. On the Record screen, pick **module 1's tab**. Switch it to **Jamming**. Set its frequency
+   a little off the fob's centre, for example a few hundred kHz above or below it. The small
+   offset lets your jam blanket the car's wider receiver while your own capture radio can still
+   pick the fob out; jamming dead on top of your own receiver just deafens it too.
+2. Pick **module 2's tab**. Switch it to **Recording**. Set its frequency to the fob's actual
+   centre.
+3. Start **jamming** on module 1 first, then start **recording** on module 2. Both radios are
+   now live at once (both icons up top go active).
+4. Have the fob pressed once. The car does not react, because module 1 is jamming its receiver.
+   Module 2 captures code 1.
+5. Have the fob pressed a second time (a real owner presses again when the first press seems to
+   do nothing). The car still does not react. Module 2 captures code 2.
+6. **Stop the jamming** on module 1.
+7. **Replay code 1** (section 4). The car opens, so from the owner's side the second press
+   simply worked and nothing looks off. Code 2 is still sitting on the SD card, unused.
+8. Later, **replay code 2** to operate the target one more time. After that it is spent, like
+   any single rolling code.
+
+**Reality check.** This is finicky, not magic. Success depends on the jammer offset, antennas,
+distance, and how wide the target's receiver is, and the CC1101's receive filter has to be
+narrow enough to hear the fob past your own jamming. Expect to spend time tuning the offset on
+your own gear before anything captures cleanly. If recording picks up only jam noise, move the
+jammer frequency further off centre and try again. None of this changes the one rule above:
+own it or have written permission, or do not run it.
+
+---
+
+## 10. nRF: Spectrum - see the 2.4 GHz band
 
 **What it's for.** The 2.4 GHz band is where Wi-Fi, Bluetooth, wireless mice, drones and a lot
 of other gadgets live. This shows you which channels are busy.
@@ -424,7 +485,7 @@ view, not a precise spectrum analyzer. For that you would use an SDR.
 
 ---
 
-## 10. nRF: Jammer - flood a 2.4 GHz band
+## 11. nRF: Jammer - flood a 2.4 GHz band
 
 **What it does.** The same idea as sub-GHz jamming, on 2.4 GHz. **The same warning applies in
 full** - it is illegal in most places, and it knocks out Wi-Fi, Bluetooth, and other 2.4 GHz
@@ -449,7 +510,7 @@ single device. Pick the mode that matches what you are testing.
 
 ---
 
-## 11. nRF: MouseJack - scan for vulnerable wireless mice and keyboards
+## 12. nRF: MouseJack - scan for vulnerable wireless mice and keyboards
 
 **What it's for.** Some wireless mice and keyboards use 2.4 GHz dongles with a known weakness
 ("MouseJack"). This scans for those devices.
@@ -468,7 +529,7 @@ check your own wireless desk gear.
 
 ---
 
-## 12. Files - manage the SD card over Bluetooth
+## 13. Files - manage the SD card over Bluetooth
 
 **What it's for.** Browse and organize what is on the Crow without plugging it into a
 computer.
@@ -487,7 +548,7 @@ Flipper Zero uses.
 
 ---
 
-## 13. Settings
+## 14. Settings
 
 Tap **Settings** at the bottom. Each row expands.
 
@@ -506,7 +567,7 @@ Tap **Settings** at the bottom. Each row expands.
 
 ---
 
-## 14. Firmware update (over Bluetooth)
+## 15. Firmware update (over Bluetooth)
 
 1. In **Settings**, open **Firmware Update**. It shows the version currently on the Crow.
 2. Tap **Check FW Version**, then **OTA Update**.
@@ -518,7 +579,7 @@ The app also tells you on its own when a newer firmware or app version is out.
 
 ---
 
-## 15. If something goes wrong
+## 16. If something goes wrong
 
 - **Won't connect / times out.** The app now retries on its own, so wait a few seconds first.
   If it still fails, turn the phone's Bluetooth off and back on, then reconnect - that clears
