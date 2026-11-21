@@ -83,7 +83,8 @@ private:
     
     // File upload structure (minimal memory usage - writes chunks directly to file)
     struct FileUploadState {
-        File file;
+        File file;              // unused (kept for ABI); uploads no longer hold a handle
+        fs::FS* fsPtr = nullptr; // filesystem the file lives on (SD or LittleFS)
         uint8_t totalChunks;
         uint8_t receivedChunks;
         uint32_t timestamp;
@@ -127,7 +128,13 @@ private:
     // link drops with CONNECTION_TIMEOUT on Android. Instead we copy each inbound payload
     // onto a queue and process it on a dedicated worker task pinned to Core 1, leaving the
     // BLE stack on Core 0 free to service the connection.
-    struct InboundMsg { uint8_t* data; uint16_t len; };
+    struct InboundMsg { uint8_t* data; uint16_t len; bool serial; };
+public:
+    // Submit a framed command that arrived over USB serial. It is processed on
+    // the SAME inbound worker task as BLE commands so SD/SPI writes (e.g. file
+    // upload) run in the context that works, not inline on the serial task.
+    void submitSerialCommand(const uint8_t* data, size_t len);
+private:
     static QueueHandle_t inboundQueue;
     static TaskHandle_t  inboundTaskHandle;
     static void inboundTask(void* arg);

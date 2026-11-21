@@ -642,10 +642,12 @@ void serialCommandTask(void* pvParameters) {
                     uint16_t expectedLen = 7 + dataLen + 1; // header + data + checksum
                     
                     if (bufferIndex >= expectedLen) {
-                        // Process the complete packet
-                        bleAdapter.setSerialCommand(true);
-                        bleAdapter.processBinaryData(buffer, expectedLen);
-                        
+                        // Hand the packet to the shared inbound worker (same task
+                        // BLE uses) so SD writes from uploads persist. Processing
+                        // is async, but we've already copied the bytes out, so it
+                        // is safe to shift our buffer immediately below.
+                        bleAdapter.submitSerialCommand(buffer, expectedLen);
+
                         // Shift remaining data to start of buffer
                         size_t remaining = bufferIndex - expectedLen;
                         if (remaining > 0) {
