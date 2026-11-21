@@ -214,10 +214,16 @@ private:
     bool commitDecode() {
         uint8_t seed, button, plain[9], header;
         parseFrame(data_, data2_, seed, button, plain, header);
-        // counter (32-bit) lives in the decoded block for the even-seed subframe
-        uint32_t counter32 = ((uint32_t)plain[0] << 24) | ((uint32_t)plain[1] << 16) |
-                             ((uint32_t)plain[2] << 8) | plain[3];
-        uint32_t serial = ((uint32_t)plain[0] << 16) | ((uint32_t)plain[1] << 8) | plain[2];
+        // Serial is a full 32-bit field (upstream chrysler_v0 decode_packet):
+        //   payload A (even seed): plaintext bytes 0,1,2,3
+        //   payload B (odd  seed): plaintext bytes 0,1,2,7
+        // The old code used only bytes 0,1,2 (24-bit), dropping the 4th byte
+        // (serial came out as e.g. 0x004725BF instead of 0x4725BF79).
+        uint32_t serial = (seed & 1)
+            ? (((uint32_t)plain[0] << 24) | ((uint32_t)plain[1] << 16) |
+               ((uint32_t)plain[2] << 8)  | plain[7])
+            : (((uint32_t)plain[0] << 24) | ((uint32_t)plain[1] << 16) |
+               ((uint32_t)plain[2] << 8)  | plain[3]);
 
         result_.protocolName = PROTOCOL_NAME;
         result_.data      = data_;
@@ -225,7 +231,7 @@ private:
         result_.dataBits  = 80;
         result_.serial    = serial;
         result_.button    = button;
-        result_.counter   = (seed & 1) ? counter32 : seed;  // phase vs block counter
+        result_.counter   = seed;   // the 6-bit seed IS the counter (upstream)
         result_.crc       = 0;
         result_.crcValid  = true;   // keyless obfuscation: no CRC gate
         result_.encrypted = false;
