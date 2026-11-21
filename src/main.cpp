@@ -480,6 +480,17 @@ void serialCommandTask(void* pvParameters) {
     while (true) {
         if (Serial.available()) {
             uint8_t byte = Serial.read();
+            // Hard overflow guard AT THE POINT OF WRITE. Several branches below
+            // (the SDR-text accumulator, the multi-byte raw commands) `continue`
+            // and skip the tail guard while still appending bytes, so a desynced
+            // stream could accumulate past buffer[511] and stomp adjacent globals
+            // (e.g. the sdspi SPIClass) — later surfacing as a bogus-pointer crash
+            // inside SD.open. Resetting here before every write makes an OOB write
+            // impossible on every path. A frame that can't fit 512 B is a desync;
+            // drop the stale bytes and resync on this one. Legit frames are <=388 B.
+            if (bufferIndex >= sizeof(buffer)) {
+                bufferIndex = 0;
+            }
             buffer[bufferIndex++] = byte;
 
             // Handle simple raw commands (non-framed) to avoid race with loop()
