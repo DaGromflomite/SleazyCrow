@@ -72,11 +72,16 @@ public:
                              ((uint32_t)pp_reverse8(b[1]) << 8) |
                              pp_reverse8(b[0]);
         uint8_t btn = (pp_reverse8(b[7]) & 0xF0) >> 4;
+        // Discriminator: low byte of the fob serial is echoed in the decrypted
+        // plaintext (bits 23..16). Validate it so a wrong key out of a large
+        // keystore cannot win on the 4-bit button alone. (Matches upstream.)
+        uint8_t serialLsb = pp_reverse8(b[4]);
 
         for (size_t i = 0; i < pp::Keystore::count(); i++) {
             const pp::MfKey* mk = pp::Keystore::get(i);
             uint32_t plain = keeloq::decrypt(encrypted, mk->key);
             if (((plain >> 28) & 0x0F) != btn) continue;
+            if (((plain >> 16) & 0xFF) != serialLsb) continue;
 
             uint16_t newCnt = (uint16_t)((in.counter + (uint32_t)delta) & 0xFFFF);
             uint32_t newPlain = (plain & 0xFFFF0000u) | newCnt;  // keep btn + middle
@@ -244,10 +249,15 @@ private:
         // No KIA key is shipped; the operator loads it (authorized testing).
         result_.counter = 0;
         result_.canEmulate = false;
+        uint8_t serialLsb = pp_reverse8(b[4]);
         for (size_t i = 0; i < pp::Keystore::count(); i++) {
             const pp::MfKey* mk = pp::Keystore::get(i);
             uint32_t decrypted = keeloq::decrypt(encrypted, mk->key);
-            if (((decrypted >> 28) & 0x0F) == btn) {
+            // Require BOTH the 4-bit button AND the 8-bit serial-LSB echo to match,
+            // so a wrong key from a large keystore can't be picked on the button
+            // nibble alone (which left the recovered counter garbage). (Upstream.)
+            if ((((decrypted >> 28) & 0x0F) == btn) &&
+                (((decrypted >> 16) & 0xFF) == serialLsb)) {
                 result_.counter = decrypted & 0xFFFF;
                 result_.canEmulate = true;
                 break;

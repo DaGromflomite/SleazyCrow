@@ -905,7 +905,13 @@ bool ProtoPirateModule::forwardSelfTest(char* msg, size_t msgLen) {
         uint64_t data = 0;
         for (int k = 0; k < 8; k++) data |= (uint64_t)b[k] << (56 - 8 * k);
 
-        size_t saved = pp::Keystore::count();
+        // Isolate the keystore to ONLY our test key: the decoder/forward now
+        // validate button + serial-LSB, but with ~190 embedded keys loaded a
+        // wrong key could still collide on those 12 bits and be picked first.
+        // A unit test must exercise the code, not the embedded key set.
+        std::vector<pp::MfKey> savedKeys;
+        for (size_t i = 0; i < pp::Keystore::count(); i++) savedKeys.push_back(*pp::Keystore::get(i));
+        pp::Keystore::clear();
         pp::Keystore::add("__selftest__", K, 1);
 
         PPDecodeResult in;
@@ -949,7 +955,8 @@ bool ProtoPirateModule::forwardSelfTest(char* msg, size_t msgLen) {
                 }
             }
         }
-        pp::Keystore::truncate(saved);
+        pp::Keystore::clear();
+        for (const auto& k : savedKeys) pp::Keystore::add(k.name, k.key, k.learning);
         snprintf(kia, sizeof(kia), "Kia %u->%u %s",
                  (unsigned)cnt, (unsigned)fwdCnt, ok ? "PASS" : "FAIL");
         allOk = allOk && ok;
