@@ -8,6 +8,44 @@ Baseline: everything below is on top of the published **v1.2.0-beta** firmware +
 
 ---
 
+## ProtoPirate real-capture validation, upload-crash fix, app TX-capability sync (2026-11-21)
+
+**Authorized security testing only.** A full pass validating every shipped ProtoPirate
+decoder against real fob captures (KAT repo, with independent ground-truth decodes),
+fixing the decoders to match the real signals (never the reverse), killing a firmware
+crash in the upload path, and bringing the app's emulate capability in line with the firmware.
+
+**Decoders — 12/12 shipped protocols decode real captures (serial matches ground truth):**
+Ford V0 (4306BE50), Kia V0 (0DF8ABA0), Kia V1 (B444706E), Kia V3 (00C0ED06),
+Kia V4 (01C0ED06), Kia V5 (0440C016), Subaru (00CB715E), Suzuki V0 (01530242),
+Fiat V0 (54536200), VAG (0A2F9F3C), Chrysler/FCA (A11E7D24 + 4725BF79), PSA (725335).
+Each fix is a faithful re-port of the published decoder verified in Python against the
+real capture first, then in firmware. (Suzuki TS002 is a KAT-only extra, not a normal
+ProtoPirate protocol — intentionally not shipped.)
+
+**Firmware crash fixed — upload path (Guru Meditation / LoadProhibited).**
+A fast or desynced `.sub` upload over serial/BLE could panic the device inside
+`SD.open` (in the SPI SD-sector read of `open()`'s internal `stat()`). Root cause was
+*not* the SD code: `serialCommandTask` accumulated bytes into a fixed `buffer[512]`,
+and a few branches (the SDR-text accumulator, multi-byte raw commands) skipped the
+tail overflow guard while still appending, so a desynced stream could write past
+`buffer[511]` and stomp adjacent globals (the `sdspi` SPIClass). The corruption only
+surfaced later as a bogus-pointer crash in `SD.open`. Fixed with a hard bounds guard at
+the point of write, covering every branch. Verified on hardware: the fast-upload repro
+went from 2 panics to 0 across repeated runs, with no decode regression.
+
+**Streaming `loadSubFile`** feeds pulses one at a time into the decoders (O(1) memory),
+so frames deep inside long/noisy captures now decode (the old 2048-sample cap is gone).
+
+**App ↔ firmware TX-capability sync.** The firmware now serializes the real per-decode
+`canEmulate` flag in the decode-result (0xB5) and history-entry (0xB6) BLE packets, so
+the app offers "emulate" exactly when the signal can actually be re-transmitted —
+including key-gated cases (Kia V3/V4 needs a loaded KeeLoq key, StarLine needs a match)
+that a static name list cannot know. The app reads this optional trailing byte and falls
+back to a conservative static list only for older firmware.
+
+---
+
 ## VAG Type 3/4 decode fixed — full RF roundtrip (2026-11-17)
 
 **Authorized security testing only.** The last incomplete ProtoPirate item —

@@ -103,7 +103,14 @@ class ProtoPirateResult {
     return parts.join(' · ');
   }
 
-  /// Protocols that support TX (emulate) — names must match firmware registry
+  /// Fallback TX (emulate) capability, used ONLY when the firmware does not
+  /// send the canEmulate byte (older firmware). Current firmware is
+  /// authoritative: it serializes the real per-decode result_.canEmulate, which
+  /// correctly reflects key-gated cases (Kia V3/V4 needs a loaded KeeLoq key;
+  /// StarLine needs a match) and decode-only protocols (Kia V5/V6, PSA,
+  /// Scher-Khan, VAG). This set lists only the protocols whose decode path
+  /// unconditionally sets canEmulate=true, so the fallback never over-promises.
+  /// Names must match the firmware registry exactly.
   static const Set<String> _txCapableProtocols = {
     'Kia V0',
     'Kia V1',
@@ -113,6 +120,7 @@ class ProtoPirateResult {
     'Suzuki',
     'Subaru',
     'StarLine',
+    'Chrysler/FCA',
   };
 
   /// Create from parsed BLE binary data map

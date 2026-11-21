@@ -417,7 +417,7 @@ bool ProtoPirateModule::saveRawCapture(const std::vector<unsigned long>& samples
 void ProtoPirateModule::notifyDecodeResult(const PPDecodeResult& result) {
     // Build binary notification packet for BLE
     // Format: [MSG_PP_DECODE_RESULT][protocolNameLen:1][protocolName...][data:8][data2:8]
-    //         [serial:4][button:1][counter:4][dataBits:1][encrypted:1][crcValid:1]
+    //         [serial:4][button:1][counter:4][dataBits:1][encrypted:1][crcValid:1][canEmulate:1]
     uint8_t buf[64];
     size_t pos = 0;
 
@@ -457,6 +457,12 @@ void ProtoPirateModule::notifyDecodeResult(const PPDecodeResult& result) {
 
     // crcValid (1 byte)
     buf[pos++] = result.crcValid ? 1 : 0;
+
+    // canEmulate (1 byte) — the REAL per-decode TX capability, so the app offers
+    // emulate iff this signal can actually be re-transmitted. Reflects key-gated
+    // cases (Kia V3/V4, StarLine) and decode-only protocols, which a static
+    // name list on the app side cannot know. Appended last for back-compat.
+    buf[pos++] = result.canEmulate ? 1 : 0;
 
     ClientsManager::getInstance().notifyAllBinary(
         NotificationType::SignalDetected, buf, pos);
@@ -503,6 +509,7 @@ bool ProtoPirateModule::sendHistoryEntry(int index) {
     buf[pos++] = result.dataBits;
     buf[pos++] = result.encrypted ? 1 : 0;
     buf[pos++] = result.crcValid ? 1 : 0;
+    buf[pos++] = result.canEmulate ? 1 : 0;  // real per-decode TX capability (appended last)
 
     ClientsManager::getInstance().notifyAllBinary(
         NotificationType::SignalDetected, buf, pos);

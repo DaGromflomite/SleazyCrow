@@ -1463,7 +1463,9 @@ class BinaryMessageParser {
     return {'type': 'PPHistoryEntry', 'data': fields};
   }
 
-  /// Parse common PP data fields: [data:8][data2:8][serial:4][btn:1][cnt:4][bits:1][enc:1][crc:1] = 28 bytes
+  /// Parse common PP data fields:
+  /// [data:8][data2:8][serial:4][btn:1][cnt:4][bits:1][enc:1][crc:1] = 28 bytes,
+  /// plus an optional trailing [canEmulate:1] from current firmware (29 bytes).
   static Map<String, dynamic>? _parsePPDataFields(Uint8List data, int offset) {
     if (data.length < offset + 28) return null;
 
@@ -1494,7 +1496,7 @@ class BinaryMessageParser {
     bool encrypted = data[offset++] != 0;
     bool crcValid = data[offset++] != 0;
 
-    return {
+    final Map<String, dynamic> out = {
       'data': d,
       'data2': d2,
       'serial': serial,
@@ -1504,6 +1506,16 @@ class BinaryMessageParser {
       'encrypted': encrypted,
       'crcValid': crcValid,
     };
+
+    // canEmulate: optional trailing byte, sent by current firmware as the REAL
+    // per-decode TX capability (handles key-gated protocols the app can't infer
+    // from the name alone). When absent (older firmware), leave it unset so
+    // ProtoPirateResult falls back to its static _txCapableProtocols list.
+    if (data.length > offset) {
+      out['canEmulate'] = data[offset++] != 0;
+    }
+
+    return out;
   }
 
   /// Parse PP file list: [0xB9][count:1][{pathLen:1, path:pathLen, size:4LE}...]
