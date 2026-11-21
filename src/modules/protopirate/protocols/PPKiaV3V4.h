@@ -124,66 +124,81 @@ public:
             if (DURATION_DIFF(duration, t.te_short) > t.te_delta) return false;
             parserStep_ = StepCheckPreamble;
             headerCount_ = 1;
+            teLast_ = duration;
             bufIdx_ = 0;
             memset(rawBuf_, 0, sizeof(rawBuf_));
             decodeCountBit_ = 0;
             break;
 
+        // Faithful port of kia_v3_v4 feed CheckPreamble (upstream): preamble is
+        // short HIGH/LOW pairs (counted on the LOW after a short HIGH); the sync
+        // is a 1000..1500us pulse whose LEVEL selects the version (HIGH=V4,
+        // LOW=V3). The old code counted every short and only tested sync on a
+        // non-short pulse, which missed V3's LOW sync framing.
         case StepCheckPreamble:
-            if (DURATION_DIFF(duration, t.te_short) <= t.te_delta) {
-                headerCount_++;
-            } else if (headerCount_ >= 8) {
-                // Sync pulse: duration between 1000-1500µs
-                if (duration >= 1000 && duration <= 1500) {
-                    if (level) {
-                        isV3Sync_ = false;  // V4
-                    } else {
-                        isV3Sync_ = true;   // V3
-                    }
-                    parserStep_ = StepCollectRawBits;
+            if (level) {
+                if (DURATION_DIFF(duration, t.te_short) <= t.te_delta) {
+                    teLast_ = duration;
+                } else if (isSync(duration) && headerCount_ >= 8) {
+                    isV3Sync_ = false;                 // V4
+                    startCollect();
                 } else {
                     parserStep_ = StepReset;
                 }
             } else {
-                parserStep_ = StepReset;
+                if (isSync(duration)) {
+                    if (headerCount_ >= 8) { isV3Sync_ = true; startCollect(); }  // V3
+                    else parserStep_ = StepReset;
+                } else if (DURATION_DIFF(duration, t.te_short) <= t.te_delta &&
+                           DURATION_DIFF(teLast_, t.te_short) <= t.te_delta) {
+                    headerCount_++;
+                } else if (duration > 1500) {
+                    parserStep_ = StepReset;
+                }
             }
             break;
 
+        // Faithful port of CollectRawBits: short HIGH = 0, long HIGH = 1; a sync
+        // pulse (either level) or a LOW > 1500us ends the burst. V3's inverted
+        // bytes are flipped in processBuffer.
         case StepCollectRawBits:
             if (level) {
-                // PWM: short HIGH = 0, long HIGH = 1
-                if (DURATION_DIFF(duration, t.te_short) <= t.te_delta) {
-                    if (bufIdx_ < 68) {
-                        // Bit 0
-                        bufIdx_++;
-                    }
-                    decodeCountBit_++;
-                } else if (DURATION_DIFF(duration, t.te_long) <= t.te_delta) {
-                    if (bufIdx_ < 68) {
-                        rawBuf_[bufIdx_ / 8] |= (1 << (7 - (bufIdx_ % 8)));
-                        bufIdx_++;
-                    }
-                    decodeCountBit_++;
-                } else if (duration >= 1000) {
-                    // Next sync or end
-                    if (bufIdx_ >= 68) {
-                        return processBuffer();
-                    }
+                if (isSync(duration)) {
                     parserStep_ = StepReset;
+                    return finishBuffer();
+                } else if (DURATION_DIFF(duration, t.te_short) <= t.te_delta) {
+                    addRawBit(false);
+                } else if (DURATION_DIFF(duration, t.te_long) <= t.te_delta) {
+                    addRawBit(true);
                 } else {
                     parserStep_ = StepReset;
                 }
             } else {
-                // LOW pulse — check for long gap (end of frame)
-                if (duration > t.te_long * 3) {
-                    if (bufIdx_ >= 68) {
-                        return processBuffer();
-                    }
+                if (isSync(duration) || duration > 1500) {
                     parserStep_ = StepReset;
+                    return finishBuffer();
                 }
             }
             break;
         }
+        return false;
+    }
+
+    static bool isSync(uint32_t d) { return d > 1000 && d < 1500; }
+    void startCollect() {
+        parserStep_ = StepCollectRawBits;
+        bufIdx_ = 0;
+        memset(rawBuf_, 0, sizeof(rawBuf_));
+    }
+    void addRawBit(bool bit) {
+        if (bufIdx_ < 72) {   // rawBuf_ is 9 bytes
+            if (bit) rawBuf_[bufIdx_ / 8] |= (uint8_t)(1 << (7 - (bufIdx_ % 8)));
+            else     rawBuf_[bufIdx_ / 8] &= (uint8_t)~(1 << (7 - (bufIdx_ % 8)));
+            bufIdx_++;
+        }
+    }
+    bool finishBuffer() {
+        if (bufIdx_ >= 68) return processBuffer();
         return false;
     }
 
