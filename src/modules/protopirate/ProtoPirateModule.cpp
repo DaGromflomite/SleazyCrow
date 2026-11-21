@@ -278,6 +278,34 @@ void ProtoPirateModule::processLoop() {
     ESP_LOGI(TAG, "Decode task exiting (signals captured: %lu)", (unsigned long)signalCount_);
 }
 
+// Feed a single pulse to every decoder and record any decode in history.
+// Shared by the buffered path (feedSamplesToDecoders) and the streaming
+// loadSubFile path, so both behave identically.
+bool ProtoPirateModule::feedOneSample(bool level, uint32_t duration) {
+    bool anyDecoded = false;
+    for (auto& d : decoders_) {
+        bool decoded = d->feed(level, duration);
+        if (decoded) {
+            anyDecoded = true;
+            PPDecodeResult result = d->getResult();
+            result.frequency = activeFrequency_;
+
+            ESP_LOGI(TAG, "Decoded: %s (data=0x%llX, serial=%u, btn=%u)",
+                     result.protocolName ? result.protocolName : "?",
+                     result.data, result.serial, result.button);
+
+            if (xSemaphoreTake(mutex_, pdMS_TO_TICKS(50)) == pdTRUE) {
+                bool isNew = history_.add(result, (uint32_t)(millis()));
+                xSemaphoreGive(mutex_);
+                if (isNew) notifyDecodeResult(result);
+            }
+
+            d->reset();
+        }
+    }
+    return anyDecoded;
+}
+
 void ProtoPirateModule::feedSamplesToDecoders(const std::vector<unsigned long>& samples) {
     // Samples alternate: HIGH duration, LOW duration, HIGH, LOW, ...
     bool level = true;  // First sample is HIGH
@@ -285,32 +313,7 @@ void ProtoPirateModule::feedSamplesToDecoders(const std::vector<unsigned long>& 
 
     for (size_t i = 0; i < samples.size(); i++) {
         uint32_t duration = static_cast<uint32_t>(samples[i]);
-
-        for (auto& d : decoders_) {
-            bool decoded = d->feed(level, duration);
-            if (decoded) {
-                anyDecoded = true;
-                PPDecodeResult result = d->getResult();
-                result.frequency = activeFrequency_;
-
-                ESP_LOGI(TAG, "Decoded: %s (data=0x%llX, serial=%u, btn=%u)",
-                         result.protocolName ? result.protocolName : "?",
-                         result.data, result.serial, result.button);
-
-                // Add to history (with dedup)
-                if (xSemaphoreTake(mutex_, pdMS_TO_TICKS(50)) == pdTRUE) {
-                    bool isNew = history_.add(result, (uint32_t)(millis()));
-                    xSemaphoreGive(mutex_);
-
-                    if (isNew) {
-                        notifyDecodeResult(result);
-                    }
-                }
-
-                d->reset();
-            }
-        }
-
+        if (feedOneSample(level, duration)) anyDecoded = true;
         level = !level;
     }
 
@@ -560,74 +563,48 @@ bool ProtoPirateModule::loadSubFile(const char* filePath) {
         activeFrequency_ = (float)header.frequency / 1000000.0f;
     }
 
-    // Collect samples from the .sub file, but CAP the count: a big RAW sweep
-    // (e.g. a 100 KB Tesla file ≈ 25k pulses) would grow this vector past the
-    // free heap and throw bad_alloc. Decoders identify a protocol from the
-    // start of the signal, so the first MAX_LOAD_SAMPLES pulses are plenty.
-    // Cap at 2048 pulses (8 KB): plenty for any fob frame and protocol ID, and
-    // small enough to allocate even when BLE has left the heap fragmented with
-    // only ~35 KB free. The old 8192 (32 KB single block) threw bad_alloc here,
-    // which the load task caught silently, so loading a .sub to decode never ran.
-    static constexpr size_t MAX_LOAD_SAMPLES = 2048;
-    std::vector<unsigned long> samples;
-    samples.reserve(512);  // grow from a small block; never one giant reserve
+    // Stream the .sub pulses STRAIGHT into the decoders, one at a time, instead
+    // of buffering them into a vector. The decoders are state machines that
+    // consume pulse-by-pulse (exactly like the live ISR RX path), so this needs
+    // only O(1) memory and never allocates a big block — removing both the old
+    // bad_alloc risk AND the 2048-pulse cap that made frames located later in a
+    // long capture (e.g. a repeated-press x4/x10 recording, or one with a noisy
+    // lead-in) never decode. Level alternates by position (even=HIGH, odd=LOW),
+    // matching how feedSamplesToDecoders feeds ISR captures.
+    for (auto& d : decoders_) d->reset();
     size_t totalPulses = 0;
-    bool capped = false;
+    size_t fedPulses = 0;
+    bool level = true;
+    uint32_t first4[4] = {0,0,0,0};
+    size_t histBefore = history_.getCount();
 
     parser.streamRawData(filePath, [&](int32_t duration_us, bool pinState) {
-        // streamRawData emits SIGNED durations (+HIGH, -LOW). Store the ABSOLUTE
-        // value of EVERY pulse so the HIGH/LOW alternation is preserved by position
-        // (even=HIGH, odd=LOW), exactly as feedSamplesToDecoders expects.
-        // BUGFIX: the old code did `if (duration_us > 0)`, which DROPPED every LOW
-        // pulse and fed the decoders a mangled half-signal — so Load-.sub never
-        // actually decoded anything.
         (void)pinState;
-        if (samples.size() < MAX_LOAD_SAMPLES) {
-            uint32_t mag = (duration_us < 0) ? (uint32_t)(-duration_us)
-                                             : (uint32_t)duration_us;
-            if (mag > 0) samples.push_back((unsigned long)mag);
-        } else {
-            capped = true;
-        }
         totalPulses++;
+        uint32_t mag = (duration_us < 0) ? (uint32_t)(-duration_us)
+                                         : (uint32_t)duration_us;
+        if (mag == 0) return;              // skip zero-length pulses
+        if (fedPulses < 4) first4[fedPulses] = mag;
+        feedOneSample(level, mag);
+        level = !level;
+        fedPulses++;
     });
-    if (capped) {
-        ESP_LOGW(TAG, "loadSubFile: %s has %zu pulses; capped at %zu for decode",
-                 filePath, totalPulses, MAX_LOAD_SAMPLES);
-    }
 
-    Serial.printf("LOADSUB collected total=%zu samples=%zu\n", totalPulses, samples.size());
-    if (samples.size() < 20) {
-        ESP_LOGW(TAG, "loadSubFile: too few samples (%zu) in %s", samples.size(), filePath);
+    Serial.printf("LOADSUB collected total=%zu fed=%zu\n", totalPulses, fedPulses);
+    if (fedPulses < 20) {
+        ESP_LOGW(TAG, "loadSubFile: too few samples (%zu) in %s", fedPulses, filePath);
         return false;
     }
 
-    // Log first 16 pulses for diagnostics
-    char dbg[160];
-    int pos = 0;
-    size_t n = std::min(samples.size(), (size_t)16);
-    for (size_t i = 0; i < n && pos < 150; i++) {
-        pos += snprintf(dbg + pos, sizeof(dbg) - pos, "%s%lu",
-                        (i % 2 == 0) ? "+" : "-",
-                        samples[i]);
-    }
-    ESP_LOGI(TAG, "loadSubFile: %zu samples, pulses: %s%s",
-             samples.size(), dbg, samples.size() > 16 ? "..." : "");
-
-    Serial.printf("LOADSUB samples=%zu first=%lu,%lu,%lu,%lu\n", samples.size(),
-                  samples.size()>0?samples[0]:0, samples.size()>1?samples[1]:0,
-                  samples.size()>2?samples[2]:0, samples.size()>3?samples[3]:0);
-    // Feed to decoders exactly as we do for ISR-captured signals
-    size_t histBefore = history_.getCount();
-    feedSamplesToDecoders(samples);
+    Serial.printf("LOADSUB samples=%zu first=%lu,%lu,%lu,%lu\n", fedPulses,
+                  (unsigned long)first4[0], (unsigned long)first4[1],
+                  (unsigned long)first4[2], (unsigned long)first4[3]);
     Serial.printf("LOADSUB decoded=%d (history %u->%u)\n",
                   (int)(history_.getCount() - histBefore),
                   (unsigned)histBefore, (unsigned)history_.getCount());
 
-    // Check if any decoder found a match (getResult has valid data)
-    // We look for results that were already notified during feedSamplesToDecoders
     ESP_LOGI(TAG, "loadSubFile: analysis complete for %s (%zu pulses processed)",
-             filePath, samples.size());
+             filePath, fedPulses);
 
     return true;
 }

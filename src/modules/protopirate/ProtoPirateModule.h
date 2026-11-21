@@ -201,6 +201,7 @@ private:
 
     // Feed samples to all decoders
     void feedSamplesToDecoders(const std::vector<unsigned long>& samples);
+    bool feedOneSample(bool level, uint32_t duration);
 
     // Notify BLE clients of a new decode result
     void notifyDecodeResult(const PPDecodeResult& result);
