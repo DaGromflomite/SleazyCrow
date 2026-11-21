@@ -34,96 +34,119 @@ public:
         key1Low_ = 0; key1High_ = 0;
         key2Val_ = 0;
         bitCount_ = 0;
-        teHalf_ = 0;
-        manchState_ = ManchMid0;
-        patternThreshold_ = 0;
+        manchState_ = MS_Mid1;
     }
 
+    // Faithful port of the ProtoPirate PSA 250us Manchester path (psa.c States
+    // 0/1/2): standard Flipper Manchester (not the old ManchMid0 FSM), 64-bit
+    // key1 + 16-bit key2, frame completes at bit 80 on a ~1000/1250us HIGH end
+    // marker with the 0xA sync nibble. Verified against the real KAT capture
+    // GROUPE PSA/Delphi_remote_button3_x10.sub -> sn=725335 btn=3 cnt 68EE..
     bool feed(bool level, uint32_t duration) override {
+        const uint32_t TE_SHORT = 250, TE_LONG = 500, TOL99 = 99, TOL100 = 100;
+        const uint16_t PATTERN = 0x46;
+        const uint8_t KEY1_BITS = 64, KEY2_BITS = 80, MAX_BITS = 0x79;
+
         switch (parserStep_) {
         case StepReset:
             if (!level) return false;
-            if (inRange(duration, 250, 60)) {
-                teHalf_ = 250;
-                patternThreshold_ = 0x46;
-                goto startPreamble;
-            } else if (inRange(duration, 125, 30)) {
-                teHalf_ = 125;
-                patternThreshold_ = 0x46;
-                goto startPreamble;
+            if (duration < TE_SHORT ? (TE_SHORT - duration <= TOL99)
+                                    : (duration - TE_SHORT <= TOL99)) {
+                headerCount_ = 0; bitCount_ = 0;
+                dataLow_ = 0; dataHigh_ = 0;
+                key1Low_ = 0; key1High_ = 0; key2Val_ = 0;
+                manchState_ = MS_Mid1;
+                teLast_ = duration;
+                parserStep_ = StepPreamble;
             }
             return false;
 
-        startPreamble:
-            headerCount_ = 0;
-            bitCount_ = 0;
-            key1Low_ = 0; key1High_ = 0; key2Val_ = 0;
-            manchState_ = ManchMid0;
-            teLast_ = duration;
-            parserStep_ = StepPreamble;
-            return false;
-
-        case StepPreamble:
+        case StepPreamble: {
             if (level) return false;
-            if (inRange(duration, teHalf_, teHalf_ / 4) &&
-                inRange(teLast_, teHalf_, teHalf_ / 4)) {
+            bool isShort = (duration < TE_SHORT) ? (TE_SHORT - duration < TOL100)
+                                                 : (duration - TE_SHORT < TOL100);
+            if (isShort) {
+                if (DURATION_DIFF(teLast_, TE_SHORT) <= TOL99) headerCount_++;
                 teLast_ = duration;
-                headerCount_++;
                 return false;
             }
-            if (headerCount_ >= patternThreshold_) {
-                // Gap check: ~2×te is normal transition to data
-                if (inRange(duration, teHalf_ * 2, teHalf_ / 2)) {
+            bool isSync = (duration > TE_SHORT) && (DURATION_DIFF(duration, TE_LONG) < 100);
+            if (isSync) {
+                if (headerCount_ > PATTERN) {
+                    dataLow_ = 0; dataHigh_ = 0; bitCount_ = 0;
+                    manchState_ = MS_Mid1;
                     parserStep_ = StepData;
-                    return false;
                 }
+                headerCount_ = 0; teLast_ = duration;
+                return false;
             }
-            parserStep_ = StepReset;
+            headerCount_ = 0; parserStep_ = StepReset; teLast_ = duration;
             return false;
+        }
 
         case StepData: {
-            if (bitCount_ >= 96) {
-                // Done collecting, attempt decode
-                return decryptAndFinish();
+            if (bitCount_ >= MAX_BITS) { parserStep_ = StepReset; return false; }
+
+            if (level && bitCount_ == KEY2_BITS && isEndMarker(duration)) {
+                if (!syncOk()) { parserStep_ = StepReset; return false; }
+                return complete();
             }
 
-            int manchEvent = -1;
-            uint32_t tol = teHalf_ / 4;
-            if (inRange(duration, teHalf_, tol)) {
-                manchEvent = level ? 0 : 1;
-            } else if (inRange(duration, teHalf_ * 2, tol)) {
-                manchEvent = level ? 2 : 3;
+            int shortEv = fromHalfBit(!level, false);
+            int longEv  = fromHalfBit(!level, true);
+            int event = -1;
+            if (duration < TE_SHORT) {
+                if (TE_SHORT - duration >= TOL100) return false;
+                event = shortEv;
+            } else if (duration - TE_SHORT < TOL100) {
+                event = shortEv;
+            } else if (duration < TE_LONG) {
+                uint32_t from250 = duration - TE_SHORT, from500 = TE_LONG - duration;
+                if (from500 < 150 || from250 > from500) event = longEv;
+                else if (from250 < 150) event = shortEv;
+                else if (duration >= 350 && duration <= 400) event = longEv;
+                else return false;
+            } else if (duration - TE_LONG < 100) {
+                event = longEv;
+            } else {
+                if (!level) return false;
+                event = -1;
             }
 
-            if (manchEvent >= 0) {
-                bool bitVal;
-                if (manchesterAdvance(manchEvent, bitVal)) {
-                    pushBit(bitVal);
-                    if (bitCount_ == 64) {
-                        key1Low_ = dataLow_;
-                        key1High_ = dataHigh_;
+            if (event >= 0 && bitCount_ < KEY2_BITS) {
+                bool bit;
+                if (manchAdvance(event, bit)) {
+                    pushBit(bit);
+                    if (bitCount_ == KEY1_BITS) {
+                        key1Low_ = dataLow_; key1High_ = dataHigh_;
                         dataLow_ = 0; dataHigh_ = 0;
                     }
-                    if (bitCount_ == 80) {
-                        key2Val_ = dataLow_ & 0xFFFF;
-                        // Validate nibble: (key1High >> 16) & 0xF should be 0xA
-                        uint8_t nibble = (key1High_ >> 16) & 0xF;
-                        if (nibble == 0xA) {
-                            return decryptAndFinish();
-                        }
-                        parserStep_ = StepReset;
-                        return false;
-                    }
                 }
+            }
+            if (!level) return false;
+            if (event < 0) {
+                if (isEndMarker(duration) && bitCount_ == KEY2_BITS && syncOk())
+                    return complete();
                 return false;
             }
-
-            // Invalid timing → reset
-            parserStep_ = StepReset;
+            teLast_ = duration;
             return false;
         }
         }
         return false;
+    }
+
+    static bool isEndMarker(uint32_t d) {
+        return DURATION_DIFF(d, 1000) <= 199 || DURATION_DIFF(d, 1250) <= 199;
+    }
+    bool syncOk() const { return ((key1High_ >> 16) & 0xF) == 0xA; }
+    static int fromHalfBit(bool lvl, bool isLong) {
+        if (isLong) return lvl ? ME_LongHigh : ME_LongLow;
+        return lvl ? ME_ShortHigh : ME_ShortLow;
+    }
+    bool complete() {
+        key2Val_ = (uint16_t)(dataLow_ & 0xFFFF);
+        return decryptAndFinish();
     }
 
     std::vector<PPPulse> generatePulseData(const PPDecodeResult&) override {
@@ -144,31 +167,20 @@ private:
         StepData,
     };
 
-    // ──── Manchester ────
-    enum ManchState { ManchMid0 = 0, ManchMid1, ManchLow, ManchHigh };
-    ManchState manchState_ = ManchMid0;
-
-    bool manchesterAdvance(int event, bool& bit) {
-        switch (manchState_) {
-        case ManchMid0:
-            if (event == 1)      { manchState_ = ManchHigh; return false; }
-            else if (event == 0) { manchState_ = ManchLow;  return false; }
-            else if (event == 3) { manchState_ = ManchMid1; bit = false; return true; }
-            break;
-        case ManchMid1:
-            if (event == 0)      { manchState_ = ManchLow;  return false; }
-            else if (event == 1) { manchState_ = ManchHigh; return false; }
-            else if (event == 2) { manchState_ = ManchMid0; bit = true;  return true; }
-            break;
-        case ManchLow:
-            if (event == 1)      { manchState_ = ManchMid0; bit = true;  return true; }
-            break;
-        case ManchHigh:
-            if (event == 0)      { manchState_ = ManchMid1; bit = false; return true; }
-            break;
-        }
-        manchState_ = ManchMid0;
-        return false;
+    // ──── Standard Flipper Manchester (same table Ford/Kia use) ────
+    enum { ME_ShortLow = 0, ME_ShortHigh = 2, ME_LongLow = 4, ME_LongHigh = 6, ME_Reset = 8 };
+    enum { MS_Start1 = 0, MS_Mid1 = 1, MS_Mid0 = 2, MS_Start0 = 3 };
+    uint8_t manchState_ = MS_Mid1;
+    bool manchAdvance(int event, bool& bit) {
+        static const uint8_t trans[4] = {0x01, 0x91, 0x9B, 0xFB};
+        if (event == ME_Reset) { manchState_ = MS_Mid1; return false; }
+        uint8_t ns = (uint8_t)((trans[manchState_] >> event) & 0x3);
+        if (ns == manchState_) { manchState_ = MS_Mid1; return false; }
+        bool res = false;
+        if (ns == MS_Mid0) { bit = false; res = true; }
+        else if (ns == MS_Mid1) { bit = true; res = true; }
+        manchState_ = ns;
+        return res;
     }
 
     static bool inRange(uint32_t val, uint32_t target, uint32_t tol) {
@@ -218,47 +230,41 @@ private:
         buf[9] = k2 & 0xFF;
     }
 
+    // psa_calculate_checksum: nibble sum of buf[2..8], times 16 (upstream).
     static uint8_t calculateChecksum(const uint8_t buf[10]) {
-        uint8_t cs = 0;
-        for (int i = 0; i < 9; i++) cs ^= buf[i];
-        return cs;
+        uint32_t sum = 0;
+        for (int i = 2; i < 8; i++) sum += (buf[i] & 0xF) + (buf[i] >> 4);
+        return (uint8_t)((sum * 0x10) & 0xFF);
     }
 
-    static void directXorDecrypt(uint8_t buf[10]) {
-        // Single-pass XOR chain
-        for (int i = 8; i > 0; i--) {
-            buf[i] ^= buf[i - 1];
-        }
-    }
-
+    // psa_second_stage_xor_decrypt (with psa_copy_reverse) on buf[2..7] (upstream).
     static void secondStageXor(uint8_t buf[10]) {
-        // 6-byte permutation XOR
-        static const uint8_t perm[] = {1, 3, 5, 7, 2, 4};
-        uint8_t tmp[6];
-        for (int i = 0; i < 6; i++) tmp[i] = buf[perm[i]];
-        for (int i = 0; i < 6; i++) buf[perm[i]] = tmp[i] ^ buf[perm[(i + 1) % 6]];
+        uint8_t t[8] = { buf[5], buf[4], buf[3], buf[2], buf[9], buf[8], buf[7], buf[6] };
+        buf[2] = t[0] ^ t[6];
+        buf[3] = t[2] ^ t[0];
+        buf[4] = t[6] ^ t[3];
+        buf[5] = t[7] ^ t[1];
+        buf[6] = t[3] ^ t[1];
+        buf[7] = t[6] ^ t[4] ^ t[5];
     }
 
+    // psa_direct_xor_decrypt + psa_extract_fields_mode23 (upstream): checksum
+    // gate, XOR stage, then serial = buf[2,3,4], button = buf[8]&0xF,
+    // counter = buf[5,6].
     bool tryMode23() {
         uint8_t buf[10];
         setupByteBuffer(key1High_, key1Low_, key2Val_, buf);
 
-        // Direct XOR decrypt
-        directXorDecrypt(buf);
         uint8_t cs = calculateChecksum(buf);
-        uint8_t key2h = buf[8];
+        if (((cs ^ buf[8]) & 0xF0) != 0) return false;
 
-        if (((cs ^ key2h) & 0xF0) != 0) return false;
-
-        // Second stage
         secondStageXor(buf);
 
-        // Extract fields
-        result_.serial = ((uint32_t)buf[1] << 16) |
-                         ((uint32_t)buf[2] << 8) | buf[3];
-        result_.counter = ((uint32_t)buf[4] << 8) | buf[5];
-        result_.button = buf[6];
-        result_.type = "Mode 0x23 (XOR)";
+        result_.serial  = ((uint32_t)buf[2] << 16) | ((uint32_t)buf[3] << 8) | buf[4];
+        result_.counter = ((uint32_t)buf[5] << 8) | buf[6];
+        result_.button  = buf[8] & 0xF;
+        result_.crc     = buf[7];
+        result_.type    = "Mode 0x23 (XOR)";
         return true;
     }
 
@@ -325,21 +331,20 @@ private:
         result_.encrypted = true;
         result_.canEmulate = false;
 
-        uint8_t dispatchByte = key2Val_ & 0xFF;
-        bool ok = false;
-
-        if (dispatchByte == 0x23) {
-            ok = tryMode23();
-        } else if (dispatchByte == 0x36) {
-            // NOTE: Full brute force was 16M iterations on Flipper.
-            // On ESP32 we try a reduced subset for real-time decode.
-            ok = tryBruteForce();
-        }
+        // Upstream routing (psa_decrypt_router / fast_decrypt): the XOR fast
+        // path runs when the key2 high nibble selects it (button 3, or
+        // psa_direct_xor_allowed_by_key2); everything else is a TEA frame that
+        // needs the 2x2^24 brute force, which is an offline "Recover key" action
+        // (far too slow to run per-press on the ESP32), so we report it as an
+        // undecrypted PSA TEA frame rather than guessing.
+        uint8_t key2High = (uint8_t)((key2Val_ >> 8) & 0xFF);
+        uint8_t lo = key2High & 0xF;
+        bool xorPath = (lo < 3) || (lo == 3) || (lo < 7 && (key2High & 0xC) != 0);
+        bool ok = xorPath ? tryMode23() : false;
 
         result_.crcValid = ok;
         if (!ok) {
-            result_.type = (dispatchByte == 0x23) ? "Mode 0x23 (encrypted)"
-                                                   : "Mode 0x36 (encrypted)";
+            result_.type = xorPath ? "Mode 0x23 (encrypted)" : "Mode 0x36 TEA (key not recovered)";
         }
 
         parserStep_ = StepReset;
