@@ -698,26 +698,33 @@ bool BleAdapter::handleUploadChunk(uint8_t chunkId, uint8_t chunkNum, uint8_t to
             }
         }
         
-        // Open file for writing on the correct filesystem
-        File file = fs.open(fullPath, FILE_WRITE);
-        if (!file) {
-            ESP_LOGE(TAG, "Failed to open file for upload: %s", fullPath);
-            notifyError("Failed to open file for upload");
-            return false;
+        // Create/truncate the file, then CLOSE it immediately. Do NOT hold the
+        // File handle across chunks: a handle kept in the static map between
+        // separate command invocations does not reliably flush to SD (the write
+        // "succeeds" but nothing lands on the card). Each data chunk re-opens in
+        // append mode and closes, the same one-shot pattern saveRawCapture uses.
+        {
+            File file = fs.open(fullPath, FILE_WRITE);
+            if (!file) {
+                ESP_LOGE(TAG, "Failed to open file for upload: %s", fullPath);
+                notifyError("Failed to open file for upload");
+                return false;
+            }
+            file.close();
         }
-        
-        // Initialize upload state
+
+        // Initialize upload state (path + progress only; no held handle).
         FileUploadState uploadState;
-        uploadState.file = file;
         uploadState.totalChunks = totalChunks;
         uploadState.receivedChunks = 1;
         uploadState.timestamp = millis();
         uploadState.isActive = true;
+        uploadState.fsPtr = &fs;
         strncpy(uploadState.filePath, fullPath, sizeof(uploadState.filePath) - 1);
         uploadState.filePath[sizeof(uploadState.filePath) - 1] = '\0';
-        
+
         fileUploads[chunkId] = uploadState;
-        
+
         // First chunk contains command header - skip it, no data to write
         ESP_LOGI(TAG, "Upload initialized: %s, totalChunks=%d", fullPath, totalChunks);
         return true;
@@ -730,7 +737,7 @@ bool BleAdapter::handleUploadChunk(uint8_t chunkId, uint8_t chunkNum, uint8_t to
         }
         
         FileUploadState& uploadState = it->second;
-        if (!uploadState.isActive || !uploadState.file) {
+        if (!uploadState.isActive || uploadState.fsPtr == nullptr) {
             ESP_LOGE(TAG, "Upload state invalid for chunkId: %d", chunkId);
             return false;
         }
@@ -747,11 +754,20 @@ bool BleAdapter::handleUploadChunk(uint8_t chunkId, uint8_t chunkNum, uint8_t to
             return true;  // consumed: don't fall through to the generic command path
         }
 
-        // Write chunk data directly to file (NO memory buffering!)
-        size_t bytesWritten = uploadState.file.write(payload, payloadLength);
+        // Re-open in append mode, write this chunk, close. Opening and closing
+        // per chunk is what makes the data actually reach the SD card.
+        File f = uploadState.fsPtr->open(uploadState.filePath, FILE_APPEND);
+        if (!f) {
+            ESP_LOGE(TAG, "Upload append-open failed: %s", uploadState.filePath);
+            uploadState.isActive = false;
+            fileUploads.erase(it);
+            notifyError("Failed to re-open file for upload chunk");
+            return false;
+        }
+        size_t bytesWritten = f.write(payload, payloadLength);
+        f.close();
         if (bytesWritten != payloadLength) {
             ESP_LOGE(TAG, "Failed to write chunk %d: wrote %zu/%zu bytes", chunkNum, bytesWritten, payloadLength);
-            uploadState.file.close();
             uploadState.isActive = false;
             fileUploads.erase(it);
             notifyError("Failed to write chunk to file");
@@ -765,8 +781,11 @@ bool BleAdapter::handleUploadChunk(uint8_t chunkId, uint8_t chunkNum, uint8_t to
         
         // Check if all chunks received
         if (chunkNum >= totalChunks) {
-            size_t fileSize = uploadState.file.size();
-            uploadState.file.close();
+            size_t fileSize = 0;
+            {
+                File rf = uploadState.fsPtr->open(uploadState.filePath, FILE_READ);
+                if (rf) { fileSize = rf.size(); rf.close(); }
+            }
             uploadState.isActive = false;
             
             ESP_LOGI(TAG, "Upload completed: %s, %d chunks, %zu bytes", 
@@ -777,7 +796,11 @@ bool BleAdapter::handleUploadChunk(uint8_t chunkId, uint8_t chunkNum, uint8_t to
             response.reserve(200);
             response = "{\"action\":\"upload\",\"success\":true,\"path\":\"";
             response += uploadState.filePath;
-            response += "\",\"chunks\":";
+            response += "\",\"size\":";
+            response += String((unsigned)fileSize);
+            response += ",\"exists\":";
+            response += uploadState.fsPtr->exists(uploadState.filePath) ? "true" : "false";
+            response += ",\"chunks\":";
             response += String(uploadState.receivedChunks);
             response += "}";
             
@@ -792,12 +815,39 @@ bool BleAdapter::handleUploadChunk(uint8_t chunkId, uint8_t chunkNum, uint8_t to
 
 // Dedicated inbound command processor — keeps heavy command work (SD/SPI/CC1101) off the
 // NimBLE host task so the BLE link is never starved. See InboundMsg/onWrite (stability fix).
+void BleAdapter::submitSerialCommand(const uint8_t* data, size_t len) {
+    // Mirror the BLE onWrite path: copy and hand to the inbound worker so the
+    // command (including multi-chunk SD uploads) runs in the task context whose
+    // SD/SPI writes actually persist. Falls back to inline only before init.
+    if (inboundQueue != nullptr) {
+        uint8_t* buf = (uint8_t*)malloc(len);
+        if (buf != nullptr) {
+            memcpy(buf, data, len);
+            InboundMsg msg{ buf, (uint16_t)len, true };
+            if (xQueueSend(inboundQueue, &msg, pdMS_TO_TICKS(2000)) != pdTRUE) {
+                free(buf);
+                ESP_LOGE(TAG, "Inbound queue full, dropping %u serial bytes",
+                         static_cast<unsigned>(len));
+            }
+            return;
+        }
+        ESP_LOGE(TAG, "malloc failed for serial inbound %u bytes",
+                 static_cast<unsigned>(len));
+        return;
+    }
+    // Pre-init fallback: process inline on the caller (serial) task.
+    setSerialCommand(true);
+    processBinaryData(const_cast<uint8_t*>(data), len);
+}
+
 void BleAdapter::inboundTask(void* arg) {
     BleAdapter* self = static_cast<BleAdapter*>(arg);
     InboundMsg msg;
     for (;;) {
         if (xQueueReceive(inboundQueue, &msg, portMAX_DELAY) == pdTRUE) {
             if (msg.data != nullptr) {
+                // Route the response to the origin (serial vs BLE) of THIS message.
+                self->setSerialCommand(msg.serial);
                 self->processBinaryData(msg.data, msg.len);
                 free(msg.data);
             }
@@ -856,7 +906,7 @@ void BleAdapter::CharacteristicCallbacks::onWrite(NimBLECharacteristic* pCharact
             uint8_t* buf = (uint8_t*)malloc(len);
             if (buf != nullptr) {
                 memcpy(buf, val.data(), len);
-                BleAdapter::InboundMsg msg{ buf, (uint16_t)len };
+                BleAdapter::InboundMsg msg{ buf, (uint16_t)len, false };
                 // Queue full = the worker is behind (e.g. slow SD write). Wait briefly instead of
                 // dropping: this delays the write response, so the phone backs off (flow control).
                 // A silently dropped upload chunk would otherwise corrupt the file on the SD card.

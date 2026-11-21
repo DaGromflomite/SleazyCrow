@@ -545,8 +545,11 @@ bool ProtoPirateModule::loadSubFile(const char* filePath) {
 
     if (!parser.parseHeader(filePath, header)) {
         ESP_LOGE(TAG, "loadSubFile: failed to parse header of %s", filePath);
+        Serial.printf("LOADSUB hdr-fail %s\n", filePath);
         return false;
     }
+    Serial.printf("LOADSUB open %s freq=%u preset=%s\n",
+                  filePath, header.frequency, header.preset.c_str());
 
     ESP_LOGI(TAG, "loadSubFile: %s  freq=%u Hz  preset=%s",
              filePath, header.frequency, header.preset.c_str());
@@ -561,9 +564,13 @@ bool ProtoPirateModule::loadSubFile(const char* filePath) {
     // (e.g. a 100 KB Tesla file ≈ 25k pulses) would grow this vector past the
     // free heap and throw bad_alloc. Decoders identify a protocol from the
     // start of the signal, so the first MAX_LOAD_SAMPLES pulses are plenty.
-    static constexpr size_t MAX_LOAD_SAMPLES = 8192;  // 32 KB, well within heap
+    // Cap at 2048 pulses (8 KB): plenty for any fob frame and protocol ID, and
+    // small enough to allocate even when BLE has left the heap fragmented with
+    // only ~35 KB free. The old 8192 (32 KB single block) threw bad_alloc here,
+    // which the load task caught silently, so loading a .sub to decode never ran.
+    static constexpr size_t MAX_LOAD_SAMPLES = 2048;
     std::vector<unsigned long> samples;
-    samples.reserve(MAX_LOAD_SAMPLES);
+    samples.reserve(512);  // grow from a small block; never one giant reserve
     size_t totalPulses = 0;
     bool capped = false;
 
@@ -589,6 +596,7 @@ bool ProtoPirateModule::loadSubFile(const char* filePath) {
                  filePath, totalPulses, MAX_LOAD_SAMPLES);
     }
 
+    Serial.printf("LOADSUB collected total=%zu samples=%zu\n", totalPulses, samples.size());
     if (samples.size() < 20) {
         ESP_LOGW(TAG, "loadSubFile: too few samples (%zu) in %s", samples.size(), filePath);
         return false;
@@ -606,8 +614,15 @@ bool ProtoPirateModule::loadSubFile(const char* filePath) {
     ESP_LOGI(TAG, "loadSubFile: %zu samples, pulses: %s%s",
              samples.size(), dbg, samples.size() > 16 ? "..." : "");
 
+    Serial.printf("LOADSUB samples=%zu first=%lu,%lu,%lu,%lu\n", samples.size(),
+                  samples.size()>0?samples[0]:0, samples.size()>1?samples[1]:0,
+                  samples.size()>2?samples[2]:0, samples.size()>3?samples[3]:0);
     // Feed to decoders exactly as we do for ISR-captured signals
+    size_t histBefore = history_.getCount();
     feedSamplesToDecoders(samples);
+    Serial.printf("LOADSUB decoded=%d (history %u->%u)\n",
+                  (int)(history_.getCount() - histBefore),
+                  (unsigned)histBefore, (unsigned)history_.getCount());
 
     // Check if any decoder found a match (getResult has valid data)
     // We look for results that were already notified during feedSamplesToDecoders
