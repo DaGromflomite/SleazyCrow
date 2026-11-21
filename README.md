@@ -7,22 +7,29 @@ hardware — a pocket radio tool for sub-GHz and 2.4 GHz. It's built for reliabi
 an "is a car following me?" tire-sensor detector, car key-fob decoding (now including Chrysler/Dodge/Jeep/RAM),
 sub-GHz capture / replay / brute-force, a 2.4 GHz toolkit, and more.
 
-> **Beta build (v2.3.0-beta).** The reliability bugs are fixed, and every app function
-> has been run on real radios on the bench (see [`docs/QA-STATUS.md`](docs/QA-STATUS.md)).
-> It's still beta because the two features that need a real-world target haven't had one
-> yet: the car-follower detector hasn't been tried next to a real car on a drive, and the
-> key-fob next-code feature hasn't been fired at a real vehicle. If something misbehaves,
-> you can always go back to **v1.2.0-beta** (the main web flasher), and please
+> **Beta build (v2.3.5-beta).** A crash in the file-upload path is fixed, all twelve
+> car key-fob decoders have been checked against real captured signals with known
+> answers, and the key-fob next-code self-test now runs on a real captured signal
+> instead of a made-up one. Every app function has been run on real radios on the
+> bench (see [`docs/QA-STATUS.md`](docs/QA-STATUS.md)). It's still beta because the two
+> features that need a real-world target haven't had one yet: the car-follower detector
+> hasn't been tried next to a real car on a drive, and key-fob next-code hasn't been
+> fired at a real vehicle. If something misbehaves, please
 > [tell us what happened](https://github.com/DaGromflomite/SleazyCrow/issues/new).
+>
+> **Flash this one over USB with the web flasher, not over Bluetooth.** This build changes
+> how the Crow talks to the app, and a Bluetooth (over-the-air) firmware update from an
+> older version can leave the Crow in a bad state. Use the web flasher and a USB cable.
+> The app itself still updates the normal way.
 >
 > New to it? Start with the [**instruction manual**](docs/MANUAL.md) — it walks through
 > every function step by step.
 
 ## Install
 
-- **Firmware:** the web flasher at **https://dagromflomite.github.io/SleazyCrow/** (desktop Chrome, Edge or Opera), or esptool with the files from [Releases](https://github.com/DaGromflomite/SleazyCrow/releases).
-- **App:** `SleazyCrow-vX.Y.Z.apk` from [Releases](https://github.com/DaGromflomite/SleazyCrow/releases). It installs as its own app next to the official EvilCrow RF app. The official app also works with Sleazy Crow firmware (same Bluetooth protocol).
-- **Updates:** the Sleazy Crow app checks this repo's releases for new firmware (OTA over Bluetooth) and app versions.
+- **Firmware:** the web flasher at **https://dagromflomite.github.io/SleazyCrow/** (desktop Chrome, Edge or Opera), or esptool with the files from [Releases](https://github.com/DaGromflomite/SleazyCrow/releases). Flash over USB.
+- **App:** `SleazyCrow-vX.Y.Z.apk` from [Releases](https://github.com/DaGromflomite/SleazyCrow/releases). It installs as its own app next to the official EvilCrow RF app.
+- **Updates:** the app updates itself from this repo's releases. For the firmware, use the web flasher over USB. The over-the-air (Bluetooth) firmware update is not offered for this build.
 
 ## What it can do
 
@@ -65,13 +72,35 @@ walkthrough of each one in the [instruction manual](docs/MANUAL.md).
 - **File manager** — browse, make, upload, rename and delete files on the SD card or the
   Crow's internal storage, over Bluetooth.
 - **Settings** — radio options, hardware-button actions, nRF power/rate/channel, device name.
-- **Firmware update** — check GitHub for a newer release and flash it over Bluetooth.
+- **App update** — the app checks GitHub for a newer app version. Firmware for this build is installed over USB with the web flasher, not over Bluetooth.
 
 ## What's different from the original
 
 See [`changelog.json`](changelog.json) for the full list. Highlights:
 
-**New in this build (v2.3.0-beta).** This round was about making the whole thing solid and
+**New in this build (v2.3.5-beta).** This round was about the car key-fob decoders and a
+crash in the file-upload path. What got fixed:
+
+- **Fixed a crash when sending a signal file to the Crow.** A fast or interrupted upload
+  could write past the end of a buffer and scramble memory the SD card code was using, which
+  showed up later as a crash the next time the Crow opened a file. The upload now checks its
+  own limits before every write, so a bad upload gets dropped instead of taking the device
+  down. Run on the hardware with a deliberately abusive upload: it used to crash every time,
+  and now it doesn't.
+- **Every car key-fob decoder was checked against real captured signals.** Twelve makes, each
+  one tested against a real recording with a known answer, and the serial the Crow reads back
+  matches: Ford, Kia (five variants), Subaru, Suzuki, Fiat, VW/Audi/Seat/Škoda (VAG),
+  Chrysler/Dodge/Jeep/RAM and PSA (Peugeot/Citroën). The ones that read back wrong were fixed
+  to match the real signals.
+- **The key-fob next-code self-test was failing on a made-up signal.** The Ford decoder itself
+  was fine; the built-in test was feeding it a hand-written code that no real Ford fob sends,
+  so it could never pass. Switched the test to a real captured Ford signal. The self-test now
+  passes, and a real Ford fob was read correctly over the air to confirm it.
+- **The app's "emulate" button now matches what the Crow can actually send.** The Crow tells
+  the app, per signal, whether it can re-transmit it, instead of the app guessing from a
+  fixed list. Signals the Crow can only read (not re-send) no longer show a send button.
+
+**In v2.3.0-beta.** This round was about making the whole thing solid and
 proving it on real hardware. What got fixed and added:
 
 - **Car key-fob next-code now works for every supported make.** VAG Type 3/4 was the last one
