@@ -1,361 +1,451 @@
 {
-  "firmware": [
+ "firmware": [
+  {
+   "version": "2.3.5",
+   "date": "2026-11-21",
+   "tag": "v2.3.5-beta",
+   "changes": [
     {
-      "version": "2.3.2",
-      "date": "2026-11-19",
-      "tag": "v2.3.2-beta",
-      "changes": [
-        {
-          "type": "fix",
-          "text": "Fixed the Bluetooth connection regression from v2.3.1 that stopped Crows connecting and broke the UberGuidoZ (\"uber repo\") sub-GHz download and the SD-card format. v2.3.1 had removed the on-connect connection-parameter negotiation (trying to avoid an Android GATT-133), which let the link renegotiate to unstable parameters and drop with a connection timeout - and everything that rides the Bluetooth link (connecting, the file upload, format) went with it. The proven connection-stability call is restored. Hardware-verified on an ESP32-PICO-D4 + a stock Pixel: connect with MTU 512 and zero GATT-133, directory listing over Bluetooth, and the UberGuidoZ fetch (11,290 files) + upload (files transferred with zero failures)."
-        }
-      ]
+     "type": "fix",
+     "text": "Fixed a crash when sending a signal file to the Crow. A fast or interrupted upload could write past the end of a buffer and scramble memory the SD card code was using, which showed up later as a crash the next time the Crow opened a file. The upload now checks its limits before every write, so a bad upload gets dropped instead of taking the device down. Run on the hardware with a deliberately abusive upload: it used to crash every time, and now it does not."
     },
     {
-      "version": "2.3.1",
-      "date": "2026-11-19",
-      "tag": "v2.3.1-beta",
-      "changes": [
-        {
-          "type": "fix",
-          "text": "Bluetooth: fixed the real cause of \"some phones can't connect to the Crow at all.\" The firmware was renegotiating the BLE connection parameters the instant a phone connected, which trips Android's GATT 133 error on the first attempt. That call was removed. Measured on the same phone+Crow: GATT 133 failures dropped from 8-in-12 connects to 4-in-12 from this firmware change alone, and the matching app change takes it to 0 failures over 72 connect cycles."
-        },
-        {
-          "type": "fix",
-          "text": "Tire-sensor (TPMS) follower detector now shows every sensor it decodes the instant it decodes it - including generic/unknown sensors - instead of waiting for the same sensor to be heard a second time. Verified on the air with real sensor frames replayed from a Flipper (five vehicles appeared immediately)."
-        },
-        {
-          "type": "fix",
-          "text": "Hardened the Bluetooth command path so a dropped or force-closed app can't wedge the Crow until reboot. The inbound-command queue is now drained when a phone disconnects, and an in-progress file download aborts if the phone drops, so stale data from a gone session can no longer jam the next connection."
-        }
-      ]
+     "type": "fix",
+     "text": "Checked every car key-fob decoder against a real recorded signal with a known answer. Twelve makes, and the serial the Crow reads back matches the recording: Ford, Kia (five variants), Subaru, Suzuki, Fiat, VW/Audi/Seat/Skoda, Chrysler/Dodge/Jeep/RAM and PSA. The ones that read back wrong were fixed to match the real signals."
     },
     {
-      "version": "2.3.0",
-      "date": "2026-11-17",
-      "tag": "v2.3.0-beta",
-      "changes": [
-        {
-          "type": "feature",
-          "text": "Key-fob next-code now works for every make it supports: StarLine, Fiat, Ford, Hyundai/Kia (V3/V4) and the VW/Audi/Seat/Skoda (VAG) family. VAG Type 3/4 was the last one that didn't read back correctly; it's fixed and checked on the real hardware (all four VAG makes pass the read -> next-code -> re-read test)."
-        },
-        {
-          "type": "feature",
-          "text": "Chrysler/Dodge/Jeep/RAM (FCA) key fobs now DECODE fully - serial, button and counter - instead of just being flagged. The full keyless decoder was ported from upstream and verified on hardware (read-back roundtrips for both Lock and Unlock). Next-code is also ported (keyless, no manufacturer key), but FCA's on-air counter is a small phase field, so whether a generated next-code is accepted by a real vehicle is unverified - treat FCA next-code as experimental until checked against a real fob sequence."
-        },
-        {
-          "type": "fix",
-          "text": "Fixed VAG Type 3/4 key-fob decoding. The 500us VAG signal was being read with the wrong decoder and came out garbled. It now uses the correct method and lines up every time. This was proven first in a stand-alone test over 20,000 random fobs, then run on the Crow itself."
-        },
-        {
-          "type": "improvement",
-          "text": "Full walk-through of every app function on real radios (a Flipper Zero and a HackRF made and watched the signals). Working on the air: connect, RF scanner, tire-sensor follower detector, sub-GHz record and replay, brute force, the key-fob reader, the 2.4 GHz jammer (its output was confirmed on the HackRF this time), files, settings and the update check. Two items still need a specific piece of gear to finish proving: the 2.4 GHz spectrum view (needs a stronger nearby source) and MouseJack (needs a real Logitech/Microsoft wireless dongle). Neither is a code problem."
-        },
-        {
-          "type": "feature",
-          "text": "The public car-fob maker keys are now built into the firmware. The decrypted KeeLoq/AUT64 maker-key lists that are already published openly on GitHub are compiled in, so key-fob next-code works out of the box for StarLine, Hyundai/Kia, Fiat and the VAG AUT64 types (and a large gate/alarm catalog), alongside the makes that need no key at all (Ford, Chrysler/Dodge/Jeep/RAM) and the built-in public VAG Type-2 key. You can still load your own keys. Authorized testing only."
-        },
-        {
-          "type": "fix",
-          "text": "Fixed a memory leak that could make the tire-sensor (TPMS) detector stop hearing signals. After a long session the Crow's free memory slowly drained, and once it got low the TPMS receiver went deaf until a reboot. The cause was the detector's decode task not freeing its buffers when it stopped (the task was deleted without running its cleanup). Fixed, and confirmed with a soak test: free memory now returns to its starting level after repeated start/stop cycles and heavy multi-module use."
-        },
-        {
-          "type": "fix",
-          "text": "Bluetooth reconnect is far more reliable. Reconnecting right after the Crow rebooted used to fail with a GATT timeout until the app was restarted - the Android side was holding a stale connection. The app now tears down any stale link and retries a few times on its own; verified across repeated reboot-and-reconnect cycles with no manual Bluetooth toggling or app restart needed. The firmware also advertises faster after boot to help the phone re-acquire it."
-        },
-        {
-          "type": "fix",
-          "text": "Chrysler/FCA now appears in the app's supported-makes list (it decoded correctly before; the badge was just missing)."
-        },
-        {
-          "type": "improvement",
-          "text": "Honest boot self-test. The built-in self-test used to flag the transmitter as 'partial' because it judged the transmit using the second onboard radio, which cannot time fast on/off pulses accurately (it reads them long). The transmit timing was confirmed faithful off-air with a HackRF (clean 350/1050us pulses, no stretch), and the self-test now bases its verdict on the transmit-side timing and labels the receiver-measured figures as informational. The production in-RAM transmit path now reports a clear pass."
-        },
-        {
-          "type": "improvement",
-          "text": "Full walk-through of every app function on real radios (a Flipper Zero and a HackRF made and watched the signals). Working on the air: connect, RF scanner, tire-sensor follower detector, sub-GHz record and replay, brute force, the key-fob reader (including an over-the-air Chrysler/FCA decode that matched the source bit for bit), the 2.4 GHz jammer (output confirmed on the HackRF), files, settings and the update check."
-        },
-        {
-          "type": "improvement",
-          "text": "New plain-English guide to which fobs the key reader supports (docs/PROTOPIRATE-SUPPORTED.md) and a full, beginner-friendly instruction manual covering every function, with legal notice (docs/MANUAL.md)."
-        }
-      ]
+     "type": "fix",
+     "text": "The key-fob next-code self-test was failing because it used a hand-written code that no real Ford fob sends. The decoder itself was fine; the test was wrong. Switched it to a real recorded Ford signal. The self-test passes now, and a real Ford fob was read over the air to confirm it."
     },
     {
-      "version": "2.2.0",
-      "date": "2026-11-17",
-      "tag": "v2.2.0-beta",
-      "changes": [
-        {
-          "type": "improvement",
-          "text": "Moved from the unstable channel to beta. The reliability bugs that held it back are fixed and tested on the real hardware (the stuck jammer, the Bluetooth drop, the flashing failures, the long-transmit reboot). It is still beta, not final, because the car-follower detector has not been tried next to a real car on the road yet, and the new key-fob next-code feature has not been tested on a real vehicle."
-        },
-        {
-          "type": "feature",
-          "text": "Key-fob reader can now build the NEXT rolling code (for testing on vehicles you own or are allowed to test). It reads the fob, moves the counter forward, re-encrypts it with a manufacturer key you load, and sends it. Working on StarLine and Fiat so far. It needs the key loaded first; capturing a signal does not reveal the key, and it will not guess it."
-        },
-        {
-          "type": "feature",
-          "text": "Added a key store you fill yourself, either from a text file on the SD card (/DATA/KEYS/keeloq_mfcodes.txt) or from the app. No keys are built in."
-        },
-        {
-          "type": "improvement",
-          "text": "Added a built-in self-test for the next-code feature that checks the math on the device, with no radio and no car needed."
-        }
-      ]
+     "type": "improvement",
+     "text": "The app's emulate button now matches what the Crow can actually send. The Crow tells the app, per signal, whether it can re-transmit it, instead of the app guessing from a fixed list. Signals the Crow can only read no longer show a send button."
     },
     {
-      "version": "2.1.0",
-      "date": "2026-11-16",
-      "tag": "v2.1.0-unstable",
-      "changes": [
-        {
-          "type": "feature",
-          "text": "[UNSTABLE] The 'is a car following me?' TPMS detector now reads 9 tire-sensor types, covering most common US makes: Ford, Toyota/Subaru, Hyundai/Kia, GM/Chevy, Honda, Nissan/Infiniti, Jeep/Dodge/RAM, plus Schrader and TRW. Each one was tested on the bench with real radio signals."
-        },
-        {
-          "type": "fix",
-          "text": "TPMS no longer shows fake 'phantom' sensors. A weak-checksum bug let bad bit alignments pass as real cars; the decoder now locks onto the start of the signal, so it only reports sensors that are really there."
-        },
-        {
-          "type": "fix",
-          "text": "IMPORTANT: the 2.4 GHz jammer could get stuck ON and freeze both radios (including TPMS) until you unplugged the Crow. It now stops cleanly every time."
-        },
-        {
-          "type": "feature",
-          "text": "ProtoPirate now decodes Chrysler / Dodge / Jeep / RAM key fobs. Built and checked against a real 2019 RAM fob."
-        },
-        {
-          "type": "feature",
-          "text": "Transmit Binary works now (send a raw on/off pattern on a frequency you pick). It used to do nothing."
-        },
-        {
-          "type": "improvement",
-          "text": "ProtoPirate: a signal it captures but can't identify is now saved and shown as 'Unknown' instead of silently vanishing, so you can tell it actually heard something."
-        },
-        {
-          "type": "fix",
-          "text": "ProtoPirate 'Load .sub' was throwing away half of every signal; fixed so loaded files feed the decoders correctly."
-        },
-        {
-          "type": "fix",
-          "text": "Flashing the firmware is reliable now (a steady upload speed instead of one that sometimes failed partway)."
-        },
-        {
-          "type": "improvement",
-          "text": "App: the TPMS sensor list now has a scroll bar, and new sensor types show their make name."
-        }
-      ]
-    },
-    {
-      "version": "2.0.0",
-      "date": "2026-11-13",
-      "tag": "v2.0.0-unstable",
-      "changes": [
-        {
-          "type": "feature",
-          "text": "[UNSTABLE] TPMS 'is a car following me?' detector: 5 tire-sensor decoders (Ford, Toyota, Hyundai/VDO, Schrader, Schrader-GM), FSK+OOK, runs on one radio. Self-test passes on hardware; NOT yet tested near a real car."
-        },
-        {
-          "type": "fix",
-          "text": "Long transmits no longer trip the watchdog and reboot the Crow (tested on hardware)."
-        },
-        {
-          "type": "fix",
-          "text": "ProtoPirate file loading no longer crashes on large/complex .sub files (tested on hardware)."
-        },
-        {
-          "type": "improvement",
-          "text": "Fast SD format (one pass instead of deleting every file); deep-folder delete fixed."
-        },
-        {
-          "type": "improvement",
-          "text": "WiFi stack removed: much more free memory (15 KB -> 51 KB) and flash."
-        }
-      ]
-    },
-    {
-      "version": "1.2.0",
-      "date": "2026-10-31",
-      "tag": "v1.2.0-beta",
-      "changes": [
-        {
-          "type": "feature",
-          "text": "Sleazy Crow: community fork of Senape3000's EvilCrowRF-V2 firmware (based on v1.1.3). Bluetooth name is now SleazyCrow."
-        },
-        {
-          "type": "fix",
-          "text": "Bluetooth no longer drops ~12 s after connecting on Android: incoming commands run on their own task and stable connection parameters are requested."
-        },
-        {
-          "type": "fix",
-          "text": "No boot crash when built with Arduino core 3.3.x (BLE controller memory was freed before NimBLE started)."
-        },
-        {
-          "type": "fix",
-          "text": "Toolchain and NimBLE pinned so every build is identical (fixes the 'adc_oneshot.h' compile error)."
-        },
-        {
-          "type": "fix",
-          "text": "File uploads: a full queue no longer drops chunks, and missing/out-of-order chunks fail with an error instead of saving a corrupted file."
-        },
-        {
-          "type": "fix",
-          "text": "ProtoPirate decode results show the protocol type name instead of a number."
-        },
-        {
-          "type": "improvement",
-          "text": "Boot log prints the firmware name, version and upstream project."
-        }
-      ]
+     "type": "fix",
+     "text": "TPMS: close the last phantom-follower gap. v2.3.4 cut the jitter phantoms from a single car (live over-the-air: 5 phantoms down to 1), but one could still slip through if it arrived BEFORE the first validated frame of the burst - the suppression only engaged once a protocol had decoded. Now a generic (unknown-protocol) fingerprint is held ~1.2 s instead of shown instantly: if a validated decode of the same burst lands in that window it clears the hold (the generic was a corrupted repeat of that car), and a validated decode also clears any already-held generics. A genuine unknown-protocol sensor - nothing validates near it - is still surfaced after the short hold. Known makes decode to a protocol and show instantly, unchanged. Live-tested over the air on 315 MHz."
     }
-  ],
-  "app": [
+   ]
+  },
+  {
+   "version": "2.3.4",
+   "date": "2026-11-20",
+   "tag": "v2.3.4-beta",
+   "changes": [
     {
-      "version": "2.3.2",
-      "date": "2026-11-19",
-      "tag": "v2.3.2-beta",
-      "changes": [
-        {
-          "type": "fix",
-          "text": "Fixed \"tap Connect and nothing happens.\" v2.3.1 switched the app to Android background auto-connect, which sat on \"Connecting...\" forever without ever opening the link or negotiating the fast 512-byte MTU - so connecting hung and the uber-repo upload / SD format could not run. Restored the direct connect, which completes (or fails cleanly to a retry) and negotiates MTU 512 for fast transfers. Kept the v2.3.1 app fixes: the push-to-send / push-to-stop transmit control, immediate TPMS display, and no-GPS Bluetooth scanning."
-        }
-      ]
-    },
-    {
-      "version": "2.3.1",
-      "date": "2026-11-19",
-      "tag": "v2.3.1-beta",
-      "changes": [
-        {
-          "type": "fix",
-          "text": "Restored the push-to-send / push-to-stop sub-GHz transmit control: tapping TRANSMIT now sends continuously until you tap STOP. The previous release had slipped back to a one-shot button that only sent for a fraction of a second once the confirmation dialog was dismissed. The \"Don't show again\" option that caused that fallback has been removed entirely."
-        },
-        {
-          "type": "fix",
-          "text": "Bluetooth connect reliability: the app now hands the connection to Android's own background connector (autoConnect), which sidesteps the first-attempt GATT 133 failure that stopped some phones connecting. Zero connection failures over 72 connect cycles in testing. If the Crow reboots, the app now re-connects on its own."
-        },
-        {
-          "type": "fix",
-          "text": "BLE scanning no longer requires Location/GPS on Android 12 and newer (the scan permission is now declared as never-for-location). Phones with Location turned off, or with the location permission denied, can now find and connect to the Crow."
-        },
-        {
-          "type": "fix",
-          "text": "Tire-sensor follower screen shows every detected sensor immediately."
-        }
-      ]
-    },
-    {
-      "version": "2.3.0",
-      "date": "2026-11-17",
-      "tag": "v2.3.0-beta",
-      "changes": [
-        {
-          "type": "fix",
-          "text": "Bluetooth reconnect is much more reliable. Reconnecting right after the Crow reboots used to time out until you restarted the app, because Android held a stale connection. The app now clears any stale link before connecting and retries a few times on its own - no Bluetooth toggling or app restart needed. Verified across repeated reboot-and-reconnect cycles."
-        },
-        {
-          "type": "fix",
-          "text": "Chrysler/Dodge/Jeep/RAM (FCA) now shows in the key-fob screen's supported-makes list (it already decoded; the badge was just missing)."
-        }
-      ]
-    },
-    {
-      "version": "2.2.0",
-      "date": "2026-11-17",
-      "tag": "v2.2.0-beta",
-      "changes": [
-        {
-          "type": "feature",
-          "text": "Added a 'Transmit next code' button on rolling-code key-fob results. You pick how far to move the counter, and it reminds you this is for gear you own or are allowed to test."
-        },
-        {
-          "type": "feature",
-          "text": "You can add and reload key-store keys from the app."
-        },
-        {
-          "type": "improvement",
-          "text": "Car-follower (TPMS) screen now has a Clear button and a scroll bar, so a long list of tracked vehicles is easy to wipe and scroll."
-        }
-      ]
-    },
-    {
-      "version": "2.0.0",
-      "date": "2026-11-13",
-      "tag": "v2.0.0-unstable",
-      "changes": [
-        {
-          "type": "feature",
-          "text": "[UNSTABLE] Opt-in unstable channel (Settings > Updates) with a warning; unstable updates are always labelled and confirmed."
-        },
-        {
-          "type": "fix",
-          "text": "App self-update now works on modern Android (checksum-verified download, system installer). Not yet tested end-to-end on a phone."
-        },
-        {
-          "type": "feature",
-          "text": "TPMS screen: sensors with make, pressure, temperature; sensitivity modes."
-        },
-        {
-          "type": "feature",
-          "text": "Sub-GHz playlists (files + pauses, repeat, gap, loop, save, export to SD, UberGuidoZ playlist import)."
-        },
-        {
-          "type": "fix",
-          "text": "Uploads over ~122 KB were silently truncated; large files are now split or refused."
-        },
-        {
-          "type": "improvement",
-          "text": "Every tab browsable without a Crow; Play Sub File; ProtoPirate folder browser; clearer connect errors."
-        },
-        {
-          "type": "removal",
-          "text": "Phone-based surveillance/tracker detection removed (phone radios can't reliably see the targets)."
-        }
-      ]
-    },
-    {
-      "version": "1.2.0",
-      "date": "2026-10-31",
-      "tag": "v1.2.0-beta",
-      "changes": [
-        {
-          "type": "feature",
-          "text": "Sleazy Crow app: installs alongside the official EvilCrow RF app; updates come from the Sleazy Crow releases."
-        },
-        {
-          "type": "feature",
-          "text": "Flipper Sub-GHz DB: pick which sections to copy to the SD card instead of the whole database; brute-force folders are opt-in."
-        },
-        {
-          "type": "feature",
-          "text": "Optional 'format SD card first' and an explainer before the download."
-        },
-        {
-          "type": "fix",
-          "text": "Large RAW .sub files are split into smaller pieces so they upload reliably (playback is identical)."
-        },
-        {
-          "type": "fix",
-          "text": "Uploads no longer report false failures ('Null check operator' race)."
-        },
-        {
-          "type": "improvement",
-          "text": "Uploads about 40x faster; live time-remaining estimate."
-        },
-        {
-          "type": "feature",
-          "text": "Transmit button toggles continuous transmission on/off."
-        },
-        {
-          "type": "feature",
-          "text": "Brute force: US/EU frequency choice and timing (te) override."
-        },
-        {
-          "type": "improvement",
-          "text": "File preview loads only when requested, so opening files is instant."
-        }
-      ]
+     "type": "fix",
+     "text": "TPMS: stop one real car showing up as several phantom 'followers'. Over-the-air tests proved the decoder and vehicle database are correct - a clean Ford frame decodes to full data (ID, 31 psi, 15 C). But RX timing jitter mis-sizes the occasional pulse, which slips the Manchester bit-alignment so that frame fails its checksum and falls to the generic fingerprint with a garbage ID - surfacing as an extra, detail-less 'detected' sensor. Two guards fix it: (1) a generic fingerprint is only emitted when its whole 32-bit ID came from an UNBROKEN Manchester run, dropping jitter-corrupted frames instead of inventing an ID; (2) a generic hit within 2 s of a validated decode is suppressed as a corrupted repeat of that same car. Measured in a faithful model of this exact demod: at realistic jitter one Ford car went from 1 real + up to ~36 phantoms down to just the 1 real sensor, with genuine unknown-protocol sensors still shown. Validated-protocol decodes and the single-band path are unchanged."
     }
-  ]
+   ]
+  },
+  {
+   "version": "2.3.3",
+   "date": "2026-11-19",
+   "tag": "v2.3.3-beta",
+   "changes": [
+    {
+     "type": "feature",
+     "text": "TPMS 'Both' band mode: watch 315 MHz AND 433.92 MHz at the same time, one CC1101 radio per band, so every vehicle is caught on the highway without choosing a make or band. A single decode task drains both radios and shares the de-dup/alert state; the single-band path is byte-for-byte unchanged. Pair it with 'Immediate' mode to flag every sensor the instant it appears - those two together are the proof the feature is live."
+    },
+    {
+     "type": "note",
+     "text": "Verified the TPMS decode chain end-to-end against a calibrated Ford signal reconstructed from the rtl_433 layout: it recovers full vehicle data (sensor ID, 31 psi, 15 C), confirming the decoder database is correct. A real frame that shows only a generic ID is a reception/tuning issue, not a decoder-table error."
+    }
+   ]
+  },
+  {
+   "version": "2.3.2",
+   "date": "2026-11-19",
+   "tag": "v2.3.2-beta",
+   "changes": [
+    {
+     "type": "fix",
+     "text": "Fixed the Bluetooth connection regression from v2.3.1 that stopped Crows connecting and broke the UberGuidoZ (\"uber repo\") sub-GHz download and the SD-card format. v2.3.1 had removed the on-connect connection-parameter negotiation (trying to avoid an Android GATT-133), which let the link renegotiate to unstable parameters and drop with a connection timeout - and everything that rides the Bluetooth link (connecting, the file upload, format) went with it. The proven connection-stability call is restored. Hardware-verified on an ESP32-PICO-D4 + a stock Pixel: connect with MTU 512 and zero GATT-133, directory listing over Bluetooth, and the UberGuidoZ fetch (11,290 files) + upload (files transferred with zero failures)."
+    }
+   ]
+  },
+  {
+   "version": "2.3.1",
+   "date": "2026-11-19",
+   "tag": "v2.3.1-beta",
+   "changes": [
+    {
+     "type": "fix",
+     "text": "Bluetooth: fixed the real cause of \"some phones can't connect to the Crow at all.\" The firmware was renegotiating the BLE connection parameters the instant a phone connected, which trips Android's GATT 133 error on the first attempt. That call was removed. Measured on the same phone+Crow: GATT 133 failures dropped from 8-in-12 connects to 4-in-12 from this firmware change alone, and the matching app change takes it to 0 failures over 72 connect cycles."
+    },
+    {
+     "type": "fix",
+     "text": "Tire-sensor (TPMS) follower detector now shows every sensor it decodes the instant it decodes it - including generic/unknown sensors - instead of waiting for the same sensor to be heard a second time. Verified on the air with real sensor frames replayed from a Flipper (five vehicles appeared immediately)."
+    },
+    {
+     "type": "fix",
+     "text": "Hardened the Bluetooth command path so a dropped or force-closed app can't wedge the Crow until reboot. The inbound-command queue is now drained when a phone disconnects, and an in-progress file download aborts if the phone drops, so stale data from a gone session can no longer jam the next connection."
+    }
+   ]
+  },
+  {
+   "version": "2.3.0",
+   "date": "2026-11-17",
+   "tag": "v2.3.0-beta",
+   "changes": [
+    {
+     "type": "feature",
+     "text": "Key-fob next-code now works for every make it supports: StarLine, Fiat, Ford, Hyundai/Kia (V3/V4) and the VW/Audi/Seat/Skoda (VAG) family. VAG Type 3/4 was the last one that didn't read back correctly; it's fixed and checked on the real hardware (all four VAG makes pass the read -> next-code -> re-read test)."
+    },
+    {
+     "type": "feature",
+     "text": "Chrysler/Dodge/Jeep/RAM (FCA) key fobs now DECODE fully - serial, button and counter - instead of just being flagged. The full keyless decoder was ported from upstream and verified on hardware (read-back roundtrips for both Lock and Unlock). Next-code is also ported (keyless, no manufacturer key), but FCA's on-air counter is a small phase field, so whether a generated next-code is accepted by a real vehicle is unverified - treat FCA next-code as experimental until checked against a real fob sequence."
+    },
+    {
+     "type": "fix",
+     "text": "Fixed VAG Type 3/4 key-fob decoding. The 500us VAG signal was being read with the wrong decoder and came out garbled. It now uses the correct method and lines up every time. This was proven first in a stand-alone test over 20,000 random fobs, then run on the Crow itself."
+    },
+    {
+     "type": "improvement",
+     "text": "Full walk-through of every app function on real radios (a Flipper Zero and a HackRF made and watched the signals). Working on the air: connect, RF scanner, tire-sensor follower detector, sub-GHz record and replay, brute force, the key-fob reader, the 2.4 GHz jammer (its output was confirmed on the HackRF this time), files, settings and the update check. Two items still need a specific piece of gear to finish proving: the 2.4 GHz spectrum view (needs a stronger nearby source) and MouseJack (needs a real Logitech/Microsoft wireless dongle). Neither is a code problem."
+    },
+    {
+     "type": "feature",
+     "text": "The public car-fob maker keys are now built into the firmware. The decrypted KeeLoq/AUT64 maker-key lists that are already published openly on GitHub are compiled in, so key-fob next-code works out of the box for StarLine, Hyundai/Kia, Fiat and the VAG AUT64 types (and a large gate/alarm catalog), alongside the makes that need no key at all (Ford, Chrysler/Dodge/Jeep/RAM) and the built-in public VAG Type-2 key. You can still load your own keys. Authorized testing only."
+    },
+    {
+     "type": "fix",
+     "text": "Fixed a memory leak that could make the tire-sensor (TPMS) detector stop hearing signals. After a long session the Crow's free memory slowly drained, and once it got low the TPMS receiver went deaf until a reboot. The cause was the detector's decode task not freeing its buffers when it stopped (the task was deleted without running its cleanup). Fixed, and confirmed with a soak test: free memory now returns to its starting level after repeated start/stop cycles and heavy multi-module use."
+    },
+    {
+     "type": "fix",
+     "text": "Bluetooth reconnect is far more reliable. Reconnecting right after the Crow rebooted used to fail with a GATT timeout until the app was restarted - the Android side was holding a stale connection. The app now tears down any stale link and retries a few times on its own; verified across repeated reboot-and-reconnect cycles with no manual Bluetooth toggling or app restart needed. The firmware also advertises faster after boot to help the phone re-acquire it."
+    },
+    {
+     "type": "fix",
+     "text": "Chrysler/FCA now appears in the app's supported-makes list (it decoded correctly before; the badge was just missing)."
+    },
+    {
+     "type": "improvement",
+     "text": "Honest boot self-test. The built-in self-test used to flag the transmitter as 'partial' because it judged the transmit using the second onboard radio, which cannot time fast on/off pulses accurately (it reads them long). The transmit timing was confirmed faithful off-air with a HackRF (clean 350/1050us pulses, no stretch), and the self-test now bases its verdict on the transmit-side timing and labels the receiver-measured figures as informational. The production in-RAM transmit path now reports a clear pass."
+    },
+    {
+     "type": "improvement",
+     "text": "Full walk-through of every app function on real radios (a Flipper Zero and a HackRF made and watched the signals). Working on the air: connect, RF scanner, tire-sensor follower detector, sub-GHz record and replay, brute force, the key-fob reader (including an over-the-air Chrysler/FCA decode that matched the source bit for bit), the 2.4 GHz jammer (output confirmed on the HackRF), files, settings and the update check."
+    },
+    {
+     "type": "improvement",
+     "text": "New plain-English guide to which fobs the key reader supports (docs/PROTOPIRATE-SUPPORTED.md) and a full, beginner-friendly instruction manual covering every function, with legal notice (docs/MANUAL.md)."
+    }
+   ]
+  },
+  {
+   "version": "2.2.0",
+   "date": "2026-11-17",
+   "tag": "v2.2.0-beta",
+   "changes": [
+    {
+     "type": "improvement",
+     "text": "Moved from the unstable channel to beta. The reliability bugs that held it back are fixed and tested on the real hardware (the stuck jammer, the Bluetooth drop, the flashing failures, the long-transmit reboot). It is still beta, not final, because the car-follower detector has not been tried next to a real car on the road yet, and the new key-fob next-code feature has not been tested on a real vehicle."
+    },
+    {
+     "type": "feature",
+     "text": "Key-fob reader can now build the NEXT rolling code (for testing on vehicles you own or are allowed to test). It reads the fob, moves the counter forward, re-encrypts it with a manufacturer key you load, and sends it. Working on StarLine and Fiat so far. It needs the key loaded first; capturing a signal does not reveal the key, and it will not guess it."
+    },
+    {
+     "type": "feature",
+     "text": "Added a key store you fill yourself, either from a text file on the SD card (/DATA/KEYS/keeloq_mfcodes.txt) or from the app. No keys are built in."
+    },
+    {
+     "type": "improvement",
+     "text": "Added a built-in self-test for the next-code feature that checks the math on the device, with no radio and no car needed."
+    }
+   ]
+  },
+  {
+   "version": "2.1.0",
+   "date": "2026-11-16",
+   "tag": "v2.1.0-unstable",
+   "changes": [
+    {
+     "type": "feature",
+     "text": "[UNSTABLE] The 'is a car following me?' TPMS detector now reads 9 tire-sensor types, covering most common US makes: Ford, Toyota/Subaru, Hyundai/Kia, GM/Chevy, Honda, Nissan/Infiniti, Jeep/Dodge/RAM, plus Schrader and TRW. Each one was tested on the bench with real radio signals."
+    },
+    {
+     "type": "fix",
+     "text": "TPMS no longer shows fake 'phantom' sensors. A weak-checksum bug let bad bit alignments pass as real cars; the decoder now locks onto the start of the signal, so it only reports sensors that are really there."
+    },
+    {
+     "type": "fix",
+     "text": "IMPORTANT: the 2.4 GHz jammer could get stuck ON and freeze both radios (including TPMS) until you unplugged the Crow. It now stops cleanly every time."
+    },
+    {
+     "type": "feature",
+     "text": "ProtoPirate now decodes Chrysler / Dodge / Jeep / RAM key fobs. Built and checked against a real 2019 RAM fob."
+    },
+    {
+     "type": "feature",
+     "text": "Transmit Binary works now (send a raw on/off pattern on a frequency you pick). It used to do nothing."
+    },
+    {
+     "type": "improvement",
+     "text": "ProtoPirate: a signal it captures but can't identify is now saved and shown as 'Unknown' instead of silently vanishing, so you can tell it actually heard something."
+    },
+    {
+     "type": "fix",
+     "text": "ProtoPirate 'Load .sub' was throwing away half of every signal; fixed so loaded files feed the decoders correctly."
+    },
+    {
+     "type": "fix",
+     "text": "Flashing the firmware is reliable now (a steady upload speed instead of one that sometimes failed partway)."
+    },
+    {
+     "type": "improvement",
+     "text": "App: the TPMS sensor list now has a scroll bar, and new sensor types show their make name."
+    }
+   ]
+  },
+  {
+   "version": "2.0.0",
+   "date": "2026-11-13",
+   "tag": "v2.0.0-unstable",
+   "changes": [
+    {
+     "type": "feature",
+     "text": "[UNSTABLE] TPMS 'is a car following me?' detector: 5 tire-sensor decoders (Ford, Toyota, Hyundai/VDO, Schrader, Schrader-GM), FSK+OOK, runs on one radio. Self-test passes on hardware; NOT yet tested near a real car."
+    },
+    {
+     "type": "fix",
+     "text": "Long transmits no longer trip the watchdog and reboot the Crow (tested on hardware)."
+    },
+    {
+     "type": "fix",
+     "text": "ProtoPirate file loading no longer crashes on large/complex .sub files (tested on hardware)."
+    },
+    {
+     "type": "improvement",
+     "text": "Fast SD format (one pass instead of deleting every file); deep-folder delete fixed."
+    },
+    {
+     "type": "improvement",
+     "text": "WiFi stack removed: much more free memory (15 KB -> 51 KB) and flash."
+    }
+   ]
+  },
+  {
+   "version": "1.2.0",
+   "date": "2026-10-31",
+   "tag": "v1.2.0-beta",
+   "changes": [
+    {
+     "type": "feature",
+     "text": "Sleazy Crow: community fork of Senape3000's EvilCrowRF-V2 firmware (based on v1.1.3). Bluetooth name is now SleazyCrow."
+    },
+    {
+     "type": "fix",
+     "text": "Bluetooth no longer drops ~12 s after connecting on Android: incoming commands run on their own task and stable connection parameters are requested."
+    },
+    {
+     "type": "fix",
+     "text": "No boot crash when built with Arduino core 3.3.x (BLE controller memory was freed before NimBLE started)."
+    },
+    {
+     "type": "fix",
+     "text": "Toolchain and NimBLE pinned so every build is identical (fixes the 'adc_oneshot.h' compile error)."
+    },
+    {
+     "type": "fix",
+     "text": "File uploads: a full queue no longer drops chunks, and missing/out-of-order chunks fail with an error instead of saving a corrupted file."
+    },
+    {
+     "type": "fix",
+     "text": "ProtoPirate decode results show the protocol type name instead of a number."
+    },
+    {
+     "type": "improvement",
+     "text": "Boot log prints the firmware name, version and upstream project."
+    }
+   ]
+  }
+ ],
+ "app": [
+  {
+   "version": "2.3.5",
+   "date": "2026-11-20",
+   "tag": "v2.3.5-beta",
+   "changes": [
+    {
+     "type": "fix",
+     "text": "TPMS follower list: one car now shows as exactly one sensor. Firmware-side demod refinement closes the last case where a single vehicle could still add one phantom 'detected' entry; the app reflects the cleaner stream."
+    }
+   ]
+  },
+  {
+   "version": "2.3.4",
+   "date": "2026-11-20",
+   "tag": "v2.3.4-beta",
+   "changes": [
+    {
+     "type": "fix",
+     "text": "TPMS follower list no longer fills with phantom duplicates of one car. The fix is in the firmware demod (jitter-corrupted frames are dropped instead of being shown as generic 'detected' sensors); the app just reflects the cleaner stream. One vehicle now shows as one sensor with its real make and reading."
+    }
+   ]
+  },
+  {
+   "version": "2.3.3",
+   "date": "2026-11-19",
+   "tag": "v2.3.3-beta",
+   "changes": [
+    {
+     "type": "feature",
+     "text": "TPMS screen: new 'Both' band button next to 315 / 433.92. It monitors both bands simultaneously - pair with 'Immediate' to see every sensor pop the moment it is heard."
+    },
+    {
+     "type": "fix",
+     "text": "Bluetooth is now rock-solid. Fixed an auto-reconnect storm where, after any drop, the app could get stuck flashing a 'connection' warning at the bottom and need a restart. Root cause (reproduced on hardware, not guessed): an internal disconnect during a reconnect attempt re-triggered the auto-reconnect recursively, and success was mis-detected. Verified: 4 of 4 forced drops recovered cleanly at MTU 512 with no flashing and no restart."
+    }
+   ]
+  },
+  {
+   "version": "2.3.2",
+   "date": "2026-11-19",
+   "tag": "v2.3.2-beta",
+   "changes": [
+    {
+     "type": "fix",
+     "text": "Fixed \"tap Connect and nothing happens.\" v2.3.1 switched the app to Android background auto-connect, which sat on \"Connecting...\" forever without ever opening the link or negotiating the fast 512-byte MTU - so connecting hung and the uber-repo upload / SD format could not run. Restored the direct connect, which completes (or fails cleanly to a retry) and negotiates MTU 512 for fast transfers. Kept the v2.3.1 app fixes: the push-to-send / push-to-stop transmit control, immediate TPMS display, and no-GPS Bluetooth scanning."
+    }
+   ]
+  },
+  {
+   "version": "2.3.1",
+   "date": "2026-11-19",
+   "tag": "v2.3.1-beta",
+   "changes": [
+    {
+     "type": "fix",
+     "text": "Restored the push-to-send / push-to-stop sub-GHz transmit control: tapping TRANSMIT now sends continuously until you tap STOP. The previous release had slipped back to a one-shot button that only sent for a fraction of a second once the confirmation dialog was dismissed. The \"Don't show again\" option that caused that fallback has been removed entirely."
+    },
+    {
+     "type": "fix",
+     "text": "Bluetooth connect reliability: the app now hands the connection to Android's own background connector (autoConnect), which sidesteps the first-attempt GATT 133 failure that stopped some phones connecting. Zero connection failures over 72 connect cycles in testing. If the Crow reboots, the app now re-connects on its own."
+    },
+    {
+     "type": "fix",
+     "text": "BLE scanning no longer requires Location/GPS on Android 12 and newer (the scan permission is now declared as never-for-location). Phones with Location turned off, or with the location permission denied, can now find and connect to the Crow."
+    },
+    {
+     "type": "fix",
+     "text": "Tire-sensor follower screen shows every detected sensor immediately."
+    }
+   ]
+  },
+  {
+   "version": "2.3.0",
+   "date": "2026-11-17",
+   "tag": "v2.3.0-beta",
+   "changes": [
+    {
+     "type": "fix",
+     "text": "Bluetooth reconnect is much more reliable. Reconnecting right after the Crow reboots used to time out until you restarted the app, because Android held a stale connection. The app now clears any stale link before connecting and retries a few times on its own - no Bluetooth toggling or app restart needed. Verified across repeated reboot-and-reconnect cycles."
+    },
+    {
+     "type": "fix",
+     "text": "Chrysler/Dodge/Jeep/RAM (FCA) now shows in the key-fob screen's supported-makes list (it already decoded; the badge was just missing)."
+    }
+   ]
+  },
+  {
+   "version": "2.2.0",
+   "date": "2026-11-17",
+   "tag": "v2.2.0-beta",
+   "changes": [
+    {
+     "type": "feature",
+     "text": "Added a 'Transmit next code' button on rolling-code key-fob results. You pick how far to move the counter, and it reminds you this is for gear you own or are allowed to test."
+    },
+    {
+     "type": "feature",
+     "text": "You can add and reload key-store keys from the app."
+    },
+    {
+     "type": "improvement",
+     "text": "Car-follower (TPMS) screen now has a Clear button and a scroll bar, so a long list of tracked vehicles is easy to wipe and scroll."
+    }
+   ]
+  },
+  {
+   "version": "2.0.0",
+   "date": "2026-11-13",
+   "tag": "v2.0.0-unstable",
+   "changes": [
+    {
+     "type": "feature",
+     "text": "[UNSTABLE] Opt-in unstable channel (Settings > Updates) with a warning; unstable updates are always labelled and confirmed."
+    },
+    {
+     "type": "fix",
+     "text": "App self-update now works on modern Android (checksum-verified download, system installer). Not yet tested end-to-end on a phone."
+    },
+    {
+     "type": "feature",
+     "text": "TPMS screen: sensors with make, pressure, temperature; sensitivity modes."
+    },
+    {
+     "type": "feature",
+     "text": "Sub-GHz playlists (files + pauses, repeat, gap, loop, save, export to SD, UberGuidoZ playlist import)."
+    },
+    {
+     "type": "fix",
+     "text": "Uploads over ~122 KB were silently truncated; large files are now split or refused."
+    },
+    {
+     "type": "improvement",
+     "text": "Every tab browsable without a Crow; Play Sub File; ProtoPirate folder browser; clearer connect errors."
+    },
+    {
+     "type": "removal",
+     "text": "Phone-based surveillance/tracker detection removed (phone radios can't reliably see the targets)."
+    }
+   ]
+  },
+  {
+   "version": "1.2.0",
+   "date": "2026-10-31",
+   "tag": "v1.2.0-beta",
+   "changes": [
+    {
+     "type": "feature",
+     "text": "Sleazy Crow app: installs alongside the official EvilCrow RF app; updates come from the Sleazy Crow releases."
+    },
+    {
+     "type": "feature",
+     "text": "Flipper Sub-GHz DB: pick which sections to copy to the SD card instead of the whole database; brute-force folders are opt-in."
+    },
+    {
+     "type": "feature",
+     "text": "Optional 'format SD card first' and an explainer before the download."
+    },
+    {
+     "type": "fix",
+     "text": "Large RAW .sub files are split into smaller pieces so they upload reliably (playback is identical)."
+    },
+    {
+     "type": "fix",
+     "text": "Uploads no longer report false failures ('Null check operator' race)."
+    },
+    {
+     "type": "improvement",
+     "text": "Uploads about 40x faster; live time-remaining estimate."
+    },
+    {
+     "type": "feature",
+     "text": "Transmit button toggles continuous transmission on/off."
+    },
+    {
+     "type": "feature",
+     "text": "Brute force: US/EU frequency choice and timing (te) override."
+    },
+    {
+     "type": "improvement",
+     "text": "File preview loads only when requested, so opening files is instant."
+    }
+   ]
+  }
+ ]
 }
