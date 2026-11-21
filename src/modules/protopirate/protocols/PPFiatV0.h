@@ -39,7 +39,9 @@ public:
         resetDecoder();
         btnBits_ = 0;
         btnCount_ = 0;
-        prevBit_ = 0;
+        prevBit_ = 1;   // implied leading '1' bit (upstream): the reference the
+                        // transition code starts from. Starting at 0 inverted
+                        // every decoded bit (data came out bitwise-complemented).
         phase_ = 0;
     }
 
@@ -65,7 +67,7 @@ public:
                 // Look for gap (~800µs) marking end of preamble
                 if (!level && DURATION_DIFF(duration, GAP_TIME) <= GAP_DELTA) {
                     parserStep_ = StepDecodeData;
-                    prevBit_ = 0;
+                    prevBit_ = 1;   // implied leading '1' bit (upstream)
                     phase_ = 0;
                 } else {
                     parserStep_ = StepReset;
@@ -174,9 +176,11 @@ private:
         result_.dataBits = 64;
         result_.protocolName = PROTOCOL_NAME;
 
-        // data = (cnt << 32) | serial
+        // data = (hop << 32) | fix.  serial = fix (low 32), counter = hop's low
+        // 16 bits (upstream fiat_v0: hop is the 32-bit rolling word, only its
+        // low 16 are shown as the counter).
         result_.serial  = (uint32_t)(decodeData_ & 0xFFFFFFFF);
-        result_.counter = (uint32_t)(decodeData_ >> 32);
+        result_.counter = (uint32_t)((decodeData_ >> 32) & 0xFFFF);
         result_.button  = (btnBits_ << 1) | 1;  // Button fixup from original
         result_.crc = 0;
         result_.crcValid = true;
