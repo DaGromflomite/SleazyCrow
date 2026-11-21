@@ -567,15 +567,24 @@ Tap **Settings** at the bottom. Each row expands.
 
 ---
 
-## 15. Firmware update (over Bluetooth)
+## 15. Firmware update (use the web flasher over USB)
 
-1. In **Settings**, open **Firmware Update**. It shows the version currently on the Crow.
-2. Tap **Check FW Version**, then **OTA Update**.
-3. The app checks the project's GitHub releases. If there is a newer firmware it offers to
-   flash it over Bluetooth; if not, it says **No new version available**.
-4. **Do not unplug or walk away mid-flash.** Let it finish.
+For this build, install the firmware over USB with the web flasher, not over Bluetooth.
+This version changed how the Crow and the app talk to each other, and a Bluetooth
+(over-the-air) update coming from an older version can leave the Crow in a bad state. The
+over-the-air update is turned off for this build, so the app will not offer it.
 
-The app also tells you on its own when a newer firmware or app version is out.
+To install or update the firmware:
+
+1. On a computer, open the web flasher at **https://dagromflomite.github.io/SleazyCrow/** in
+   Chrome, Edge or Opera.
+2. Plug the Crow in with a USB-C **data** cable (not a charge-only one).
+3. Press **Install**, pick the Crow's serial port when asked, and choose **Erase device**.
+4. **Do not unplug or walk away mid-flash.** Let it finish, then unplug and replug the Crow.
+
+In **Settings → Firmware Update** the app still shows the version currently on the Crow, so
+you can check what you are running. The app updates itself the normal way from the app store
+or the releases page; only the firmware goes through the web flasher.
 
 ---
 
@@ -593,9 +602,8 @@ The app also tells you on its own when a newer firmware or app version is out.
   capture; a rolling code on a replay (that is the device working as designed). Re-check the
   frequency with the scanner, try a different preset, and remember rolling codes need
   ProtoPirate, not plain replay.
-- **Really broken.** Flash back to an earlier firmware from the web flasher, and
-  [open an issue](https://github.com/DaGromflomite/SleazyCrow/issues/new) with what happened -
-  what you did, what you expected, and what it actually did.
+- **Really broken.** [Open an issue](https://github.com/DaGromflomite/SleazyCrow/issues/new)
+  with what happened - what you did, what you expected, and what it actually did.
 
 ---
 
