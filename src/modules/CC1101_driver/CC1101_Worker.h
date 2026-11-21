@@ -343,6 +343,12 @@ public:
     // because its 52us FSK symbols jitter below 50us and a dropped pulse breaks
     // the level alternation the Manchester demod relies on.
     static volatile uint16_t minPulseUs[CC1101_NUM_MODULES];
+    // Recording-mode guards: a finished capture must be saved, not discarded, when
+    // a stray edge lands during its end-gap. recordingActive is set only while a
+    // user recording runs (TPMS/other modes are unaffected); recordPending flags a
+    // completed capture for checkAndSaveRecording to drain before new edges resume.
+    static volatile bool recordingActive[CC1101_NUM_MODULES];
+    static volatile bool recordPending[CC1101_NUM_MODULES];
 private:
     static ReceivedSamples receivedSamples[CC1101_NUM_MODULES];
 };

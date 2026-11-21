@@ -64,6 +64,8 @@ extern ModuleCc1101 moduleCC1101State[CC1101_NUM_MODULES];
 portMUX_TYPE CC1101Worker::samplesMuxes[CC1101_NUM_MODULES];
 ReceivedSamples CC1101Worker::receivedSamples[CC1101_NUM_MODULES];
 volatile uint16_t CC1101Worker::minPulseUs[CC1101_NUM_MODULES] = {MIN_PULSE_DURATION, MIN_PULSE_DURATION};
+volatile bool CC1101Worker::recordingActive[CC1101_NUM_MODULES] = {false, false};
+volatile bool CC1101Worker::recordPending[CC1101_NUM_MODULES] = {false, false};
 
 void CC1101Worker::init(SignalDetectedCallback detectedCb, SignalRecordedCallback recordedCb) {
     signalDetectedCallback = detectedCb;
@@ -110,13 +112,25 @@ void IRAM_ATTR CC1101Worker::receiveSample(int module)
     data.lastReceiveTime = time;
 
     if (duration > MAX_SIGNAL_DURATION) {
-        // Log only occasionally to avoid ISR overhead - use static counter
-        static volatile int clearCount[2] = {0, 0};
-        clearCount[module] = clearCount[module] + 1;  // Avoid deprecated volatile++
-        if ((clearCount[module] % 100) == 0) {
-            // Note: ESP_LOG cannot be used in ISR, so we'll track this differently
+        // A gap longer than a whole signal ends the current capture. In a user
+        // recording, a completed capture (>= MIN_SAMPLE) must be SAVED, not thrown
+        // away: flag it so checkAndSaveRecording can drain it, and stop taking
+        // edges until it does (so the next signal is not appended onto it).
+        // Previously this always cleared here, so an ambient-noise edge during the
+        // end-gap wiped a finished recording before the save poll ran -- confirmed
+        // over the air (a received 933-sample signal was cleared mid-gap). Other
+        // modes (TPMS burst segmentation) keep the clear-and-restart behaviour.
+        if (recordingActive[module] && data.samples.size() >= MIN_SAMPLE) {
+            recordPending[module] = true;
+        } else if (!recordPending[module]) {
+            data.samples.clear();
         }
-        data.samples.clear();
+        portEXIT_CRITICAL_ISR(&CC1101Worker::samplesMuxes[module]);
+        return;
+    }
+
+    // Hold off while a finished recording is waiting to be saved.
+    if (recordPending[module]) {
         portEXIT_CRITICAL_ISR(&CC1101Worker::samplesMuxes[module]);
         return;
     }
@@ -427,7 +441,9 @@ void CC1101Worker::handleStartRecord(int module, const CC1101Task& config) {
     
     // Clear any previous samples and start ISR
     clearReceivedSamples(module);
-    
+    recordPending[module] = false;
+    recordingActive[module] = true;   // enable the save-not-discard ISR path
+
     // Get GDO0 pin for this module
     int gdo0Pin = moduleCC1101State[module].getInputPin();
     ESP_LOGI(TAG, "Setting up ISR for module %d on pin %d (frequency=%.2f, modulation=%d, deviation=%.2f)", 
@@ -447,7 +463,9 @@ void CC1101Worker::handleStartRecord(int module, const CC1101Task& config) {
 
 void CC1101Worker::handleStopRecord(int module) {
     ESP_LOGI(TAG, "Stopping recording on module %d", module);
-    
+
+    recordingActive[module] = false;
+    recordPending[module] = false;
     removeModuleReceiver(module);
     moduleCC1101State[module].setSidle();
     moduleCC1101State[module].unlock();
@@ -748,16 +766,33 @@ void CC1101Worker::checkAndSaveRecording(int module) {
     size_t sampleCount = data.samples.size();
     unsigned long lastReceiveTime = data.lastReceiveTime;
     portEXIT_CRITICAL(&samplesMuxes[module]);
-    
+#ifdef REC_DEBUG
+    {
+        static uint32_t lastDbg[CC1101_NUM_MODULES] = {0};
+        if (millis() - lastDbg[module] > 400) {
+            lastDbg[module] = millis();
+            Serial.printf("RECDBG m%d samples=%u gapUs=%lu\n",
+                          module, (unsigned)sampleCount,
+                          (unsigned long)(micros() - lastReceiveTime));
+        }
+    }
+#endif
+
+    const bool pending = recordPending[module];
     if (sampleCount < MIN_SAMPLE) {
+        if (pending) recordPending[module] = false;  // was noise; let capture resume
         return;  // Not enough samples yet
     }
-    
+
     unsigned long timeSinceLast = micros() - lastReceiveTime;
-    if (timeSinceLast <= MAX_SIGNAL_DURATION) {
+    // Save when the ISR has flagged a finished capture (a gap-edge during the
+    // end-gap) OR the end-gap has simply elapsed in silence. Either way the signal
+    // is complete; without the pending path a noise edge used to wipe it first.
+    if (!pending && timeSinceLast <= MAX_SIGNAL_DURATION) {
         return;  // Signal still coming in
     }
-    
+    recordPending[module] = false;
+
     ESP_LOGI(TAG, "Signal complete on module %d: %zu samples", module, sampleCount);
     
     // Stop recording
