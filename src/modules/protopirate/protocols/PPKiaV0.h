@@ -23,82 +23,70 @@ public:
 
     void reset() override { resetDecoder(); }
 
+    // Faithful port of subghz_protocol_decoder_kia_feed (ProtoPirate kia_v0.c,
+    // Kia-type path). Data bits come from LOW+HIGH *pairs* (short/short=0,
+    // long/long=1), NOT a single PWM pulse; the long-pair sync contributes two
+    // leading '1' bits; the frame ends on a 700..1700us HIGH gap and ONLY
+    // commits when the CRC-8 (poly 0x7F) checks. The old single-pulse PWM feed
+    // without the two sync bits never completed a real 61-bit frame.
     bool feed(bool level, uint32_t duration) override {
-        auto& t = getTiming();
-
         switch (parserStep_) {
         case StepReset:
-            if (!level) return false;
-            if (DURATION_DIFF(duration, t.te_short) > t.te_delta) return false;
-            decodeData_ = 0;
-            decodeCountBit_ = 0;
-            parserStep_ = StepCheckPreamble;
-            headerCount_ = 0;
+            decodeData_ = 0; decodeCountBit_ = 0; headerCount_ = 0;
+            if (level && isShort(duration)) {
+                parserStep_ = StepPreamble;
+                teLast_ = duration;
+            }
             break;
 
-        case StepCheckPreamble:
+        case StepPreamble:
             if (level) {
-                if (DURATION_DIFF(duration, t.te_short) <= t.te_delta) {
-                    headerCount_++;
-                } else if (headerCount_ >= 30 &&
-                           DURATION_DIFF(duration, t.te_long) <= t.te_delta) {
-                    // Sync long pulse after preamble
+                if (isShort(duration) || isLong(duration)) teLast_ = duration;
+                else parserStep_ = StepReset;
+            } else if (isShort(duration) && isShort(teLast_)) {
+                headerCount_++;                       // one short HIGH/LOW pair
+            } else if (isLong(duration) && isLong(teLast_)) {
+                if (headerCount_ > 14) {
+                    decodeData_ = 0; decodeCountBit_ = 0;
+                    addBit(1); addBit(1);             // sync = two leading 1 bits
                     parserStep_ = StepSaveDuration;
                 } else {
                     parserStep_ = StepReset;
                 }
             } else {
-                if (DURATION_DIFF(duration, t.te_short) <= t.te_delta) {
-                    // Normal preamble LOW
-                } else if (DURATION_DIFF(duration, t.te_long) <= t.te_delta &&
-                           headerCount_ >= 30) {
-                    // Sync long gap
-                    parserStep_ = StepDecodeData;
-                } else {
-                    parserStep_ = StepReset;
-                }
+                parserStep_ = StepReset;
             }
             break;
 
-        case StepSaveDuration:
-            if (!level) {
+        case StepSaveDuration:                        // expects the HIGH of a pair
+            if (!level) { parserStep_ = StepReset; break; }
+            if (isKiaGap(duration)) return finishAtGap();
+            if (isShort(duration) || isLong(duration)) {
                 teLast_ = duration;
-                parserStep_ = StepDecodeData;
+                parserStep_ = StepCheckDuration;
             } else {
                 parserStep_ = StepReset;
             }
             break;
 
-        case StepDecodeData:
-            if (level) {
-                // PWM: short = 0, long = 1
-                if (DURATION_DIFF(duration, t.te_short) <= t.te_delta) {
-                    addBit(0);
-                } else if (DURATION_DIFF(duration, t.te_long) <= t.te_delta) {
-                    addBit(1);
-                } else {
-                    // End of data
-                    if (decodeCountBit_ >= t.min_count_bit) {
-                        return extractData();
-                    }
-                    parserStep_ = StepReset;
-                }
-
-                if (decodeCountBit_ >= t.min_count_bit) {
-                    return extractData();
-                }
+        case StepCheckDuration:                       // expects the LOW of a pair
+            if (level) { parserStep_ = StepReset; break; }
+            if (isShort(teLast_) && isShort(duration)) {
+                addBit(0); parserStep_ = StepSaveDuration;
+            } else if (isLong(teLast_) && isLong(duration)) {
+                addBit(1); parserStep_ = StepSaveDuration;
             } else {
-                // LOW pulse — just track duration
-                if (duration > t.te_long * 3) {
-                    // Long gap = end
-                    if (decodeCountBit_ >= t.min_count_bit) {
-                        return extractData();
-                    }
-                    parserStep_ = StepReset;
-                }
+                parserStep_ = StepReset;
             }
             break;
         }
+        return false;
+    }
+
+    bool finishAtGap() {
+        bool ok = (decodeCountBit_ == 61) && verifyCrcPoly(decodeData_);
+        if (ok) return extractData();
+        parserStep_ = StepReset;
         return false;
     }
 
@@ -133,23 +121,31 @@ public:
 private:
     enum {
         StepReset = 0,
-        StepCheckPreamble,
+        StepPreamble,
         StepSaveDuration,
-        StepDecodeData,
+        StepCheckDuration,
     };
 
-    /// CRC8 with polynomial 0x7F
-    static uint8_t crc8(uint64_t data, uint8_t startBit, uint8_t endBit) {
-        uint8_t crc = 0;
-        for (int i = startBit; i >= (int)endBit; i--) {
-            uint8_t bit = (data >> i) & 1;
-            if ((crc >> 7) ^ bit) {
-                crc = (crc << 1) ^ 0x7F;
-            } else {
-                crc <<= 1;
-            }
+    static bool isShort(uint32_t d) { return DURATION_DIFF(d, 250) < 100; }
+    static bool isLong(uint32_t d)  { return DURATION_DIFF(d, 500) < 100; }
+    static bool isKiaGap(uint32_t d) { return d >= 700 && (d - 700) <= 1000; }  // 700..1700
+
+    /// CRC-8 poly 0x7F, init 0 (upstream crc8_kia / common crc8).
+    static uint8_t crc8kia(const uint8_t* b, int n) {
+        uint8_t c = 0;
+        for (int i = 0; i < n; i++) {
+            c ^= b[i];
+            for (int j = 0; j < 8; j++)
+                c = (c & 0x80) ? (uint8_t)((c << 1) ^ 0x7F) : (uint8_t)(c << 1);
         }
-        return crc;
+        return c;
+    }
+    /// Upstream kia_v0_verify_crc_poly: CRC over frame bytes 6..1 (bits 55..8).
+    static bool verifyCrcPoly(uint64_t data) {
+        uint8_t bs[6] = {
+            (uint8_t)(data >> 48), (uint8_t)(data >> 40), (uint8_t)(data >> 32),
+            (uint8_t)(data >> 24), (uint8_t)(data >> 16), (uint8_t)(data >> 8)};
+        return crc8kia(bs, 6) == (uint8_t)(data & 0xFF);
     }
 
     bool extractData() {
@@ -164,9 +160,7 @@ private:
         result_.button  = (decodeData_ >> 8) & 0x0F;
         result_.crc     = decodeData_ & 0xFF;
 
-        // Validate CRC: computed over bits 8-55 (6 bytes worth)
-        uint8_t computed = crc8(decodeData_, 55, 8);
-        result_.crcValid = (computed == result_.crc);
+        result_.crcValid = verifyCrcPoly(decodeData_);
         result_.canEmulate = true;
         result_.encrypted = false;
 
