@@ -23,76 +23,64 @@ public:
 
     void reset() override {
         resetDecoder();
-        manchesterPrev_ = false;
+        manchState_ = MS_Mid1;
     }
 
+    // Faithful port of kia_protocol_decoder_v1_feed (upstream RocketGod/ProtoPirate):
+    // te_long preamble pairs (tracked on LOWs), header_count>70 then a short LOW
+    // seeds a leading 1, then STANDARD Flipper Manchester to 57 bits. (Our previous
+    // feed used a divergent half-bit tracker that never decoded real fobs.)
     bool feed(bool level, uint32_t duration) override {
-        auto& t = getTiming();
+        const uint32_t te_short = 800, te_long = 1600, te_delta = 200;
 
         switch (parserStep_) {
         case StepReset:
-            if (!level) return false;
-            if (DURATION_DIFF(duration, t.te_long) > t.te_delta) return false;
-            parserStep_ = StepCheckPreamble;
-            headerCount_ = 1;
-            decodeData_ = 0;
-            decodeCountBit_ = 0;
-            break;
-
-        case StepCheckPreamble:
-            if (DURATION_DIFF(duration, t.te_long) <= t.te_delta) {
-                headerCount_++;
-                if (!level && headerCount_ >= 80) {
-                    // After enough preamble, look for short pulse to start data
-                    parserStep_ = StepWaitData;
-                }
-            } else if (headerCount_ >= 80 &&
-                       DURATION_DIFF(duration, t.te_short) <= t.te_delta && level) {
-                parserStep_ = StepDecodeData;
-                manchesterPrev_ = true;
-                addBit(1);
-            } else {
-                parserStep_ = StepReset;
+            if (level && DURATION_DIFF(duration, te_long) < te_delta) {
+                parserStep_ = StepCheckPreamble;
+                teLast_ = duration;
+                headerCount_ = 0;
+                decodeData_ = 0;
+                decodeCountBit_ = 0;
+                manchState_ = MS_Mid1;   // manchester_advance(Reset) -> Mid1
             }
             break;
 
-        case StepWaitData:
-            if (level && DURATION_DIFF(duration, t.te_short) <= t.te_delta) {
-                parserStep_ = StepDecodeData;
-                manchesterPrev_ = true;
-                addBit(1);
-            } else {
-                parserStep_ = StepReset;
+        case StepCheckPreamble:
+            // Two independent blocks (NOT else-if): the second can override the
+            // first's reset on the short LOW that ends the preamble. (Upstream.)
+            if (!level) {
+                if (DURATION_DIFF(duration, te_long) < te_delta &&
+                    DURATION_DIFF(teLast_, te_long) < te_delta) {
+                    headerCount_++;
+                    teLast_ = duration;
+                } else {
+                    parserStep_ = StepReset;
+                }
+            }
+            if (headerCount_ > 70) {
+                if (!level &&
+                    DURATION_DIFF(duration, te_short) < te_delta &&
+                    DURATION_DIFF(teLast_, te_long) < te_delta) {
+                    decodeData_ = 0;
+                    decodeCountBit_ = 0;
+                    addBit(1);                 // leading 1
+                    headerCount_ = 0;
+                    parserStep_ = StepDecodeData;
+                }
             }
             break;
 
         case StepDecodeData: {
-            bool isShort = DURATION_DIFF(duration, t.te_short) <= t.te_delta;
-            bool isLong  = DURATION_DIFF(duration, t.te_long) <= t.te_delta;
-
-            if (isLong) {
-                // Long pulse = transition = different bit
-                manchesterPrev_ = !manchesterPrev_;
-                addBit(manchesterPrev_ ? 1 : 0);
-            } else if (isShort) {
-                // Short pulse = half clock, need second half
-                if (halfBit_) {
-                    // Second half of manchester bit — same as prev
-                    addBit(manchesterPrev_ ? 1 : 0);
-                    halfBit_ = false;
-                } else {
-                    halfBit_ = true;
+            int ev = manchEvent(duration, level, te_short, te_long, te_delta);
+            if (ev != ME_Reset) {
+                bool bit;
+                if (manchAdvance(ev, bit)) {
+                    addBit(bit ? 1 : 0);
                 }
-            } else {
-                // Invalid duration — check if we have enough data
-                if (decodeCountBit_ >= getTiming().min_count_bit) {
-                    return extractData();
-                }
-                parserStep_ = StepReset;
-                return false;
             }
-
-            if (decodeCountBit_ >= 57) {
+            // 56-bit payload (leading 1 + 55 Manchester bits). Verified against
+            // the real KAT capture KIA V1 N1 RAW -> sn=B444706E btn=1 cnt=0x91.
+            if (decodeCountBit_ == 56) {
                 return extractData();
             }
             break;
@@ -131,49 +119,66 @@ public:
     }
 
 private:
-    bool manchesterPrev_ = false;
-    bool halfBit_ = false;
-
     enum {
         StepReset = 0,
         StepCheckPreamble,
-        StepWaitData,
         StepDecodeData,
     };
 
-    /// CRC4 calculation specific to Kia V1
-    static uint8_t crc4(uint64_t data, uint8_t bitCount, uint8_t offset) {
+    // ---- Standard Flipper Manchester (same as the shared lib upstream uses) ----
+    enum { ME_ShortLow = 0, ME_ShortHigh = 2, ME_LongLow = 4,
+           ME_LongHigh = 6, ME_Reset = 8 };
+    enum { MS_Start1 = 0, MS_Mid1 = 1, MS_Mid0 = 2, MS_Start0 = 3 };
+    uint8_t manchState_ = MS_Mid1;
+
+    static int manchEvent(uint32_t dur, bool level, uint32_t te_short,
+                          uint32_t te_long, uint32_t te_delta) {
+        if (DURATION_DIFF(dur, te_short) < te_delta)
+            return level ? ME_ShortLow : ME_ShortHigh;
+        if (DURATION_DIFF(dur, te_long) < te_delta)
+            return level ? ME_LongLow : ME_LongHigh;
+        return ME_Reset;
+    }
+    bool manchAdvance(int event, bool& bit) {
+        static const uint8_t transitions[4] = {0x01, 0x91, 0x9B, 0xFB};
+        if (event == ME_Reset) { manchState_ = MS_Mid1; return false; }
+        uint8_t ns = (uint8_t)((transitions[manchState_] >> event) & 0x3);
+        if (ns == manchState_) { manchState_ = MS_Mid1; return false; }
+        bool result = false;
+        if (ns == MS_Mid0) { bit = false; result = true; }
+        else if (ns == MS_Mid1) { bit = true; result = true; }
+        manchState_ = ns;
+        return result;
+    }
+
+    /// CRC4: XOR of all nibbles of the 7 field bytes, + offset. (Upstream.)
+    static uint8_t crc4(const uint8_t* bytes, int count, uint8_t offset) {
         uint8_t crc = 0;
-        uint8_t bytes = (bitCount + 7) / 8;
-        for (uint8_t i = 0; i < bytes; i++) {
-            uint8_t b = (uint8_t)(data >> ((bytes - 1 - i) * 8));
-            crc ^= (b & 0x0F) ^ (b >> 4);
-        }
-        return (crc + offset) & 0x0F;
+        for (int i = 0; i < count; i++) crc ^= (bytes[i] & 0x0F) ^ (bytes[i] >> 4);
+        return (uint8_t)((crc + offset) & 0x0F);
     }
 
     bool extractData() {
-        result_.data = decodeData_;
-        result_.dataBits = decodeCountBit_;
+        uint64_t data = decodeData_;
+        result_.data = data;
+        result_.dataBits = (uint16_t)decodeCountBit_;
         result_.protocolName = PROTOCOL_NAME;
 
-        // Bit layout (57 bits):
-        // serial = data >> 24, btn = (data >> 16) & 0xFF
-        // cnt = ((data >> 4) & 0xF) << 8 | ((data >> 8) & 0xFF)
-        result_.serial  = (uint32_t)(decodeData_ >> 24);
-        result_.button  = (decodeData_ >> 16) & 0xFF;
-        uint16_t rawCnt = (decodeData_ >> 4) & 0xFFF;
-        result_.counter = ((rawCnt & 0x0F) << 8) | ((rawCnt >> 4) & 0xFF);
-        result_.crc     = decodeData_ & 0x0F;
+        // Field layout (upstream kia_v1_check_remote_controller):
+        uint32_t serial = (uint32_t)(data >> 24);
+        uint8_t  btn    = (uint8_t)((data >> 16) & 0xFF);
+        uint16_t cnt    = (uint16_t)((((data >> 4) & 0xF) << 8) | ((data >> 8) & 0xFF));
+        result_.serial  = serial;
+        result_.button  = btn;
+        result_.counter = cnt;
+        result_.crc     = (uint8_t)(data & 0x0F);
 
-        // CRC validation
-        uint8_t cntHigh = (result_.counter >> 8) & 0xFF;
-        uint8_t offset = 1;
-        if (cntHigh == 0 && result_.counter >= 0x098) {
-            offset = result_.button;
-        }
-        uint8_t computed = crc4(decodeData_ >> 4, 53, offset);
-        result_.crcValid = (computed == result_.crc);
+        uint8_t cntHigh = (uint8_t)((cnt >> 8) & 0xF);
+        uint8_t cd[7] = {
+            (uint8_t)((serial >> 24) & 0xFF), (uint8_t)((serial >> 16) & 0xFF),
+            (uint8_t)((serial >> 8) & 0xFF),  (uint8_t)(serial & 0xFF),
+            btn, (uint8_t)(cnt & 0xFF), cntHigh };
+        result_.crcValid = (crc4(cd, 7, 1) == (uint8_t)(data & 0x0F));
         result_.canEmulate = true;
         result_.encrypted = false;
 
