@@ -25,66 +25,76 @@ public:
     void reset() override {
         resetDecoder();
         savedKey_ = 0;
+        manchState_ = MS_Mid1;
     }
 
+    // Faithful port of subghz_protocol_decoder_kia_v5_feed (ProtoPirate): the
+    // data is STANDARD Flipper Manchester (not the half-pulse tracker the old
+    // code used), with no implied leading bit. 64-bit key saved at bit 64, up
+    // to 67 bits consumed; the frame ends on an out-of-range pulse.
     bool feed(bool level, uint32_t duration) override {
-        auto& t = getTiming();
+        const uint32_t TE_SHORT = 400, TE_LONG = 800, TE_DELTA = 150;
+        bool isShort = DURATION_DIFF(duration, TE_SHORT) < TE_DELTA;
+        bool isLong  = DURATION_DIFF(duration, TE_LONG)  < TE_DELTA;
 
         switch (parserStep_) {
         case StepReset:
-            if (!level) return false;
-            if (DURATION_DIFF(duration, t.te_short) > t.te_delta) return false;
-            parserStep_ = StepCheckPreamble;
-            headerCount_ = 1;
-            decodeData_ = 0;
-            decodeCountBit_ = 0;
+            if (level && isShort) {
+                parserStep_ = StepCheckPreamble;
+                teLast_ = duration;
+                headerCount_ = 1;
+                decodeCountBit_ = 0;
+                decodeData_ = 0;
+                manchState_ = MS_Mid1;
+            }
             break;
 
         case StepCheckPreamble:
-            if (DURATION_DIFF(duration, t.te_short) <= t.te_delta) {
-                headerCount_++;
-            } else if (headerCount_ >= 40 &&
-                       DURATION_DIFF(duration, t.te_long) <= t.te_delta && level) {
-                parserStep_ = StepData;
-                addBit(1);
+            if (level) {
+                if (isLong) {
+                    if (headerCount_ > 40) {
+                        parserStep_ = StepData;
+                        decodeCountBit_ = 0;
+                        decodeData_ = 0;
+                        savedKey_ = 0;
+                        headerCount_ = 0;
+                    } else {
+                        teLast_ = duration;
+                    }
+                } else if (isShort) {
+                    teLast_ = duration;
+                } else {
+                    parserStep_ = StepReset;
+                }
             } else {
-                parserStep_ = StepReset;
+                bool prevShort = DURATION_DIFF(teLast_, TE_SHORT) < TE_DELTA;
+                bool prevLong  = DURATION_DIFF(teLast_, TE_LONG)  < TE_DELTA;
+                if ((isShort && prevShort) || (isLong && prevShort) || prevLong) {
+                    headerCount_++;
+                } else {
+                    parserStep_ = StepReset;
+                }
+                teLast_ = duration;
             }
             break;
 
         case StepData: {
-            bool isShort = DURATION_DIFF(duration, t.te_short) <= t.te_delta;
-            bool isLong  = DURATION_DIFF(duration, t.te_long) <= t.te_delta;
-
-            if (isShort) {
-                if (halfPulse_) {
-                    addBit(level ? 1 : 0);
-                    halfPulse_ = false;
-                } else {
-                    halfPulse_ = true;
-                }
-            } else if (isLong) {
-                addBit(level ? 1 : 0);
-                halfPulse_ = false;
-            } else {
-                // Invalid duration — process if enough bits
-                if (decodeCountBit_ >= 64) {
-                    return extractData();
-                }
+            int event;
+            if (isShort)      event = level ? ME_ShortHigh : ME_ShortLow;
+            else if (isLong)  event = level ? ME_LongHigh  : ME_LongLow;
+            else {
                 parserStep_ = StepReset;
-                return false;
+                return (decodeCountBit_ >= 64) ? extractData() : false;
             }
-
-            if (decodeCountBit_ == 64) {
-                savedKey_ = decodeData_;
-                // Continue collecting to check for more bits
+            if (decodeCountBit_ <= 66) {
+                bool bit;
+                if (manchAdvance(event, bit)) {
+                    decodeData_ = (decodeData_ << 1) | (bit ? 1 : 0);
+                    decodeCountBit_++;
+                    if (decodeCountBit_ == 64) { savedKey_ = decodeData_; decodeData_ = 0; }
+                }
             }
-            if (decodeCountBit_ > 67) {
-                // Overflow — extract at 64 bits
-                decodeData_ = savedKey_;
-                decodeCountBit_ = 64;
-                return extractData();
-            }
+            teLast_ = duration;
             break;
         }
         }
@@ -93,13 +103,28 @@ public:
 
 private:
     uint64_t savedKey_ = 0;
-    bool halfPulse_ = false;
 
     enum {
         StepReset = 0,
         StepCheckPreamble,
         StepData,
     };
+
+    // Standard Flipper Manchester (same table Ford/Kia V1 use).
+    enum { ME_ShortLow = 0, ME_ShortHigh = 2, ME_LongLow = 4, ME_LongHigh = 6, ME_Reset = 8 };
+    enum { MS_Start1 = 0, MS_Mid1 = 1, MS_Mid0 = 2, MS_Start0 = 3 };
+    uint8_t manchState_ = MS_Mid1;
+    bool manchAdvance(int event, bool& bit) {
+        static const uint8_t trans[4] = {0x01, 0x91, 0x9B, 0xFB};
+        if (event == ME_Reset) { manchState_ = MS_Mid1; return false; }
+        uint8_t ns = (uint8_t)((trans[manchState_] >> event) & 0x3);
+        if (ns == manchState_) { manchState_ = MS_Mid1; return false; }
+        bool res = false;
+        if (ns == MS_Mid0) { bit = false; res = true; }
+        else if (ns == MS_Mid1) { bit = true; res = true; }
+        manchState_ = ns;
+        return res;
+    }
 
     /// Kia V5 "mixer" cipher decode (18 rounds, 8 steps each)
     static uint16_t mixerDecode(uint32_t encrypted, uint64_t key) {
@@ -136,16 +161,15 @@ private:
     }
 
     bool extractData() {
-        result_.data = decodeData_;
+        result_.data = savedKey_;
         result_.dataBits = 64;
         result_.protocolName = PROTOCOL_NAME;
 
-        // Reverse each byte
+        // yek = the WHOLE 64-bit key bit-reversed (bit i -> bit 63-i), which also
+        // reverses byte order. The old code reversed each byte in place (wrong).
         uint64_t yek = 0;
-        for (int i = 0; i < 8; i++) {
-            uint8_t b = (decodeData_ >> (i * 8)) & 0xFF;
-            yek |= ((uint64_t)pp_reverse8(b)) << (i * 8);
-        }
+        for (int i = 0; i < 64; i++)
+            if (savedKey_ & (1ULL << i)) yek |= (1ULL << (63 - i));
 
         result_.serial  = (uint32_t)((yek >> 32) & 0x0FFFFFFF);
         result_.button  = (yek >> 60) & 0x0F;
