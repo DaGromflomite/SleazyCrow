@@ -227,8 +227,6 @@ class TpmsScreen extends StatelessWidget {
             segments: const [
               ButtonSegment(value: 31500, label: Text('315')),
               ButtonSegment(value: 43392, label: Text('433.92')),
-              ButtonSegment(
-                  value: TpmsProvider.kBothBands, label: Text('Both')),
             ],
             selected: {tpms.selectedFreqX100},
             onSelectionChanged: (s) => tpms.setFrequency(s.first),
