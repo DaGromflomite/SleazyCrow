@@ -12,6 +12,21 @@ static const char* TAG = "BleAdapter";
 
 extern ClientsManager& clients;
 
+// The SD card lives on a shared SPI bus and the Arduino SD + FATFS stack is NOT
+// thread-safe. Other tasks (CC1101 worker, ProtoPirate saveRawCapture) serialize
+// their SD access with this mutex (defined in CC1101_Worker.cpp). The file-upload
+// path must take it too: without it, a chunk's SD.open racing another task's SD
+// access corrupts the SPI transaction and panics (Guru Meditation / LoadProhibited
+// in spiGetClockDiv during beginTransaction).
+extern SemaphoreHandle_t sdMutex;
+namespace {
+struct SdLock {
+    bool held = false;
+    SdLock() { if (sdMutex) held = (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(3000)) == pdTRUE); }
+    ~SdLock() { if (held && sdMutex) xSemaphoreGive(sdMutex); }
+};
+}  // namespace
+
 // Static member definitions
 const char* BleAdapter::SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const char* BleAdapter::CHARACTERISTIC_UUID_TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
@@ -112,7 +127,7 @@ void BleAdapter::begin() {
     if (inboundQueue != nullptr && inboundTaskHandle == nullptr) {
         // 8KB stack: processBinaryData can run SD/FATFS/SPI work. Pinned to Core 1 so it
         // never competes with the BLE stack on Core 0.
-        xTaskCreatePinnedToCore(inboundTask, "BleInbound", 8192, this, 1, &inboundTaskHandle, 1);
+        xTaskCreatePinnedToCore(inboundTask, "BleInbound", 16384, this, 1, &inboundTaskHandle, 1);
         ESP_LOGI(TAG, "BLE inbound processor task started (Core 1)");
     }
 
@@ -610,6 +625,10 @@ void BleAdapter::cleanupOldUploads() {
 
 bool BleAdapter::handleUploadChunk(uint8_t chunkId, uint8_t chunkNum, uint8_t totalChunks, uint8_t *payload, size_t payloadLength) {
     ESP_LOGD(TAG, "handleUploadChunk: chunkId=%d, chunkNum=%d/%d, payloadLength=%zu", chunkId, chunkNum, totalChunks, payloadLength);
+
+    // Serialize this chunk's SD work against every other SD user (see SdLock note
+    // above). RAII: released on every return path below.
+    SdLock sdLock;
     
     // Check if this is the first chunk (initialization)
     if (chunkNum == 1) {
