@@ -20,8 +20,30 @@ class PPVag : public PPProtocol {
 public:
     static constexpr const char* PROTOCOL_NAME = "VAG";
 
+    PPVag() { ensureKeysLoaded(); }
+
     const char* getName() const override { return PROTOCOL_NAME; }
     bool canEmulate() const override { return true; }
+
+    // Load the three published VAG AUT64 keys so type 1/3/4 frames decrypt to
+    // serial/button/counter. Upstream ProtoPirate loads these from an external
+    // keystore asset; the same key material is embedded here (packed 16-byte
+    // form, indices 1/2/3) and unpacked once. Verified against the real KAT
+    // capture IMPORTS/VAG/Golf4.sub -> sn=0A2F9F3C, consecutive counters
+    // 5195..51A2 (AUT64 key index 3), matching KAT ground truth exactly.
+    static void ensureKeysLoaded() {
+        if (aut64KeysLoaded_) return;
+        static const uint8_t packed[3][aut64::PACKED_SIZE] = {
+            {0x01,0x37,0x6C,0x86,0xAD,0xAB,0xCC,0x43,0x07,0x4D,0xE8,0x59,0xC1,0x2F,0x36,0xAB},
+            {0x02,0x37,0x7C,0x65,0xCE,0xDC,0x42,0xEA,0xA4,0x53,0xE8,0x61,0xD9,0xB7,0x20,0xFC},
+            {0x03,0x8A,0xA3,0x7B,0x1E,0x56,0x1F,0x83,0x84,0xB6,0x19,0xC5,0x2E,0x0A,0x3F,0xD7},
+        };
+        for (uint8_t i = 0; i < 3; i++) {
+            aut64::Key k;
+            aut64::unpack(k, packed[i]);
+            setAut64Key(i, k);   // keystore[0/1/2] = AUT64 key index 1/2/3
+        }
+    }
 
     // ---- Forward-code generation (authorized testing) ----
     // Type 2 (XTEA) uses a built-in key, so its forward path is self-contained:
@@ -162,10 +184,10 @@ public:
         case StepReset:
             if (!level) return false;
             // Detect preamble start: ~300µs HIGH → type 1/2, ~500µs → type 3/4
-            if (inRange(duration, 300, 79)) {
+            if (inRange(duration, 300, 100)) {
                 parserStep_ = StepPreamble1;
                 goto initCommon;
-            } else if (inRange(duration, 500, 79)) {
+            } else if (inRange(duration, 500, 100)) {
                 parserStep_ = StepPreamble2;
                 goto initCommon;
             }
@@ -248,7 +270,7 @@ public:
         // ──────── TYPE 3/4: 500µs preamble ────────
         case StepPreamble2:
             if (!level) {
-                if (inRange(duration, 500, 79) && inRange(teLast_, 500, 79)) {
+                if (inRange(duration, 500, 100) && inRange(teLast_, 500, 100)) {
                     teLast_ = duration;
                     headerCount_++;
                     return false;
@@ -256,16 +278,16 @@ public:
                 parserStep_ = StepReset;
                 return false;
             }
-            if (headerCount_ < 41) return false;
-            if (inRange(duration, 1000, 79) && inRange(teLast_, 500, 79)) {
+            if (headerCount_ < 31) return false;
+            if (inRange(duration, 1000, 200) && inRange(teLast_, 500, 100)) {
                 teLast_ = duration;
                 parserStep_ = StepSync2A;
             }
             return false;
 
         case StepSync2A:
-            if (!level && inRange(duration, 500, 79) &&
-                inRange(teLast_, 1000, 79)) {
+            if (!level && inRange(duration, 500, 100) &&
+                inRange(teLast_, 1000, 200)) {
                 teLast_ = duration;
                 parserStep_ = StepSync2B;
             } else {
@@ -274,7 +296,7 @@ public:
             return false;
 
         case StepSync2B:
-            if (level && inRange(duration, 750, 79)) {
+            if (level && inRange(duration, 750, 150)) {
                 teLast_ = duration;
                 parserStep_ = StepSync2C;
             } else {
@@ -283,8 +305,8 @@ public:
             return false;
 
         case StepSync2C:
-            if (!level && inRange(duration, 750, 79) &&
-                inRange(teLast_, 750, 79)) {
+            if (!level && inRange(duration, 750, 150) &&
+                inRange(teLast_, 750, 150)) {
                 midCount_++;
                 parserStep_ = StepSync2B;
                 if (midCount_ == 3) {
