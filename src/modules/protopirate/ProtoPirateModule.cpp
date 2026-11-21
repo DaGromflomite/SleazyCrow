@@ -975,8 +975,15 @@ bool ProtoPirateModule::forwardSelfTest(char* msg, size_t msgLen) {
                 }
                 return false;
             };
-            uint64_t key1 = 0x0123456789ABCDEULL;
-            uint16_t key2 = 0x55AA;
+            // REAL confirmed capture: IMPORTS/FORD/2008_Focus_Lock.sub, KAT
+            // ground truth sn=4306BE50 btn=1 cnt=877F. The former synthetic seed
+            // (0x0123456789ABCDE / header 0x00) forced the first transmitted bit
+            // to 1 — a frame no real Ford fob sends (every real Ford frame has
+            // header 0x55, first tx bit 0), so it never round-tripped. All 7 real
+            // FORD captures round-trip the full forward chain; the fob is fine, the
+            // old test vector was fake (violated the no-fake-test-vectors rule).
+            uint64_t key1 = 0x556C29917F3FF82FULL;
+            uint16_t key2 = 0x6DD2;
             uint32_t ser0 = 0, cnt0 = 0; uint8_t btn0 = 0; bool crc0 = false;
             PPFordV0::decodeFields(key1, key2, ser0, btn0, cnt0, crc0);
 
