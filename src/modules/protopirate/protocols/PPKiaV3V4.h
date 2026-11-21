@@ -231,13 +231,17 @@ private:
                              ((uint32_t)pp_reverse8(b[1]) << 8) |
                              pp_reverse8(b[0]);
 
-        // Extract serial: bytes 4-7
-        uint32_t serial = ((uint32_t)(pp_reverse8(b[7]) & 0xF0) << 20) |
+        // Extract serial (28-bit) and button from bytes 4..7 — faithful to
+        // upstream kia_v3_v4 frame_fields: the serial's top byte is the HIGH
+        // nibble of b[7] *masked then bit-reversed* (<<24), NOT reverse-then-mask.
+        // The old code reverse-then-masked and shifted 20, which put the button
+        // nibble into the serial's top nibble (serial came out = button|...).
+        uint32_t serial = ((uint32_t)pp_reverse8((uint8_t)(b[7] & 0xF0)) << 24) |
                           ((uint32_t)pp_reverse8(b[6]) << 16) |
                           ((uint32_t)pp_reverse8(b[5]) << 8) |
                           pp_reverse8(b[4]);
 
-        // Button from byte 7
+        // Button = high nibble of the bit-reversed b[7].
         uint8_t btn = (pp_reverse8(b[7]) & 0xF0) >> 4;
 
         result_.serial = serial;
