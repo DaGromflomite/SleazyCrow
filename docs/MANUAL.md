@@ -525,22 +525,93 @@ single device. Pick the mode that matches what you are testing.
 
 ---
 
-## 12. nRF: MouseJack - scan for vulnerable wireless mice and keyboards
+## 12. nRF: MouseJack - scan, then inject keystrokes into vulnerable wireless mice and keyboards
 
 **What it's for.** Some wireless mice and keyboards use 2.4 GHz dongles with a known weakness
-("MouseJack"). This scans for those devices.
+("MouseJack"): the dongle will accept keyboard packets that were never typed on the real
+keyboard. The Crow can **scan** for those dongles and then, on a dongle you own, **inject
+keystrokes** into the PC it is plugged into - type a line of text, or run a full DuckyScript
+payload off the SD card. It detects Microsoft (plain and encrypted) and Logitech devices.
 
-**Steps.**
-1. Tap the **MouseJack** tab.
-2. Tap **Start Scan**. It sweeps the 2.4 GHz channels looking for those devices; a progress
+> ⚠️ **Authorised use only.** Injecting keystrokes into a computer is operating that computer.
+> Only ever do this to **your own** gear, or gear you have **written permission** to test. Read
+> the Legal notice at the end of this manual - it applies in full here.
+
+### 12a. Scan for targets
+
+1. Tap **NRF** at the bottom, then the **MouseJack** tab.
+2. Tap **Start Scan**. It sweeps the 2.4 GHz channels looking for vulnerable dongles; a progress
    bar shows it working.
-3. Anything it finds lists under **Targets**. **Hide Unknown** filters out ones it cannot
-   identify.
-4. **Stop Scan** to end.
+3. Anything it finds lists under **Targets**, with the brand it identified and the channel.
+   **Hide Unknown** filters out ones it could not fingerprint.
+4. Tap **Stop Scan** when you have your target. (There is nothing to find unless a real
+   vulnerable dongle is powered and in range - an empty list means "nothing vulnerable nearby",
+   not a broken scan.)
 
-**Using it well.** There is nothing to find unless a real vulnerable dongle is powered and in
-range - an empty list usually means "nothing vulnerable nearby", not a broken scan. Use it to
-check your own wireless desk gear.
+### 12b. Pick a target
+
+- **Tap a target row** in the list to select it. A green highlight shows it is selected, and an
+  **Attack** panel appears below the list. Everything in 12c and 12d acts on the selected
+  target. (Scanning and attacking can't run at the same time - stop the scan first.)
+
+### 12c. Inject Text - type a line of text onto the target PC
+
+Use this for a quick one-liner (a message, a URL, a command).
+
+1. With a target selected, find the **Inject Text** box in the Attack panel.
+2. Tap the field (**"Text to inject..."**) and type exactly what you want typed on the target
+   computer - for example `happy anniversary mom and dad`.
+3. Tap the **send/inject** button next to the field. The Crow transmits those characters to the
+   dongle as keystrokes; they appear on the target PC wherever its cursor is.
+4. The text is typed **as-is, with no Enter at the end**. If you need it submitted (e.g. into a
+   Run box or a terminal), use DuckyScript (12d) with `STRINGLN`, which adds the Enter for you.
+5. Tap **Stop** (shown while an attack is running) to halt it early.
+
+**Notes.** Keep the Crow close to the target dongle while injecting. Only US-keyboard-layout
+characters are guaranteed; unusual symbols may land differently if the target PC uses another
+layout. Typing is paced for reliability, so a long string takes a few seconds.
+
+### 12d. DuckyScript - run a saved payload off the SD card
+
+For anything beyond one line - key combos, delays, opening a Run box and launching something -
+write a **DuckyScript** text file, drop it on the SD card, and run it by path.
+
+1. On a computer, create a plain `.txt` file (see the format below).
+2. Copy it to the Crow's SD card under **`/DATA/DUCKY/`** (e.g. `/DATA/DUCKY/payload.txt`). You
+   can also push files to the SD over Bluetooth from the **Files** screen (section 13).
+3. In the Attack panel, find the **DuckyScript** box. Type the full path - the hint already
+   shows the usual one, **`/DATA/DUCKY/payload.txt`**.
+4. Tap the **run** button next to the field. The Crow reads the file and injects it line by line.
+5. Tap **Stop** to halt a running script.
+
+**Supported DuckyScript commands (what this firmware understands):**
+
+| Command | What it does |
+|---|---|
+| `REM <text>` or `// <text>` | Comment - ignored. Use it to label your payload. |
+| `STRING <text>` | Type the text, no Enter after. |
+| `STRINGLN <text>` | Type the text, then press Enter. |
+| `DELAY <ms>` | Wait this many milliseconds before the next line. |
+| `DEFAULT_DELAY <ms>` (or `DEFAULTDELAY`) | Wait this long between **every** line automatically. |
+| `ENTER` / `RETURN`, `ESCAPE`, `TAB`, `SPACE`, `DELETE`, `F1`-`F12` | Press that single key. |
+| `GUI` / `WINDOWS`, `CTRL`, `ALT`, `SHIFT` | Modifier keys - combine with a letter or another key. |
+| Combos, space-separated | e.g. `GUI r` (Windows+R, opens Run), `CTRL ALT DELETE`, `CTRL c`. |
+
+**Example payload** (opens the Run box on Windows and types a message - swap in your own):
+
+```
+REM --- demo: type a greeting into Notepad ---
+DEFAULT_DELAY 200
+GUI r
+DELAY 500
+STRINGLN notepad
+DELAY 1000
+STRING happy anniversary mom and dad
+```
+
+**Using it well (on your own bench).** Test every payload against a machine you own first - a
+`DELAY` that is too short before an app has opened is the usual reason a payload "does nothing".
+Keep the Crow near the dongle for the whole run.
 
 ---
 
