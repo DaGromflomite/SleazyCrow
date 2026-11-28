@@ -16,6 +16,11 @@ EvilCrow RF app. The official app also works with Sleazy Crow firmware (same BLE
 - **Flipper Sub-GHz DB**: pick which sections to copy to the SD card; faster, reliable uploads.
 - **Firmware/app updates**: checks the [Sleazy Crow releases](https://github.com/DaGromflomite/SleazyCrow/releases).
 
+## Support
+
+Free and open source. If it helps you out, you can support development:
+☕ **[buymeacoffee.com/dagromflomite](https://buymeacoffee.com/dagromflomite)**
+
 ## Build
 
 Prerequisites: Flutter (see the repo's `RELEASING.md` for the pinned version), Android SDK, JDK 17.
