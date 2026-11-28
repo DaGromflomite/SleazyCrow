@@ -218,6 +218,14 @@ python tools/sleazy.py package --apk mobile_app/build/app/outputs/flutter-apk/ap
 
 Releases are built by GitHub Actions from a version tag; see [`RELEASING.md`](RELEASING.md).
 
+## Support
+
+Sleazy Crow is free and open source. If it's useful to you and you'd like to help keep the work going, you can buy me a coffee:
+
+☕ **[buymeacoffee.com/dagromflomite](https://buymeacoffee.com/dagromflomite)**
+
+Totally optional — a star on the repo and good bug reports help just as much.
+
 ## Credits
 
 - **Senape3000**: author of the [EvilCrowRF-V2](https://github.com/Senape3000/EvilCrowRF-V2) firmware and app this fork is based on.

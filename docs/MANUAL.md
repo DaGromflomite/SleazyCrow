@@ -7,6 +7,9 @@ before. If you already know this stuff, skip ahead - but the extra detail is her
 You drive everything from the phone app (Android). The Crow is the little board that does
 the radio work; the app is the remote control and the screen.
 
+> **Like the tool?** It's free and open source. If you'd like to support development:
+> ☕ [buymeacoffee.com/dagromflomite](https://buymeacoffee.com/dagromflomite)
+
 ---
 
 ## Read this first - what the Crow is, and the rules
